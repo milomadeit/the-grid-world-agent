@@ -1,0 +1,376 @@
+[
+  {
+    "id": "TC001",
+    "title": "Wallet Authentication Success",
+    "description": "Verify that users can successfully connect a supported crypto wallet using the Privy-based modal, including Coinbase Smart Wallet, and enter the 3D world without error.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the MonWorld platform landing page"
+      },
+      {
+        "type": "action",
+        "description": "Open the wallet connection modal"
+      },
+      {
+        "type": "action",
+        "description": "Select Coinbase Smart Wallet option from the modal"
+      },
+      {
+        "type": "action",
+        "description": "Authenticate and approve wallet connection"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the wallet is connected and user is transitioned to the 3D world environment"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm wallet address and balance are displayed correctly in the HUD overlay"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "Wallet Disconnect Functionality",
+    "description": "Ensure users can disconnect their wallet from the HUD overlay and that session data is properly cleared and UI updated accordingly.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Connect a wallet successfully via Privy modal"
+      },
+      {
+        "type": "action",
+        "description": "Open the wallet balance dropdown in the HUD overlay"
+      },
+      {
+        "type": "action",
+        "description": "Click the disconnect button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the wallet is disconnected and the HUD updates to reflect no connected wallet"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm no residual wallet session or balance data remains in the UI state"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "Real-Time Agent Movement Synchronization",
+    "description": "Validate that autonomous agents within the 3D world move as expected and their positions update in real-time, synced accurately between client and server.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Connect a wallet and enter the 3D world environment"
+      },
+      {
+        "type": "assertion",
+        "description": "Observe autonomous agent entities moving within the scene"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify agent positions update smoothly and consistently in real-time by comparing local rendering to server state"
+      },
+      {
+        "type": "assertion",
+        "description": "Check that visual status indicators on agents reflect their correct states"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "Dynamic Portal Visual Effects Rendering",
+    "description": "Check that portals such as the Galaxy Portal render with correct custom GLSL shaders and dynamic visual effects like swirling vortex and bloom.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Enter the 3D world and locate a dynamic portal entity"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the portal displays Fresnel glow and swirling vortex effects"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm bloom and noise post-processing effects are applied properly without visual glitches"
+      },
+      {
+        "type": "assertion",
+        "description": "Test portal visual effects consistency across various camera angles and distances"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "HUD Overlay Wallet Balance and Copy-to-Clipboard",
+    "description": "Verify that the HUD wallet balance dropdown shows up-to-date balance and truncated wallet address, and that copy-to-clipboard correctly copies the full address.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Connect a wallet and open the wallet balance dropdown in the HUD"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm the wallet balance is displayed accurately and updates on balance changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Check the wallet address is truncated for display"
+      },
+      {
+        "type": "action",
+        "description": "Click the copy-to-clipboard button next to the wallet address"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the full, untruncated wallet address is copied to clipboard"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Chat Message Real-Time Sync",
+    "description": "Ensure chat messages sent by the user are sent through WebSocket, appear in the HUD chat, and are received in real-time by other connected clients.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Connect to the platform and enter the world with chat HUD visible"
+      },
+      {
+        "type": "action",
+        "description": "Send a chat message via the chat input in HUD"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm the sent message appears instantly in the local chat log"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the message is broadcast and received by another client connected to the same world session"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Camera Controls - Smooth Panning and Rotation",
+    "description": "Verify camera controls provide fluid panning, rotation, and follow behaviors within the 3D environment as per design.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Enter the 3D world environment"
+      },
+      {
+        "type": "action",
+        "description": "Use camera controls to pan across the infinite grid"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm camera movement is smooth without jitter or lag"
+      },
+      {
+        "type": "action",
+        "description": "Rotate camera and observe changes in viewpoint"
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure rotation animations are fluid and maintain camera lock on target when applicable"
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "State Management Consistency with Zustand",
+    "description": "Confirm that global state managed by Zustand updates correctly for agents, world events, wallet balances, and UI states without conflicts or stale data.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Connect wallet and observe initial states loaded"
+      },
+      {
+        "type": "action",
+        "description": "Trigger agent movement updates from server"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify Zustand state reflects new agent positions and status correctly"
+      },
+      {
+        "type": "action",
+        "description": "Toggle dark mode and observe UI state change"
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure Zustand stores the updated UI state properly"
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Backend API Endpoint Stability and Accuracy",
+    "description": "Test Fastify backend API endpoints for accurate retrieval and update of world state, agent simulation data, and wallet info with proper error handling.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Send API request to fetch current world simulation state"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify response contains valid and current world data"
+      },
+      {
+        "type": "action",
+        "description": "Send API request to update agent position with valid payload"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm backend processes update and returns success status"
+      },
+      {
+        "type": "action",
+        "description": "Send malformed or invalid request payload to API endpoints"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify backend returns appropriate error responses without crash"
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "System Performance Under Poor Network Conditions",
+    "description": "Verify system remains stable and responsive with minimal crashes or freezes when operating under slow or intermittent network connection scenarios.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Simulate slow or intermittent network while connected to the 3D world"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm agent movement and state synchronization degrades gracefully without crashes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify fallback UI states and messages notify the user of degraded connectivity"
+      },
+      {
+        "type": "action",
+        "description": "Attempt wallet disconnect and reconnect during poor network"
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure wallet connection state updates correctly and no session corruption occurs"
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "Visual Effects Integrity for NPCs",
+    "description": "Validate custom GLSL shader effects applied on NPC entities render correctly, including Fresnel glow and associated dynamic effects without artifacts.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Locate World Guide NPC in the 3D environment"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm Fresnel glow and other custom shader effects display accurately"
+      },
+      {
+        "type": "assertion",
+        "description": "Check for absence of rendering artifacts or flickering on NPC models"
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "HUD Dark Mode Toggle Functionality",
+    "description": "Check that toggling the dark mode switch in the HUD overlay updates the UI theme instantly and persists state correctly.",
+    "category": "functional",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open HUD overlay and toggle dark mode switch on"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify UI theme changes to dark mode instantly"
+      },
+      {
+        "type": "action",
+        "description": "Toggle dark mode switch off"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm UI theme reverts to light mode"
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "Wallet Address Truncation Utility Accuracy",
+    "description": "Ensure utility functions correctly truncate wallet addresses for display while preserving correctness and no data loss.",
+    "category": "functional",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Provide full-length wallet addresses to the truncation utility"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify truncated output matches expected format (e.g., first 6 and last 4 characters with ellipsis)"
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure original wallet address is preserved in memory for copy-to-clipboard use"
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "Agent Status Indicator Updates",
+    "description": "Validate that agent entities update their visual status indicators (e.g., color or icon changes) dynamically based on backend state changes.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Simulate a status change event from the backend for a specific agent"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm the agent's visual status indicator updates correctly in the 3D environment"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify no latency or stale status displays occur for agent updates"
+      }
+    ]
+  }
+]

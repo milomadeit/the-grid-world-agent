@@ -1,0 +1,52 @@
+# Tasks
+
+- [x] Milestone A: UI/UX & State Fundamentals <!-- id: 0 -->
+    - [x] Localize Tailwind CSS & Theme Tokens <!-- id: 1 -->
+    - [x] Lock Camera & Implement Tracking (Camera Follow) <!-- id: 3 -->
+    - [x] Fix Agent Position Drift (Zustand State) <!-- id: 5 -->
+- [x] Milestone B: Backend & Persistence <!-- id: 6 -->
+    - [x] Setup Node/Fastify Server Environment <!-- id: 7 -->
+    - [x] Implement WebSocket System (Socket.io) <!-- id: 8 -->
+    - [x] Setup Postgres Database (Schema: Agents, World State, Reputation) <!-- id: 9 -->
+    - [x] Create External Agent API (REST Endpoints) <!-- id: 13 -->
+    - [x] Implement Unified Entry Flow (Humans use API -> WS) <!-- id: 15 -->
+    - [x] Remove Local Mode Fallback (Force Server Connection) <!-- id: 16 -->
+    - [x] Fix Duplicate Agents (Server Upsert + Client Persistence) <!-- id: 17 -->
+    - [x] Integrate Privy (Real Wallet Identity) <!-- id: 11 -->
+    - [x] Create World Agent NPC (Guide/Gatekeeper) <!-- id: 19 -->
+    - [x] Create Mystical Portal (Visuals, Locked state) <!-- id: 20 -->
+    - [x] Migrate Gemini API Calls to Server <!-- id: 14 -->
+    - [x] Autonomous Agent Spawner (NPC agents with personalities) <!-- id: 22 -->
+    - [x] Reputation API Routes (give/read/revoke feedback) <!-- id: 23 -->
+    - [x] Spectator Mode (view world without login) <!-- id: 24 -->
+    - [x] "Are you an agent?" optional access modal <!-- id: 25 -->
+    - [x] ERC-8004 identity fields in DB schema & enter endpoint <!-- id: 26 -->
+    - [x] ERC-8004 identity badge on agents (golden ring) <!-- id: 27 -->
+    - [x] Fix all testnet references → Monad Mainnet <!-- id: 28 -->
+- [ ] Milestone C: Agent Bios, ERC-8004 On-Chain, & Polish <!-- id: 10 -->
+    - [ ] **Agent Bios** — every agent (NPC + player) has a bio <!-- id: 30 -->
+        - [ ] Add `bio` field to Agent type (client + server) <!-- id: 31 -->
+        - [ ] Generate bios for NPC agents based on personality in spawner <!-- id: 32 -->
+        - [ ] Allow humans to set bio when connecting as agent <!-- id: 33 -->
+        - [ ] Double-click agent → mini bio modal (name, bio, ERC-8004 status, reputation) <!-- id: 34 -->
+    - [ ] **ERC-8004 On-Chain Integration** — real contract calls, not just DB storage <!-- id: 35 -->
+        - [ ] Fetch IdentityRegistry ABI, add to project <!-- id: 36 -->
+        - [ ] Fetch ReputationRegistry ABI, add to project <!-- id: 37 -->
+        - [ ] Server: ethers provider for Monad Mainnet (read-only) <!-- id: 38 -->
+        - [ ] On agent enter with erc8004 data: verify agentId exists on-chain via `ownerOf(agentId)` <!-- id: 39 -->
+        - [ ] On agent enter: verify caller's wallet matches `getAgentWallet(agentId)` or `ownerOf(agentId)` <!-- id: 40 -->
+        - [ ] Read on-chain reputation via `getSummary(agentId, ...)` and surface in bio modal <!-- id: 41 -->
+        - [ ] Client: "Register Agent" flow — call `register()` on IdentityRegistry from user's wallet (Privy) <!-- id: 42 -->
+        - [ ] Client: after registration, auto-populate agentId from tx receipt and link identity <!-- id: 43 -->
+    - [ ] **UX Clarity for ERC-8004 Flow** <!-- id: 44 -->
+        - [ ] Rewrite "Link Agent Identity" section in modal with clear steps <!-- id: 45 -->
+        - [ ] Two paths: "I already have an Agent ID" (enter tokenId) vs "Register New Agent" (mint) <!-- id: 46 -->
+        - [ ] Show verification status (checkmark if on-chain validated) <!-- id: 47 -->
+    - [ ] **Cleanup & Consistency** <!-- id: 48 -->
+        - [ ] Remove "10 MON" / "0.1 MON" references from constants.ts and WorldAgent NPC dialogue <!-- id: 49 -->
+        - [ ] Align constants.ts WORLD_RULES with actual free-to-explore model <!-- id: 50 -->
+- [ ] Milestone D: Economy & Governance <!-- id: 51 -->
+    - [ ] MON Token Gating for Portal (pay to enter sub-worlds) <!-- id: 52 -->
+    - [ ] Action Costs / Credits system <!-- id: 53 -->
+    - [ ] Agent DAO / Proposal system <!-- id: 54 -->
+    - [ ] Dashboard: live feed + heatmap of activity <!-- id: 55 -->

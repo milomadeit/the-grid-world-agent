@@ -1,0 +1,89 @@
+{
+  "tech_stack": [
+    "TypeScript",
+    "React 19",
+    "Vite",
+    "Three.js / React Three Fiber",
+    "Zustand",
+    "Tailwind CSS",
+    "Privy Authentication",
+    "Socket.io",
+    "Fastify",
+    "PostgreSQL",
+    "Google Gemini AI"
+  ],
+  "features": [
+    {
+      "name": "Wallet Authentication",
+      "description": "Privy-based wallet connection flow allowing users to login with their crypto wallet and enter the world",
+      "files": [
+        "components/UI/WalletModal.tsx",
+        "App.tsx",
+        "index.tsx"
+      ]
+    },
+    {
+      "name": "3D World Scene",
+      "description": "Three.js/React Three Fiber based 3D visualization of the game world with infinite grid, agents, portals, and camera controls",
+      "files": [
+        "components/World/WorldScene.tsx",
+        "components/World/InfiniteGrid.tsx",
+        "components/World/AgentBlob.tsx",
+        "components/World/WorldAgent.tsx",
+        "components/World/Portal.tsx"
+      ]
+    },
+    {
+      "name": "Agent System",
+      "description": "Autonomous agent entities with positions, movement, status tracking, and visual representation in the 3D world",
+      "files": [
+        "components/World/AgentBlob.tsx",
+        "types.ts",
+        "server/api/agents.ts",
+        "server/types.ts"
+      ]
+    },
+    {
+      "name": "Real-time Communication",
+      "description": "WebSocket-based real-time sync between client and server for world state updates, agent movements, and chat messages",
+      "files": [
+        "services/socketService.ts",
+        "server/socket.ts"
+      ]
+    },
+    {
+      "name": "State Management",
+      "description": "Zustand-based global state management for agents, events, messages, wallet balance, and world state",
+      "files": [
+        "store.ts",
+        "types.ts"
+      ]
+    },
+    {
+      "name": "HUD Overlay",
+      "description": "Game HUD with wallet balance dropdown, dark mode toggle, entity list, kernel output log, chat input, and camera controls",
+      "files": [
+        "components/UI/Overlay.tsx"
+      ]
+    },
+    {
+      "name": "World Simulation Backend",
+      "description": "Fastify-based backend server managing world state, agent simulation, database persistence, and API endpoints",
+      "files": [
+        "server/index.ts",
+        "server/world.ts",
+        "server/db.ts",
+        "server/api/agents.ts",
+        "server/api/simulate.ts"
+      ]
+    },
+    {
+      "name": "Wallet Balance Utilities",
+      "description": "Utility functions for fetching wallet balances and formatting addresses",
+      "files": [
+        "utils/balance.ts",
+        "utils/address.ts"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,273 @@
+import { io, Socket } from 'socket.io-client';
+import { useWorldStore } from '../store';
+import type { Agent, WorldObject, TerminalMessage } from '../types';
+
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+
+interface WorldSnapshot {
+  tick: number;
+  agents: Array<{
+    id: string;
+    name: string;
+    color: string;
+    x: number;
+    y: number;
+    z: number;
+    status: string;
+    inventory: Record<string, number>;
+    bio?: string;
+    erc8004AgentId?: string;
+    erc8004Registry?: string;
+    reputationScore?: number;
+  }>;
+  worldObjects: WorldObject[];
+  terminalMessages: TerminalMessage[];
+}
+
+interface WorldUpdate {
+  tick: number;
+  updates: Array<{
+    id: string;
+    x: number;
+    y: number;
+    z: number;
+    status?: string;
+  }>;
+}
+
+interface ChatMessage {
+  agentId: string;
+  agentName: string;
+  message: string;
+  timestamp: number;
+}
+
+export interface ERC8004Input {
+  agentId: string;
+  agentRegistry: string;
+}
+
+export interface EnterWorldResponse {
+  agentId: string;
+  position: { x: number; z: number };
+  token: string;
+  erc8004?: { agentId: string; agentRegistry: string };
+}
+
+class SocketService {
+  private socket: Socket | null = null;
+  private authToken: string | null = null;
+  private agentId: string | null = null;
+
+  // Register agent via REST API, returns token for WebSocket auth
+  async enterWorld(ownerId: string, visuals?: { name?: string; color?: string }, erc8004?: ERC8004Input, bio?: string): Promise<EnterWorldResponse> {
+    const body: Record<string, unknown> = { ownerId, visuals };
+    if (erc8004) {
+      body.erc8004 = erc8004;
+    }
+    if (bio) {
+      body.bio = bio;
+    }
+
+    const response = await fetch(`${SERVER_URL}/v1/agents/enter`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(error.error || `Failed to enter world: ${response.status}`);
+    }
+
+    const data: EnterWorldResponse = await response.json();
+    this.authToken = data.token;
+    this.agentId = data.agentId;
+    return data;
+  }
+
+  // Connect as spectator (no auth required) — receive world updates, can't act
+  connectSpectator(): Promise<void> {
+    return this.connectInternal();
+  }
+
+  // Connect to WebSocket with auth token
+  connect(token?: string): Promise<void> {
+    const authToken = token || this.authToken;
+
+    if (!authToken) {
+      return Promise.reject(new Error('No auth token. Call enterWorld() first.'));
+    }
+
+    return this.connectInternal(authToken);
+  }
+
+  private connectInternal(authToken?: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (this.socket?.connected) {
+        console.log('[Socket] Already connected');
+        resolve();
+        return;
+      }
+
+      const mode = authToken ? 'authenticated' : 'spectator';
+      console.log(`[Socket] Connecting to ${SERVER_URL} (${mode})...`);
+
+      const opts: Record<string, unknown> = {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      };
+
+      if (authToken) {
+        opts.auth = { token: authToken };
+        opts.query = { token: authToken };
+      }
+
+      this.socket = io(SERVER_URL, opts);
+
+      const connectTimeout = setTimeout(() => {
+        reject(new Error('Connection timeout'));
+      }, 10000);
+
+      this.socket.on('connect', () => {
+        clearTimeout(connectTimeout);
+        console.log(`[Socket] Connected (${mode})`);
+        resolve();
+      });
+
+      this.socket.on('connect_error', (error) => {
+        clearTimeout(connectTimeout);
+        console.error('[Socket] Connection error:', error.message);
+        reject(new Error(`Connection failed: ${error.message}`));
+      });
+
+      this.setupListeners();
+    });
+  }
+
+  private setupListeners(): void {
+    if (!this.socket) return;
+
+    this.socket.on('disconnect', (reason) => {
+      console.log(`[Socket] Disconnected: ${reason}`);
+      useWorldStore.getState().addEvent('Disconnected from server.');
+    });
+
+    // Handle initial world snapshot
+    this.socket.on('world:snapshot', (data: WorldSnapshot) => {
+      console.log(`[Socket] Received world snapshot: ${data.agents.length} agents at tick ${data.tick}`);
+
+      const agents: Agent[] = data.agents.map(a => ({
+        id: a.id,
+        name: a.name,
+        color: a.color,
+        position: { x: a.x, y: a.y, z: a.z },
+        targetPosition: { x: a.x, y: a.y, z: a.z },
+        status: a.status as 'idle' | 'moving' | 'acting',
+        inventory: a.inventory,
+        bio: a.bio,
+        erc8004AgentId: a.erc8004AgentId,
+        erc8004Registry: a.erc8004Registry,
+        reputationScore: a.reputationScore
+      }));
+
+      useWorldStore.getState().setAgents(agents);
+      useWorldStore.getState().setWorldObjects(data.worldObjects);
+      useWorldStore.getState().setTerminalMessages(data.terminalMessages);
+    });
+
+    // Handle world updates
+    this.socket.on('world:update', (data: WorldUpdate) => {
+      const store = useWorldStore.getState();
+
+      for (const update of data.updates) {
+        store.updateAgent(update.id, {
+          position: { x: update.x, y: update.y, z: update.z },
+          ...(update.status && { status: update.status as 'idle' | 'moving' | 'acting' })
+        });
+      }
+    });
+
+    // Handle chat messages
+    this.socket.on('chat:message', (data: ChatMessage) => {
+      useWorldStore.getState().addMessage({
+        sender: data.agentName,
+        content: data.message,
+        timestamp: data.timestamp
+      });
+    });
+
+    // Handle Grid events
+    this.socket.on('object:created', (object: WorldObject) => {
+      useWorldStore.getState().addWorldObject(object);
+    });
+
+    this.socket.on('object:deleted', (data: { id: string }) => {
+      useWorldStore.getState().removeWorldObject(data.id);
+    });
+
+    this.socket.on('terminal:message', (message: TerminalMessage) => {
+      useWorldStore.getState().addTerminalMessage(message);
+    });
+
+    // Handle errors
+    this.socket.on('error', (data: { message: string }) => {
+      console.error('[Socket] Error:', data.message);
+      useWorldStore.getState().addEvent(`Error: ${data.message}`);
+    });
+  }
+
+  disconnect(): void {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+    this.authToken = null;
+    this.agentId = null;
+  }
+
+  isConnected(): boolean {
+    return this.socket?.connected ?? false;
+  }
+
+  getAgentId(): string | null {
+    return this.agentId;
+  }
+
+  getToken(): string | null {
+    return this.authToken;
+  }
+
+  // Send agent input to server
+  sendMove(agentId: string, x: number, z: number): void {
+    if (!this.socket?.connected) {
+      console.log('[Socket] Not connected, cannot send move');
+      return;
+    }
+
+    this.socket.emit('agent:input', {
+      agentId,
+      op: 'MOVE',
+      to: { x, z }
+    });
+  }
+
+  // Send chat message
+  sendChat(agentId: string, message: string): void {
+    if (!this.socket?.connected) {
+      console.log('[Socket] Not connected, cannot send chat');
+      return;
+    }
+
+    this.socket.emit('agent:input', {
+      agentId,
+      op: 'CHAT',
+      message
+    });
+  }
+}
+
+// Singleton instance
+export const socketService = new SocketService();

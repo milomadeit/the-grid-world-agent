@@ -1,0 +1,133 @@
+{
+  "meta": {
+    "project": "MonWorld 3D Virtual Environment",
+    "date": "2026-02-04",
+    "prepared_by": "Antigravity"
+  },
+  "product_overview": "MonWorld is a real-time, open exploration 3D virtual environment leveraging cryptocurrency wallet authentication to immerse users in a dynamic world with autonomous agents, portals, and visual effects. It enables seamless onboarding and interaction on the Monad Mainnet.",
+  "core_goals": [
+    "Provide an immersive 3D virtual world with real-time state synchronization and autonomous agent simulation.",
+    "Enable secure and frictionless wallet-based authentication using Privy for quick user access.",
+    "Deliver high-fidelity visual effects including advanced shaders and dynamic post-processing to enhance user experience.",
+    "Facilitate an open exploration gameplay model without entry fees to encourage wide user adoption and interaction.",
+    "Ensure system stability and performance across varying connection qualities and devices.",
+    "Provide a comprehensive HUD and UI that displays wallet info, chat, camera controls, and in-world entity management.",
+    "Prepare infrastructure for future enhancements such as token gating and agent registry integration."
+  ],
+  "key_features": [
+    "Privy-based wallet authentication with Coinbase Smart Wallet support and wallet connect/disconnect UI.",
+    "Three.js and React Three Fiber powered 3D world visualization featuring infinite grid, autonomous agents, dynamic portals, and camera controls.",
+    "Custom GLSL shaders for entities like World Guide NPC and Galaxy Portal with effects such as Fresnel glow, swirling vortex, bloom, and noise post-processing.",
+    "Real-time WebSocket communication between client and server for syncing world state, agent positions, events, and chat messages.",
+    "State management via Zustand for efficient handling of agents, world events, wallet balances, and UI states.",
+    "Fastify backend managing world simulation, database persistence, API endpoints, and upcoming migration of AI calls to backend for security.",
+    "Enhanced HUD overlay featuring wallet balance dropdown with address truncation, copy-to-clipboard, disconnect capabilities, dark mode toggle, camera controls, and kernel output logs."
+  ],
+  "user_flow_summary": [
+    "User visits the platform and connects their crypto wallet using a Privy-based modal supporting multiple wallet types.",
+    "Upon authentication, user is dropped into the 3D world environment rendered via React Three Fiber with smooth camera controls and infinite grid.",
+    "User observes autonomous agents with visual status indicators moving within the world and interacts with portals like the Galaxy Portal to access sub-worlds (future feature).",
+    "User accesses the HUD overlay to check wallet balance, view wallet address with copy feature, toggle dark mode, send chat messages, and control the camera.",
+    "The client syncs in real-time with the backend server via WebSockets to update agent movement, world state changes, and chat events instantly.",
+    "User may disconnect wallet or switch wallet from the HUD dropdown at any time, ensuring secure session management."
+  ],
+  "validation_criteria": [
+    "Wallet authentication must successfully connect and disconnect wallets including Coinbase Smart Wallets without crashes.",
+    "3D world must render smoothly with correct implementation of shaders, post-processing, and high-poly models for NPCs and portals.",
+    "Real-time sync updates should be consistent and show minimal latency in agent movement and chat messages.",
+    "HUD overlay features such as wallet balance dropdown, address copy, and disconnect button must function properly and update in real-time.",
+    "System should tolerate slower connections gracefully by avoiding crashes and using fallback configurations.",
+    "Backend API endpoints and socket server must maintain world state and agent simulation accurately.",
+    "Economy model must reflect 'Free to Explore' with no pay-to-enter restrictions currently enabled.",
+    "Camera controls should provide smooth panning, rotation, and follow behavior as per design specifications."
+  ],
+  "code_summary": {
+    "tech_stack": [
+      "TypeScript",
+      "React 19",
+      "Vite",
+      "Three.js / React Three Fiber",
+      "Zustand",
+      "Tailwind CSS",
+      "Privy Authentication",
+      "Socket.io",
+      "Fastify",
+      "PostgreSQL",
+      "Google Gemini AI"
+    ],
+    "features": [
+      {
+        "name": "Wallet Authentication",
+        "description": "Privy-based wallet connection flow allowing users to login with their crypto wallet and enter the world",
+        "files": [
+          "components/UI/WalletModal.tsx",
+          "App.tsx",
+          "index.tsx"
+        ]
+      },
+      {
+        "name": "3D World Scene",
+        "description": "Three.js/React Three Fiber based 3D visualization of the game world with infinite grid, agents, portals, and camera controls",
+        "files": [
+          "components/World/WorldScene.tsx",
+          "components/World/InfiniteGrid.tsx",
+          "components/World/AgentBlob.tsx",
+          "components/World/WorldAgent.tsx",
+          "components/World/Portal.tsx"
+        ]
+      },
+      {
+        "name": "Agent System",
+        "description": "Autonomous agent entities with positions, movement, status tracking, and visual representation in the 3D world",
+        "files": [
+          "components/World/AgentBlob.tsx",
+          "types.ts",
+          "server/api/agents.ts",
+          "server/types.ts"
+        ]
+      },
+      {
+        "name": "Real-time Communication",
+        "description": "WebSocket-based real-time sync between client and server for world state updates, agent movements, and chat messages",
+        "files": [
+          "services/socketService.ts",
+          "server/socket.ts"
+        ]
+      },
+      {
+        "name": "State Management",
+        "description": "Zustand-based global state management for agents, events, messages, wallet balance, and world state",
+        "files": [
+          "store.ts",
+          "types.ts"
+        ]
+      },
+      {
+        "name": "HUD Overlay",
+        "description": "Game HUD with wallet balance dropdown, dark mode toggle, entity list, kernel output log, chat input, and camera controls",
+        "files": [
+          "components/UI/Overlay.tsx"
+        ]
+      },
+      {
+        "name": "World Simulation Backend",
+        "description": "Fastify-based backend server managing world state, agent simulation, database persistence, and API endpoints",
+        "files": [
+          "server/index.ts",
+          "server/world.ts",
+          "server/db.ts",
+          "server/api/agents.ts",
+          "server/api/simulate.ts"
+        ]
+      },
+      {
+        "name": "Wallet Balance Utilities",
+        "description": "Utility functions for fetching wallet balances and formatting addresses",
+        "files": [
+          "utils/balance.ts",
+          "utils/address.ts"
+        ]
+      }
+    ]
+  }
+}

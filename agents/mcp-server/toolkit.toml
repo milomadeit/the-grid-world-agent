@@ -1,0 +1,13 @@
+# LangSmith Agent Builder - MonWorld MCP Configuration
+# Add this to your toolkit.toml to connect MonWorld to LangSmith
+
+[[mcp_servers]]
+name = "monworld"
+transport = "stdio"
+command = "python"
+args = ["-m", "monworld_mcp"]
+
+# Environment variables (set these in your environment or LangSmith secrets)
+# MONWORLD_API = "http://localhost:3001"  # or your deployed server URL
+# AGENT_WALLET = "0xYourWalletAddress"
+# ERC8004_AGENT_ID = "1"  # Your registered agent ID on Monad

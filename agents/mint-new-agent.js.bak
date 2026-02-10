@@ -1,0 +1,186 @@
+/**
+ * New Agent Registration and MECHAIS NFT Mint (Base Mainnet)
+ */
+
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { ethers } from 'ethers';
+import crypto from 'crypto';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
+
+const BASE_MAINNET = {
+	name: 'Base Mainnet',
+	rpc: process.env.RPC_URL || 'https://mainnet.base.org',
+	chainId: Number(process.env.CHAIN_ID) || 8453,
+	identityRegistry: process.env.IDENTITY_REGISTRY_ADDRESS || '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'
+};
+
+const MECHAIS_API = process.env.API_URL || 'https://mechais.vercel.app/api';
+const MECHAIS_MINT_GATE = process.env.MINT_GATE_ADDRESS || '0x521279912BFdd04E79212e84d22f2aE3687a9db5';
+
+const IDENTITY_REGISTRY_ABI = [
+	'function register(string agentURI) external returns (uint256)',
+	'function balanceOf(address owner) external view returns (uint256)',
+	'function ownerOf(uint256 tokenId) external view returns (address)',
+	'event Registered(uint256 indexed agentId, string agentURI, address indexed owner)'
+];
+
+const MINT_GATE_ABI = [
+	'function mint(uint256 agentId, uint256 deadline, bytes calldata authSig) external'
+];
+
+async function main() {
+	console.log('╔════════════════════════════════════════════════╗');
+	console.log('║  New Agent Registration & MECHAIS NFT Mint     ║');
+	console.log('╚════════════════════════════════════════════════╝');
+
+	const pk = process.env.NEW_AGENT_PK;
+	if (!pk) {
+		console.error('ERROR: NEW_AGENT_PK not found in .env.local');
+		process.exit(1);
+	}
+
+	const provider = new ethers.JsonRpcProvider(BASE_MAINNET.rpc);
+	const wallet = new ethers.Wallet(pk, provider);
+	const address = wallet.address;
+
+	console.log(`\nWallet: ${address}`);
+
+	// 1. Check/Register on Identity Registry
+	const identityRegistry = new ethers.Contract(BASE_MAINNET.identityRegistry, IDENTITY_REGISTRY_ABI, wallet);
+	let agentId;
+
+	console.log('\nStep 1: Checking Registration...');
+	const balance = await identityRegistry.balanceOf(address);
+
+	if (balance > 0n) {
+		console.log('Agent already registered. (IdentityRegistry balance > 0)');
+		// We don't easily know the ID if they have multiple, but let's assume the first one
+		// or we can try to find it via events if needed.
+		// For now, let's just use the status API to see if it knows.
+	} else {
+		console.log('Registering agent...');
+		const tx = await identityRegistry.register('ipfs://new-agent-metadata');
+		console.log(`Tx: ${tx.hash}`);
+		const receipt = await tx.wait();
+		const evt = receipt.logs.find(log => {
+			try {
+				return identityRegistry.interface.parseLog(log)?.name === 'Registered';
+			} catch (e) { return false; }
+		});
+		if (evt) {
+			agentId = identityRegistry.interface.parseLog(evt).args.agentId.toString();
+			console.log(`✓ Registered! Agent ID: ${agentId}`);
+		} else {
+			console.error('Could not find Registered event in receipt.');
+			process.exit(1);
+		}
+	}
+
+	// 2. Check MECHAIS Status
+	console.log('\nStep 2: Checking MECHAIS Status...');
+	// If we don't have agentId yet, we need to find it.
+	if (!agentId) {
+		// IdentityRegistry doesn't have enumerable. 
+		// But we can check recent events or use the status API if it can lookup by address.
+		// Most MECHAIS status APIs use agentId.
+		console.log('Searching for your Agent ID...');
+		// Searching backwards 1000 blocks for Registered events for this owner
+		const filter = identityRegistry.filters.Registered(null, null, address);
+		const logs = await identityRegistry.queryFilter(filter, -10000);
+		if (logs.length > 0) {
+			agentId = logs[logs.length - 1].args.agentId.toString();
+			console.log(`Found Agent ID: ${agentId}`);
+		} else {
+			console.error('Could not find Agent ID for this wallet.');
+			process.exit(1);
+		}
+	}
+
+	const statusRes = await fetch(`${MECHAIS_API}/status`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ chainId: BASE_MAINNET.chainId, agentId: parseInt(agentId) })
+	});
+	const status = await statusRes.json();
+
+	if (status.alreadyMinted) {
+		console.log('✓ Already minted MECHAIS NFT!');
+		process.exit(0);
+	}
+
+	// 3. Request challenge
+	console.log('\nStep 3: Requesting Challenge...');
+	let challenge;
+	for (let i = 0; i < 5; i++) {
+		const challengeRes = await fetch(`${MECHAIS_API}/challenge`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				chainId: BASE_MAINNET.chainId,
+				agentId: parseInt(agentId),
+				minter: address
+			})
+		});
+		challenge = await challengeRes.json();
+		if (!challenge.error) break;
+
+		console.log(`API Error: ${challenge.error}. Retrying in 10s... (${i + 1}/5)`);
+		await new Promise(r => setTimeout(r, 10000));
+	}
+
+	if (challenge.error) {
+		console.error('Final API Error:', challenge.error);
+		process.exit(1);
+	}
+
+	// 4. Solve PoW
+	const { salt, difficulty } = challenge;
+	const diff = Number(difficulty) || 4;
+	console.log(`\nStep 4: Solving PoW (diff: ${diff})...`);
+	const target = '0'.repeat(diff);
+	let nonce = 0;
+	while (true) {
+		const hash = crypto.createHash('sha256').update(String(salt) + nonce).digest('hex');
+		if (hash.startsWith(target)) break;
+		nonce++;
+	}
+	console.log(`✓ Solved! Nonce: ${nonce}`);
+
+	// 5. Get Authorization
+	console.log('\nStep 5: Obtaining Authorization...');
+	const intentRes = await fetch(`${MECHAIS_API}/mint-intent`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			chainId: BASE_MAINNET.chainId,
+			agentId: parseInt(agentId),
+			minter: address,
+			challengeId: challenge.challengeId,
+			answer: String(nonce)
+		})
+	});
+	const intent = await intentRes.json();
+	if (!intent.authSig) {
+		console.error('Failed to get auth signature:', intent);
+		process.exit(1);
+	}
+
+	// 6. Mint
+	console.log('\nStep 6: Submitting Mint Transaction...');
+	const mintGate = new ethers.Contract(MECHAIS_MINT_GATE, MINT_GATE_ABI, wallet);
+	const tx = await mintGate.mint(intent.agentId, intent.deadline, intent.authSig);
+	console.log(`Tx: ${tx.hash}`);
+	const receipt = await tx.wait();
+	console.log(`✓ Successfully minted MECHAIS NFT in block ${receipt.blockNumber}!`);
+
+	console.log('\nFinal Status:');
+	console.log(`- Agent ID: ${agentId}`);
+	console.log(`- Wallet: ${address}`);
+	console.log(`- NFT: Minted`);
+}
+
+main().catch(console.error);

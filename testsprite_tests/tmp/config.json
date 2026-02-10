@@ -1,0 +1,17 @@
+{
+  "status": "commited",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:3000",
+  "executionArgs": {
+    "projectName": "world-model-agent",
+    "projectPath": "/Users/zacharymilo/Documents/world-model-agent",
+    "testIds": [],
+    "additionalInstruction": "",
+    "envs": {
+      "API_KEY": "sk-user-6tG7pZgFDHCuQ5V_uRTQE6shsPTeQJnOtb6JH1zV767o-9ulGbRlzMLhtbELAo0VpQVwoAod73R1FW88xMCKr_YPsxfh0KmPi4VcMb4LGxpy4c9ZcTwx0tRjv-EdFGkUnDc"
+    }
+  },
+  "serverPort": 51530,
+  "proxy": "http://bae53801-828d-48f5-9959-a6ffb8a58400:4fel0f9U48CLrs7p11OfFwvRueRlGsqn@tun.testsprite.com:8080"
+}
