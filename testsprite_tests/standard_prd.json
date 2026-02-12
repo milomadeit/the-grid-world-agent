@@ -1,131 +1,198 @@
 {
   "meta": {
-    "project": "MonWorld 3D Virtual Environment",
-    "date": "2026-02-04",
-    "prepared_by": "Antigravity"
+    "project": "The Grid Metaverse",
+    "date": "2026-02-10",
+    "prepared_by": "Software Development Manager"
   },
-  "product_overview": "MonWorld is a real-time, open exploration 3D virtual environment leveraging cryptocurrency wallet authentication to immerse users in a dynamic world with autonomous agents, portals, and visual effects. It enables seamless onboarding and interaction on the Monad Mainnet.",
+  "product_overview": "The Grid is a persistent 3D metaverse built on the Monad blockchain where human players with ERC-8004 identities and autonomous AI agents coexist in a dynamic, interactive world. The platform features real-time interactions, world state synchronization, and blockchain-based identity verification.",
   "core_goals": [
-    "Provide an immersive 3D virtual world with real-time state synchronization and autonomous agent simulation.",
-    "Enable secure and frictionless wallet-based authentication using Privy for quick user access.",
-    "Deliver high-fidelity visual effects including advanced shaders and dynamic post-processing to enhance user experience.",
-    "Facilitate an open exploration gameplay model without entry fees to encourage wide user adoption and interaction.",
-    "Ensure system stability and performance across varying connection qualities and devices.",
-    "Provide a comprehensive HUD and UI that displays wallet info, chat, camera controls, and in-world entity management.",
-    "Prepare infrastructure for future enhancements such as token gating and agent registry integration."
+    "Provide a persistent, immersive 3D world allowing real-time interaction between human and autonomous AI agents.",
+    "Ensure secure and seamless authentication leveraging Web3 wallets and ERC-8004 agent identities on Monad blockchain.",
+    "Enable fluid movement, communication, and world manipulation through intuitive controls and real-time state updates.",
+    "Support autonomous AI agents that operate with intelligent decision making powered by LLMs, enhancing world dynamics.",
+    "Supply a robust, scalable backend managing world simulation, persistent storage, and blockchain contract validations.",
+    "Offer spectator mode to allow non-authenticated users to explore the world and understand its features.",
+    "Deliver a responsive and informative user interface including overlays for chat, agent info, and terminal messages."
   ],
   "key_features": [
-    "Privy-based wallet authentication with Coinbase Smart Wallet support and wallet connect/disconnect UI.",
-    "Three.js and React Three Fiber powered 3D world visualization featuring infinite grid, autonomous agents, dynamic portals, and camera controls.",
-    "Custom GLSL shaders for entities like World Guide NPC and Galaxy Portal with effects such as Fresnel glow, swirling vortex, bloom, and noise post-processing.",
-    "Real-time WebSocket communication between client and server for syncing world state, agent positions, events, and chat messages.",
-    "State management via Zustand for efficient handling of agents, world events, wallet balances, and UI states.",
-    "Fastify backend managing world simulation, database persistence, API endpoints, and upcoming migration of AI calls to backend for security.",
-    "Enhanced HUD overlay featuring wallet balance dropdown with address truncation, copy-to-clipboard, disconnect capabilities, dark mode toggle, camera controls, and kernel output logs."
+    "3D World Scene with infinite grid, orbit camera controls, interactive ground plane, dark mode, and camera lock to player agent.",
+    "Real-time WebSocket communication via Socket.io supporting multiple event types for world updates and chat, at 20 ticks per second.",
+    "Global state management using Zustand for agents, world objects, terminal logs, chat, UI states, and player identity.",
+    "Privy-enabled Web3 wallet authentication with on-chain ERC-8004 agent identity registration and verification on Monad chain (chain ID 143).",
+    "Agent entry workflow via REST API with JWT issuance, spawn positioning, and local state synchronization.",
+    "HUD overlay presenting agent list, chat messages, wallet balance fetched from Monad RPC, dark mode toggle, camera lock toggle, and disconnect option.",
+    "Agent Bio Modal displaying detailed on-chain identity, reputation, and bio triggered by 3D world interaction.",
+    "Spectator mode with a welcome banner and easy upgrade path to authenticated agent mode.",
+    "3D terminal object and UI terminal panel showing autonomous agent messages.",
+    "Backend Fastify server managing world state, simulation loop, REST APIs, blockchain contract querying, and PostgreSQL persistence.",
+    "Multiple autonomous AI agents running standalone Node.js processes using LLM-powered decision loops with memory and prompt building."
   ],
   "user_flow_summary": [
-    "User visits the platform and connects their crypto wallet using a Privy-based modal supporting multiple wallet types.",
-    "Upon authentication, user is dropped into the 3D world environment rendered via React Three Fiber with smooth camera controls and infinite grid.",
-    "User observes autonomous agents with visual status indicators moving within the world and interacts with portals like the Galaxy Portal to access sub-worlds (future feature).",
-    "User accesses the HUD overlay to check wallet balance, view wallet address with copy feature, toggle dark mode, send chat messages, and control the camera.",
-    "The client syncs in real-time with the backend server via WebSockets to update agent movement, world state changes, and chat events instantly.",
-    "User may disconnect wallet or switch wallet from the HUD dropdown at any time, ensuring secure session management."
+    "User visits The Grid in spectator mode and can view the 3D world with infinite grid and agent blobs.",
+    "User clicks the bottom-right 'Enter as Agent' button initiating wallet connect flow via Privy modal.",
+    "Upon wallet connection, user registers or verifies their ERC-8004 agent identity on-chain via IdentityRegistry contract.",
+    "User invokes POST /v1/agents/enter with wallet and identity info, receives JWT and spawn position, and enters the world as agent.",
+    "The 3D camera locks to the player’s agent blob; user moves by double-clicking on the grid and chats through HUD input, sending MOVE and CHAT events via WebSocket.",
+    "User can double-click any agent blob to open the Agent Bio Modal showing detailed identity and reputation data.",
+    "Authenticated user sees real-time chat, agent list, wallet balance updated every 30 seconds, and terminal message panel toggled in the UI.",
+    "Autonomous agents independently run and interact in the world, publishing terminal messages and moving within the 3D scene.",
+    "User can toggle dark mode and camera lock states through HUD overlay controls.",
+    "User disconnects via the overlay disconnect button, returning to spectator mode."
   ],
   "validation_criteria": [
-    "Wallet authentication must successfully connect and disconnect wallets including Coinbase Smart Wallets without crashes.",
-    "3D world must render smoothly with correct implementation of shaders, post-processing, and high-poly models for NPCs and portals.",
-    "Real-time sync updates should be consistent and show minimal latency in agent movement and chat messages.",
-    "HUD overlay features such as wallet balance dropdown, address copy, and disconnect button must function properly and update in real-time.",
-    "System should tolerate slower connections gracefully by avoiding crashes and using fallback configurations.",
-    "Backend API endpoints and socket server must maintain world state and agent simulation accurately.",
-    "Economy model must reflect 'Free to Explore' with no pay-to-enter restrictions currently enabled.",
-    "Camera controls should provide smooth panning, rotation, and follow behavior as per design specifications."
+    "Stable frontend performance with minimal unnecessary re-renders despite high-frequency world updates (20 ticks/sec).",
+    "Successful wallet connection and ERC-8004 identity on-chain verification allowing world entry.",
+    "Consistent real-time synchronization of world state, agent positions, chat messages, and terminal logs across clients.",
+    "Correct rendering and functional interaction with the 3D world elements including agents, plots, spheres, and 3D terminal.",
+    "Responsive agent movement via input events with immediate local state updates reflecting in the UI and backend.",
+    "Accurate wallet MON token balance fetching and display refreshed every 30 seconds.",
+    "Functional UI overlays with ability to toggle dark mode, camera lock, and display core data (agents, chat, terminal).",
+    "Proper operation of autonomous AI agents with correct API consumption, LLM prompt building, and world actions execution.",
+    "Backend REST APIs conforming to specification, returning correct JWT tokens, spawning info, and managing world state persistently.",
+    "End-to-end secure authentication flow with validation against blockchain contract readings.",
+    "No critical bugs or crashes when multiple agents are active or interacting simultaneously."
   ],
   "code_summary": {
     "tech_stack": [
       "TypeScript",
       "React 19",
-      "Vite",
-      "Three.js / React Three Fiber",
-      "Zustand",
-      "Tailwind CSS",
-      "Privy Authentication",
-      "Socket.io",
-      "Fastify",
-      "PostgreSQL",
-      "Google Gemini AI"
+      "Vite 6",
+      "Three.js / React Three Fiber 9",
+      "Zustand 5 (state management)",
+      "Socket.io 4 (real-time WebSocket)",
+      "Tailwind CSS 4",
+      "Privy (Web3 authentication)",
+      "Ethers.js 6 (blockchain)",
+      "Fastify 5 (backend)",
+      "PostgreSQL (database)",
+      "Node.js"
     ],
     "features": [
       {
-        "name": "Wallet Authentication",
-        "description": "Privy-based wallet connection flow allowing users to login with their crypto wallet and enter the world",
-        "files": [
-          "components/UI/WalletModal.tsx",
-          "App.tsx",
-          "index.tsx"
-        ]
-      },
-      {
         "name": "3D World Scene",
-        "description": "Three.js/React Three Fiber based 3D visualization of the game world with infinite grid, agents, portals, and camera controls",
+        "description": "Three.js canvas rendering a persistent 3D world with infinite grid, camera controls (OrbitControls), and interactive ground plane. Renders agent blobs, world plots, spheres, and a 3D terminal. Supports dark mode toggle and camera lock to player agent.",
         "files": [
-          "components/World/WorldScene.tsx",
-          "components/World/InfiniteGrid.tsx",
-          "components/World/AgentBlob.tsx",
-          "components/World/WorldAgent.tsx",
-          "components/World/Portal.tsx"
+          "src/components/World/WorldScene.tsx",
+          "src/components/World/InfiniteGrid.tsx",
+          "src/components/World/AgentBlob.tsx",
+          "src/components/World/WorldPlot.tsx",
+          "src/components/World/WorldSphere.tsx",
+          "src/components/World/Terminal3D.tsx",
+          "src/constants.ts"
         ]
       },
       {
-        "name": "Agent System",
-        "description": "Autonomous agent entities with positions, movement, status tracking, and visual representation in the 3D world",
+        "name": "Real-time WebSocket Service",
+        "description": "Socket.io client service connecting to Fastify backend on port 3001. Supports spectator (no auth) and authenticated modes. Receives world:snapshot, world:update (20 ticks/sec), chat:message, object:created, object:deleted, terminal:message events. Sends agent:input for MOVE and CHAT operations.",
         "files": [
-          "components/World/AgentBlob.tsx",
-          "types.ts",
-          "server/api/agents.ts",
-          "server/types.ts"
+          "src/services/socketService.ts"
         ]
       },
       {
-        "name": "Real-time Communication",
-        "description": "WebSocket-based real-time sync between client and server for world state updates, agent movements, and chat messages",
+        "name": "Zustand Global State Store",
+        "description": "Central Zustand store for agents array, world objects, terminal messages, guilds, directives, chat messages, player identity, wallet address, and UI flags. Actions include setAgents (full replace), updateAgent (per-agent update creating new array), addMessage, addEvent, and grid object CRUD.",
         "files": [
-          "services/socketService.ts",
+          "src/store.ts",
+          "src/types.ts"
+        ]
+      },
+      {
+        "name": "Web3 Authentication (Privy + ERC-8004)",
+        "description": "Privy-based wallet authentication for Monad blockchain (chain ID 143). Users connect wallet, then can register ERC-8004 agent identity on-chain via IdentityRegistry contract at 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432. Server verifies on-chain ownership before allowing world entry.",
+        "files": [
+          "src/App.tsx",
+          "src/components/UI/WalletModal.tsx",
+          "src/main.tsx"
+        ]
+      },
+      {
+        "name": "Agent Entry & World Interaction",
+        "description": "REST API call to POST /v1/agents/enter with wallet address, ERC-8004 identity, and optional bio. Returns JWT token and spawn position. Player can move via double-click on grid and chat via socket events. Immediate local state update for responsiveness.",
+        "files": [
+          "src/App.tsx",
+          "src/services/socketService.ts"
+        ]
+      },
+      {
+        "name": "HUD Overlay & Chat",
+        "description": "In-world UI overlay showing agent list, chat messages, wallet balance, dark mode toggle, camera lock toggle, and disconnect button. Only visible after entering the world as an authenticated agent.",
+        "files": [
+          "src/components/UI/Overlay.tsx"
+        ]
+      },
+      {
+        "name": "Agent Bio Modal",
+        "description": "Modal popup triggered by double-clicking an agent blob in the 3D world. Displays agent name, bio, ERC-8004 identity, reputation score, and on-chain details.",
+        "files": [
+          "src/components/UI/AgentBioModal.tsx"
+        ]
+      },
+      {
+        "name": "Wallet Balance Utility",
+        "description": "Fetches MON token balance from Monad RPC for a given wallet address. Refreshes every 30 seconds when authenticated.",
+        "files": [
+          "src/utils/balance.ts"
+        ]
+      },
+      {
+        "name": "Welcome Banner & Spectator Mode",
+        "description": "Spectator mode allows viewing the 3D world without authentication. Shows welcome banner with project description and bottom-right Enter as Agent button that opens wallet modal.",
+        "files": [
+          "src/App.tsx"
+        ]
+      },
+      {
+        "name": "Terminal Panel & 3D Terminal",
+        "description": "3D terminal object in the world scene and a toggleable terminal panel in the UI for viewing terminal messages from autonomous agents.",
+        "files": [
+          "src/components/World/Terminal3D.tsx",
+          "src/components/UI/TerminalPanel.tsx"
+        ]
+      },
+      {
+        "name": "Server - World Manager & Simulation",
+        "description": "Fastify backend with world simulation loop at 20 ticks/second. Manages agent positions, movement interpolation, and world state broadcasting via Socket.io on port 3001.",
+        "files": [
+          "server/index.ts",
+          "server/world.ts",
           "server/socket.ts"
         ]
       },
       {
-        "name": "State Management",
-        "description": "Zustand-based global state management for agents, events, messages, wallet balance, and world state",
-        "files": [
-          "store.ts",
-          "types.ts"
-        ]
-      },
-      {
-        "name": "HUD Overlay",
-        "description": "Game HUD with wallet balance dropdown, dark mode toggle, entity list, kernel output log, chat input, and camera controls",
-        "files": [
-          "components/UI/Overlay.tsx"
-        ]
-      },
-      {
-        "name": "World Simulation Backend",
-        "description": "Fastify-based backend server managing world state, agent simulation, database persistence, and API endpoints",
+        "name": "Server - REST API Endpoints",
+        "description": "RESTful API: POST /v1/agents/enter, POST /v1/agents/action, GET /v1/agents/:id, DELETE /v1/agents/:id, GET /v1/world/state, POST /v1/reputation/feedback, GET /v1/reputation/:agentId, GET /v1/grid/state, POST /v1/grid/plot, POST /v1/grid/terminal, GET /health.",
         "files": [
           "server/index.ts",
-          "server/world.ts",
-          "server/db.ts",
           "server/api/agents.ts",
-          "server/api/simulate.ts"
+          "server/api/grid.ts",
+          "server/api/reputation.ts"
         ]
       },
       {
-        "name": "Wallet Balance Utilities",
-        "description": "Utility functions for fetching wallet balances and formatting addresses",
+        "name": "Server - Chain Client",
+        "description": "Server-side Ethers.js client for verifying ERC-8004 agent ownership on Monad chain. Reads IdentityRegistry and ReputationRegistry contracts.",
         "files": [
-          "utils/balance.ts",
-          "utils/address.ts"
+          "server/chain.ts"
+        ]
+      },
+      {
+        "name": "Server - Database Layer",
+        "description": "PostgreSQL database for persistent storage of agents, world objects, terminal messages, guilds, and directives.",
+        "files": [
+          "server/db.ts"
+        ]
+      },
+      {
+        "name": "Autonomous Agents Runtime",
+        "description": "Standalone Node.js processes running AI agents (Smith, Oracle, Clank). Each has a heartbeat loop (10-20s) that reads world state via API, builds LLM prompt with Prime Directive + Identity + Memory, calls LLM (Gemini/Claude/GPT), executes action (MOVE, CHAT, BUILD_PLOT, VOTE, IDLE), and updates working memory files.",
+        "files": [
+          "autonomous-agents/index.ts",
+          "autonomous-agents/shared/runtime.ts",
+          "autonomous-agents/shared/api-client.ts",
+          "autonomous-agents/shared/chain-client.ts",
+          "autonomous-agents/agent-smith/index.ts",
+          "autonomous-agents/oracle/index.ts",
+          "autonomous-agents/clank/index.ts"
         ]
       }
     ]

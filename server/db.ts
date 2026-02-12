@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { Agent, AgentRow, WorldObject, TerminalMessage, Guild, Directive, GuildMemberRow, DirectiveVoteRow } from './types.js';
+import type { Agent, AgentRow, WorldPrimitive, TerminalMessage, Guild, Directive, GuildMemberRow, DirectiveVoteRow } from './types.js';
 
 const { Pool } = pg;
 
@@ -8,7 +8,12 @@ let pool: pg.Pool | null = null;
 // In-memory fallback when no database is configured
 const inMemoryStore = {
   agents: new Map<string, Agent>(),
-  worldState: new Map<string, unknown>()
+  worldState: new Map<string, unknown>(),
+  chatMessages: [] as TerminalMessage[],
+  terminalMessages: [] as TerminalMessage[],
+  directives: new Map<string, Directive>(),
+  directiveVotes: new Map<string, Map<string, string>>(), // directiveId -> agentId -> vote
+  nextMsgId: 1,
 };
 
 export async function initDatabase(): Promise<void> {
@@ -74,7 +79,32 @@ export async function initDatabase(): Promise<void> {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS world_primitives (
+        id VARCHAR(255) PRIMARY KEY,
+        shape VARCHAR(50) NOT NULL,
+        owner_agent_id VARCHAR(255) NOT NULL,
+        x FLOAT NOT NULL,
+        y FLOAT NOT NULL,
+        z FLOAT NOT NULL,
+        rot_x FLOAT NOT NULL,
+        rot_y FLOAT NOT NULL,
+        rot_z FLOAT NOT NULL,
+        scale_x FLOAT NOT NULL,
+        scale_y FLOAT NOT NULL,
+        scale_z FLOAT NOT NULL,
+        color VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS terminal_messages (
+        id SERIAL PRIMARY KEY,
+        agent_id VARCHAR(255) NOT NULL,
+        agent_name VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS chat_messages (
         id SERIAL PRIMARY KEY,
         agent_id VARCHAR(255) NOT NULL,
         agent_name VARCHAR(255) NOT NULL,
@@ -128,11 +158,14 @@ export async function initDatabase(): Promise<void> {
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS is_autonomous BOOLEAN DEFAULT FALSE;
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS spawn_generation INTEGER DEFAULT 0;
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT NULL;
-        ALTER TABLE agents ADD COLUMN IF NOT EXISTS build_credits INTEGER DEFAULT 10;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS build_credits INTEGER DEFAULT 500;
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS credits_last_reset TIMESTAMP DEFAULT NOW();
       EXCEPTION WHEN others THEN NULL;
       END $$;
     `);
+
+    // One-time migration: reset all existing agents to 500 credits
+    await pool.query(`UPDATE agents SET build_credits = 500, credits_last_reset = NOW()`);
 
     // Create indexes (safe now that all columns exist)
     await pool.query(`
@@ -142,6 +175,7 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_agents_autonomous ON agents(is_autonomous);
       CREATE INDEX IF NOT EXISTS idx_reputation_to_agent ON reputation_feedback(to_agent_id);
       CREATE INDEX IF NOT EXISTS idx_reputation_from_agent ON reputation_feedback(from_agent_id);
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at DESC);
     `);
 
     console.log('[DB] Tables initialized');
@@ -333,7 +367,7 @@ export async function setWorldValue<T>(key: string, value: T): Promise<void> {
 }
 
 // Helper function to convert database row to Agent
-function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Registry?: string; reputationScore?: number; isAutonomous?: boolean; spawnGeneration?: number } {
+function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Registry?: string; reputationScore?: number; isAutonomous?: boolean; spawnGeneration?: number; buildCredits?: number } {
   return {
     id: row.id,
     name: row.visual_name,
@@ -350,7 +384,9 @@ function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Re
     reputationScore: row.reputation_score || 0,
     // Spawner fields
     isAutonomous: row.is_autonomous || false,
-    spawnGeneration: row.spawn_generation || 0
+    spawnGeneration: row.spawn_generation || 0,
+    // Credits
+    buildCredits: row.build_credits ?? 500,
   };
 }
 
@@ -519,71 +555,78 @@ async function updateReputationScore(agentId: string): Promise<void> {
 
 
 // ===========================================
-// Grid System Operations
+// World Primitives (New System)
 // ===========================================
 
-// World Objects
-export async function createWorldObject(obj: WorldObject): Promise<WorldObject> {
-  if (!pool) return obj;
+export async function createWorldPrimitive(primitive: WorldPrimitive): Promise<WorldPrimitive> {
+  if (!pool) return primitive;
   await pool.query(
-    `INSERT INTO world_objects (id, type, owner_agent_id, x, y, z, width, length, height, radius, color, rotation, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13/1000.0))`,
-    [obj.id, obj.type, obj.ownerAgentId, obj.x, obj.y, obj.z, obj.width || null, obj.length || null, obj.height || null, obj.radius || null, obj.color, obj.rotation || null, obj.createdAt]
+    `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0))`,
+    [
+      primitive.id,
+      primitive.shape,
+      primitive.ownerAgentId,
+      primitive.position.x, primitive.position.y, primitive.position.z,
+      primitive.rotation.x, primitive.rotation.y, primitive.rotation.z,
+      primitive.scale.x, primitive.scale.y, primitive.scale.z,
+      primitive.color,
+      primitive.createdAt
+    ]
   );
-  return obj;
+  return primitive;
 }
 
-export async function getAllWorldObjects(): Promise<WorldObject[]> {
-  if (!pool) return [];
-  const result = await pool.query('SELECT * FROM world_objects');
-  return result.rows.map(row => ({
-    id: row.id,
-    type: row.type as 'plot' | 'sphere',
-    ownerAgentId: row.owner_agent_id,
-    x: row.x,
-    y: row.y,
-    z: row.z,
-    width: row.width || undefined,
-    length: row.length || undefined,
-    height: row.height || undefined,
-    radius: row.radius || undefined,
-    color: row.color,
-    rotation: row.rotation || undefined,
-    createdAt: new Date(row.created_at).getTime()
-  }));
-}
-
-export async function deleteWorldObject(id: string): Promise<boolean> {
-  if (!pool) return false;
-  const result = await pool.query('DELETE FROM world_objects WHERE id = $1', [id]);
+export async function deleteWorldPrimitive(id: string): Promise<boolean> {
+  if (!pool) return true;
+  const result = await pool.query('DELETE FROM world_primitives WHERE id = $1', [id]);
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function getWorldObject(id: string): Promise<WorldObject | null> {
+export async function getWorldPrimitive(id: string): Promise<WorldPrimitive | null> {
   if (!pool) return null;
-  const result = await pool.query('SELECT * FROM world_objects WHERE id = $1', [id]);
+  const result = await pool.query('SELECT * FROM world_primitives WHERE id = $1', [id]);
   if (result.rows.length === 0) return null;
   const row = result.rows[0];
   return {
     id: row.id,
-    type: row.type as 'plot' | 'sphere',
+    shape: row.shape,
     ownerAgentId: row.owner_agent_id,
-    x: row.x,
-    y: row.y,
-    z: row.z,
-    width: row.width || undefined,
-    length: row.length || undefined,
-    height: row.height || undefined,
-    radius: row.radius || undefined,
+    position: { x: row.x, y: row.y, z: row.z },
+    rotation: { x: row.rot_x, y: row.rot_y, z: row.rot_z },
+    scale: { x: row.scale_x, y: row.scale_y, z: row.scale_z },
     color: row.color,
-    rotation: row.rotation || undefined,
     createdAt: new Date(row.created_at).getTime()
   };
 }
 
+export async function getAllWorldPrimitives(): Promise<WorldPrimitive[]> {
+  if (!pool) return [];
+  const result = await pool.query('SELECT * FROM world_primitives ORDER BY created_at ASC');
+  return result.rows.map(row => ({
+    id: row.id,
+    shape: row.shape,
+    ownerAgentId: row.owner_agent_id,
+    position: { x: row.x, y: row.y, z: row.z },
+    rotation: { x: row.rot_x, y: row.rot_y, z: row.rot_z },
+    scale: { x: row.scale_x, y: row.scale_y, z: row.scale_z },
+    color: row.color,
+    createdAt: new Date(row.created_at).getTime()
+  }));
+}
+
+// ===========================================
+// World Objects (Legacy)
+// ===========================================
+
 // Terminal
 export async function writeTerminalMessage(msg: TerminalMessage): Promise<TerminalMessage> {
-  if (!pool) return msg;
+  if (!pool) {
+    const saved = { ...msg, id: inMemoryStore.nextMsgId++, createdAt: msg.createdAt || Date.now() };
+    inMemoryStore.terminalMessages.push(saved);
+    if (inMemoryStore.terminalMessages.length > 100) inMemoryStore.terminalMessages.shift();
+    return saved;
+  }
   const result = await pool.query(
     `INSERT INTO terminal_messages (agent_id, agent_name, message)
      VALUES ($1, $2, $3)
@@ -594,9 +637,45 @@ export async function writeTerminalMessage(msg: TerminalMessage): Promise<Termin
 }
 
 export async function getTerminalMessages(limit = 20): Promise<TerminalMessage[]> {
-  if (!pool) return [];
+  if (!pool) {
+    return inMemoryStore.terminalMessages.slice(-limit);
+  }
   const result = await pool.query(
     'SELECT * FROM terminal_messages ORDER BY created_at DESC LIMIT $1',
+    [limit]
+  );
+  return result.rows.reverse().map(row => ({
+    id: row.id,
+    agentId: row.agent_id,
+    agentName: row.agent_name,
+    message: row.message,
+    createdAt: new Date(row.created_at).getTime()
+  }));
+}
+
+// Chat
+export async function writeChatMessage(msg: TerminalMessage): Promise<TerminalMessage> {
+  if (!pool) {
+    const saved = { ...msg, id: inMemoryStore.nextMsgId++, createdAt: msg.createdAt || Date.now() };
+    inMemoryStore.chatMessages.push(saved);
+    if (inMemoryStore.chatMessages.length > 100) inMemoryStore.chatMessages.shift();
+    return saved;
+  }
+  const result = await pool.query(
+    `INSERT INTO chat_messages (agent_id, agent_name, message)
+     VALUES ($1, $2, $3)
+     RETURNING id, created_at`,
+    [msg.agentId, msg.agentName, msg.message]
+  );
+  return { ...msg, id: result.rows[0].id, createdAt: result.rows[0].created_at.getTime() };
+}
+
+export async function getChatMessages(limit = 20): Promise<TerminalMessage[]> {
+  if (!pool) {
+    return inMemoryStore.chatMessages.slice(-limit);
+  }
+  const result = await pool.query(
+    'SELECT * FROM chat_messages ORDER BY created_at DESC LIMIT $1',
     [limit]
   );
   return result.rows.reverse().map(row => ({
@@ -689,7 +768,10 @@ export async function getAgentGuild(agentId: string): Promise<string | null> {
 
 // Directives
 export async function createDirective(directive: Directive): Promise<Directive> {
-  if (!pool) return directive;
+  if (!pool) {
+    inMemoryStore.directives.set(directive.id, directive);
+    return directive;
+  }
   await pool.query(
     `INSERT INTO directives (id, type, submitted_by, guild_id, description, agents_needed, expires_at, status, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7/1000.0), $8, to_timestamp($9/1000.0))`,
@@ -699,9 +781,25 @@ export async function createDirective(directive: Directive): Promise<Directive> 
 }
 
 export async function getActiveDirectives(): Promise<Directive[]> {
-  if (!pool) return [];
+  if (!pool) {
+    const now = Date.now();
+    return Array.from(inMemoryStore.directives.values())
+      .filter(d => d.status === 'active' && d.expiresAt > now)
+      .map(d => {
+        // Compute vote counts from in-memory votes
+        const votes = inMemoryStore.directiveVotes.get(d.id);
+        let yesVotes = 0, noVotes = 0;
+        if (votes) {
+          for (const v of votes.values()) {
+            if (v === 'yes') yesVotes++;
+            else if (v === 'no') noVotes++;
+          }
+        }
+        return { ...d, yesVotes, noVotes };
+      });
+  }
   const result = await pool.query(`
-    SELECT d.*, 
+    SELECT d.*,
       COUNT(DISTINCT CASE WHEN v.vote = 'yes' THEN v.agent_id END) as yes_votes,
       COUNT(DISTINCT CASE WHEN v.vote = 'no' THEN v.agent_id END) as no_votes
     FROM directives d
@@ -709,7 +807,7 @@ export async function getActiveDirectives(): Promise<Directive[]> {
     WHERE d.status = 'active'
     GROUP BY d.id
   `);
-  
+
   return result.rows.map(row => ({
     id: row.id,
     type: row.type as 'grid' | 'guild' | 'bounty',
@@ -726,7 +824,13 @@ export async function getActiveDirectives(): Promise<Directive[]> {
 }
 
 export async function castVote(directiveId: string, agentId: string, vote: 'yes' | 'no'): Promise<void> {
-  if (!pool) return;
+  if (!pool) {
+    if (!inMemoryStore.directiveVotes.has(directiveId)) {
+      inMemoryStore.directiveVotes.set(directiveId, new Map());
+    }
+    inMemoryStore.directiveVotes.get(directiveId)!.set(agentId, vote);
+    return;
+  }
   await pool.query(
     `INSERT INTO directive_votes (directive_id, agent_id, vote)
      VALUES ($1, $2, $3)
@@ -737,7 +841,19 @@ export async function castVote(directiveId: string, agentId: string, vote: 'yes'
 
 // Directive helpers
 export async function getDirective(id: string): Promise<Directive | null> {
-  if (!pool) return null;
+  if (!pool) {
+    const d = inMemoryStore.directives.get(id);
+    if (!d) return null;
+    const votes = inMemoryStore.directiveVotes.get(id);
+    let yesVotes = 0, noVotes = 0;
+    if (votes) {
+      for (const v of votes.values()) {
+        if (v === 'yes') yesVotes++;
+        else if (v === 'no') noVotes++;
+      }
+    }
+    return { ...d, yesVotes, noVotes };
+  }
   const result = await pool.query(`
     SELECT d.*,
       COUNT(DISTINCT CASE WHEN v.vote = 'yes' THEN v.agent_id END) as yes_votes,
@@ -766,7 +882,18 @@ export async function getDirective(id: string): Promise<Directive | null> {
 }
 
 export async function expireDirectives(): Promise<number> {
-  if (!pool) return 0;
+  if (!pool) {
+    const now = Date.now();
+    let count = 0;
+    for (const [id, d] of inMemoryStore.directives) {
+      if (d.expiresAt < now && d.status === 'active') {
+        d.status = 'expired';
+        count++;
+      }
+    }
+    if (count > 0) console.log(`[DB] Expired ${count} directive(s)`);
+    return count;
+  }
   const result = await pool.query(`
     UPDATE directives
     SET status = 'expired'
@@ -783,7 +910,7 @@ export async function expireDirectives(): Promise<number> {
 export async function getAgentCredits(agentId: string): Promise<number> {
   if (!pool) return 10;
   const result = await pool.query('SELECT build_credits FROM agents WHERE id = $1', [agentId]);
-  return result.rows[0]?.build_credits ?? 10;
+  return result.rows[0]?.build_credits ?? 500;
 }
 
 export async function deductCredits(agentId: string, amount: number): Promise<boolean> {

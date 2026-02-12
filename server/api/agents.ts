@@ -30,11 +30,11 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
 
       const { ownerId, visuals, erc8004, bio } = parsed.data;
 
-      // ERC-8004 identity is required for non-spawner agents
-      const isSpawnerAgent = ownerId.startsWith('spawner_');
-      if (!erc8004 && !isSpawnerAgent) {
+      // ERC-8004 identity is required — no exceptions
+      if (!erc8004) {
         return reply.code(400).send({
-          error: 'ERC-8004 agent identity required to enter MonWorld. Register at https://www.8004.org'
+          error: 'ERC-8004 agent identity required to enter The Grid. Register at https://www.8004.org',
+          skillUrl: '/v1/skill'
         });
       }
 
@@ -197,6 +197,9 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
       const world = getWorldManager();
       const tick = world.getCurrentTick();
 
+      // Keep agent alive on the map
+      world.touchAgent(auth.agentId);
+
       try {
         switch (action) {
           case 'MOVE': {
@@ -220,7 +223,20 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
               return reply.code(400).send({ error: 'CHAT requires a message' });
             }
 
-            world.broadcastChat(auth.agentId, message);
+            // Look up agent name for persistence
+            const agent = await db.getAgent(auth.agentId);
+            const agentName = agent?.name || auth.agentId;
+
+            // Persist valid chat message
+            await db.writeChatMessage({
+              id: 0,
+              agentId: auth.agentId,
+              agentName,
+              message,
+              createdAt: Date.now()
+            });
+
+            world.broadcastChat(auth.agentId, message, agentName);
             return { status: 'executed', tick };
           }
 

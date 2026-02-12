@@ -2,12 +2,12 @@
 /// <reference types="@react-three/fiber" />
 import React, { Suspense, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, Html } from '@react-three/drei';
 import InfiniteGrid from './InfiniteGrid';
 import AgentBlob from './AgentBlob';
-import WorldPlot from './WorldPlot';
-import WorldSphere from './WorldSphere';
+import WorldPrimitive from './WorldPrimitive';
 import Terminal3D from './Terminal3D';
+import ObjectInfoModal from '../UI/ObjectInfoModal';
 import { useWorldStore } from '../../store';
 
 import { Agent, Vector3 } from '../../types';
@@ -15,7 +15,6 @@ import { COLORS } from '../../constants';
 import * as THREE from 'three';
 
 interface WorldSceneProps {
-  agents: Agent[];
   playerAgentId?: string;
   isDarkMode?: boolean;
   onGridClick?: (pos: Vector3) => void;
@@ -24,16 +23,20 @@ interface WorldSceneProps {
 }
 
 interface CameraControlsProps {
-  playerPosition?: Vector3;
   cameraLocked?: boolean;
 }
 
-const CameraControls: React.FC<CameraControlsProps> = ({ playerPosition, cameraLocked }) => {
+const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked }) => {
   const controlsRef = useRef<any>(null);
+  const followAgentId = useWorldStore((state) => state.followAgentId);
+  const agents = useWorldStore((state) => state.agents);
+
+  const targetAgent = agents.find(a => a.id === followAgentId);
+  const targetPosition = targetAgent?.targetPosition;
 
   useFrame(() => {
-    if (controlsRef.current && cameraLocked && playerPosition) {
-      const targetVec = new THREE.Vector3(playerPosition.x, 0, playerPosition.z);
+    if (controlsRef.current && cameraLocked && targetPosition) {
+      const targetVec = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
       controlsRef.current.target.lerp(targetVec, 0.25);
       controlsRef.current.update();
     }
@@ -60,14 +63,14 @@ const CameraControls: React.FC<CameraControlsProps> = ({ playerPosition, cameraL
   );
 };
 
-const WorldScene: React.FC<WorldSceneProps> = ({ agents, playerAgentId, isDarkMode, onGridClick, onAgentDoubleClick, cameraLocked }) => {
+const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGridClick, onAgentDoubleClick, cameraLocked }) => {
   const bgColor = isDarkMode ? COLORS.GROUND_DARK : COLORS.GROUND;
 
-  const worldObjects = useWorldStore((state) => state.worldObjects);
-  const toggleTerminal = useWorldStore((state) => state.toggleTerminal);
-
-  const playerAgent = agents.find(a => a.id === playerAgentId);
-  const playerPosition = playerAgent?.targetPosition;
+  // Read agents directly from the store — avoids re-renders from App passing new array refs
+  const agents = useWorldStore((state) => state.agents);
+  const worldPrimitives = useWorldStore((state) => state.worldPrimitives);
+  const selectedPrimitive = useWorldStore((state) => state.selectedPrimitive);
+  const setSelectedPrimitive = useWorldStore((state) => state.setSelectedPrimitive);
 
   return (
     <div className="w-full h-full cursor-crosshair">
@@ -88,7 +91,6 @@ const WorldScene: React.FC<WorldSceneProps> = ({ agents, playerAgentId, isDarkMo
         <ambientLight intensity={isDarkMode ? 0.8 : 1.0} color="#ffffff" />
 
         <CameraControls
-          playerPosition={playerPosition}
           cameraLocked={cameraLocked}
         />
 
@@ -114,18 +116,16 @@ const WorldScene: React.FC<WorldSceneProps> = ({ agents, playerAgentId, isDarkMo
 
           <InfiniteGrid isDarkMode={isDarkMode} />
 
-          <Terminal3D onTerminalClick={toggleTerminal} />
+          <Terminal3D />
 
-          {worldObjects.map((obj) => {
-            if (obj.type === 'plot') {
-              return <WorldPlot key={obj.id} object={obj} isDarkMode={isDarkMode} />;
-            } else if (obj.type === 'sphere') {
-              return <WorldSphere key={obj.id} object={obj} isDarkMode={isDarkMode} />;
-            }
-            return null;
-          })}
-
-
+          {worldPrimitives.map((prim) => (
+            <WorldPrimitive
+              key={prim.id}
+              data={prim}
+              isSelected={selectedPrimitive?.id === prim.id}
+              onClick={() => setSelectedPrimitive(prim)}
+            />
+          ))}
 
           {agents.map((agent) => (
             <AgentBlob
@@ -136,10 +136,30 @@ const WorldScene: React.FC<WorldSceneProps> = ({ agents, playerAgentId, isDarkMo
               onDoubleClick={onAgentDoubleClick}
             />
           ))}
+
+          {selectedPrimitive && selectedPrimitive.id !== 'system-terminal' && (
+            <Html
+              position={[
+                selectedPrimitive.position.x + 1.5,
+                selectedPrimitive.position.y + (selectedPrimitive.scale.y / 2) + 0.5,
+                selectedPrimitive.position.z
+              ]}
+              center
+              sprite
+              transform
+              zIndexRange={[100, 0]}
+              style={{
+                pointerEvents: 'auto',
+                userSelect: 'none',
+              }}
+            >
+              <ObjectInfoModal />
+            </Html>
+          )}
         </Suspense>
       </Canvas>
     </div>
   );
 };
 
-export default WorldScene;
+export default React.memo(WorldScene);

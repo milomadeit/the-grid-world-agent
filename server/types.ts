@@ -116,6 +116,9 @@ export interface AgentRow {
   // Spawner fields
   is_autonomous: boolean;
   spawn_generation: number;
+  // Credits
+  build_credits: number;
+  credits_last_reset: Date;
 }
 
 export interface WorldStateRow {
@@ -129,30 +132,27 @@ export interface WorldStateRow {
 // ===========================================
 
 export const BUILD_CREDIT_CONFIG = {
-  SOLO_DAILY_CREDITS: 10,
+  SOLO_DAILY_CREDITS: 500,
   GUILD_MULTIPLIER: 1.5,
-  PLOT_COST: 2,
-  SPHERE_COST: 1
+  PRIMITIVE_COST: 1,
+  MIN_BUILD_DISTANCE_FROM_ORIGIN: 50
 };
 
-// World Objects
-export const WorldObjectSchema = z.object({
+// World Primitives (New System)
+export const WorldPrimitiveSchema = z.object({
   id: z.string(),
-  type: z.enum(['plot', 'sphere']),
+  shape: z.enum(['box', 'sphere', 'cone', 'cylinder', 'plane', 'torus', 'circle', 'dodecahedron', 'icosahedron', 'octahedron', 'ring', 'tetrahedron', 'torusKnot', 'capsule']),
   ownerAgentId: z.string(),
-  x: z.number(),
-  y: z.number(),
-  z: z.number(),
-  width: z.number().optional(),  // for plot
-  length: z.number().optional(), // for plot
-  height: z.number().optional(), // for plot
-  radius: z.number().optional(), // for sphere
+  position: Vector3Schema,
+  rotation: Vector3Schema,
+  scale: Vector3Schema,
   color: z.string(),
-  rotation: z.number().optional(), // Y-axis rotation in radians
   createdAt: z.number()
 });
 
-export type WorldObject = z.infer<typeof WorldObjectSchema>;
+export type WorldPrimitive = z.infer<typeof WorldPrimitiveSchema>;
+
+
 
 // Terminal
 export const TerminalMessageSchema = z.object({
@@ -195,20 +195,12 @@ export const DirectiveSchema = z.object({
 export type Directive = z.infer<typeof DirectiveSchema>;
 
 // Request Schemas
-export const BuildPlotSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  length: z.number(),
-  width: z.number(),
-  height: z.number(),
-  color: z.string(),
-  rotation: z.number().optional()
-});
-
-export const BuildSphereSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  radius: z.number(),
+// Build Primitive Request
+export const BuildPrimitiveSchema = z.object({
+  shape: z.enum(['box', 'sphere', 'cone', 'cylinder', 'plane', 'torus', 'circle', 'dodecahedron', 'icosahedron', 'octahedron', 'ring', 'tetrahedron', 'torusKnot', 'capsule']),
+  position: Vector3Schema,
+  rotation: Vector3Schema,
+  scale: Vector3Schema,
   color: z.string()
 });
 
@@ -239,21 +231,6 @@ export const VoteDirectiveSchema = z.object({
 });
 
 // Database Row Types for Grid
-export interface WorldObjectRow {
-  id: string;
-  type: string;
-  owner_agent_id: string;
-  x: number;
-  y: number;
-  z: number;
-  width: number | null;
-  length: number | null;
-  height: number | null;
-  radius: number | null;
-  color: string;
-  rotation: number | null;
-  created_at: Date;
-}
 
 export interface TerminalMessageRow {
   id: number;

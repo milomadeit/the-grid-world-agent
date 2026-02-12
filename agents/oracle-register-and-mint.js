@@ -88,7 +88,7 @@ async function main() {
 			process.exit(1);
 		}
 		console.log('  Registering Oracle...');
-		const tx = await contract['register(string)']('ipfs://monworld-oracle-base');
+		const tx = await contract['register(string)']('ipfs://The Grid-oracle-base');
 		const receipt = await tx.wait();
 		const evt = receipt.logs.find(log => {
 			try { return contract.interface.parseLog(log)?.name === 'Registered'; }

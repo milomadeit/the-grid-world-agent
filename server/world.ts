@@ -1,5 +1,6 @@
 import type { Server as SocketServer } from 'socket.io';
-import type { Agent, WorldUpdateEvent, WorldObject, TerminalMessage, Guild, Directive, BUILD_CREDIT_CONFIG } from './types.js';
+import type { Agent, WorldUpdateEvent, WorldPrimitive, TerminalMessage, Guild, Directive } from './types.js';
+import { BUILD_CREDIT_CONFIG } from './types.js';
 import * as db from './db.js';
 
 
@@ -12,33 +13,34 @@ interface QueuedAction {
   };
 }
 
+// How long (ms) before an inactive agent is removed from the live map
+const AGENT_STALE_TIMEOUT = 60_000; // 60 seconds
+
 class WorldManager {
   private agents: Map<string, Agent> = new Map();
-  private worldObjects: Map<string, WorldObject> = new Map();
+  private agentLastSeen: Map<string, number> = new Map();
+  private worldPrimitives: Map<string, WorldPrimitive> = new Map();
   private actionQueue: QueuedAction[] = [];
   private tick: number = 0;
   private io: SocketServer | null = null;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
 
   async initialize(): Promise<void> {
-    // Load existing agents from database
-    const agents = await db.getAllAgents();
-    for (const agent of agents) {
-      this.agents.set(agent.id, agent);
-    }
+    // Do NOT load agents from DB — agents must actively enter to appear on map.
+    // DB retains agent data for identity/history, but presence is session-based.
 
     // Get current tick from database
     const savedTick = await db.getWorldValue<number>('global_tick');
     this.tick = savedTick || 0;
 
-    // Load world objects
-    const objects = await db.getAllWorldObjects();
-    for (const obj of objects) {
-      this.worldObjects.set(obj.id, obj);
+    // Load primitives (these are persistent world objects)
+    const primitives = await db.getAllWorldPrimitives();
+    for (const prim of primitives) {
+      this.worldPrimitives.set(prim.id, prim);
     }
-    console.log(`[World] Loaded ${objects.length} world objects`);
+    console.log(`[World] Loaded ${primitives.length} world primitives`);
 
-    console.log(`[World] Initialized with ${this.agents.size} agents at tick ${this.tick}`);
+    console.log(`[World] Initialized at tick ${this.tick} (agents join on connect)`);
   }
 
   setSocketServer(io: SocketServer): void {
@@ -73,34 +75,45 @@ class WorldManager {
 
   addAgent(agent: Agent): void {
     this.agents.set(agent.id, agent);
+    this.agentLastSeen.set(agent.id, Date.now());
     this.broadcastUpdate();
+  }
+
+  /** Mark agent as active (call on any API interaction). */
+  touchAgent(agentId: string): void {
+    this.agentLastSeen.set(agentId, Date.now());
   }
 
   removeAgent(id: string): void {
     this.agents.delete(id);
+    this.agentLastSeen.delete(id);
     this.broadcastUpdate();
   }
 
-  // --- World Object Management ---
+  // --- World Primitive Management ---
 
-  getWorldObjects(): WorldObject[] {
-    return Array.from(this.worldObjects.values());
+  getWorldPrimitives(): WorldPrimitive[] {
+    return Array.from(this.worldPrimitives.values());
   }
 
-  addWorldObject(obj: WorldObject): void {
-    this.worldObjects.set(obj.id, obj);
-    this.io?.emit('object:created', obj);
+  addWorldPrimitive(prim: WorldPrimitive): void {
+    this.worldPrimitives.set(prim.id, prim);
+    this.io?.emit('primitive:created', prim);
   }
 
-  removeWorldObject(id: string): void {
-    this.worldObjects.delete(id);
-    this.io?.emit('object:deleted', { id });
+  removeWorldPrimitive(id: string): void {
+    this.worldPrimitives.delete(id);
+    this.io?.emit('primitive:deleted', { id });
   }
 
   // --- Grid Messaging ---
 
   broadcastTerminalMessage(msg: TerminalMessage): void {
-    this.io?.emit('terminal:message', msg);
+    if (!this.io) {
+      console.warn('[World] broadcastTerminalMessage: no socket.io server attached');
+      return;
+    }
+    this.io.emit('terminal:message', msg);
   }
 
   broadcastDirective(directive: Directive): void {
@@ -115,13 +128,19 @@ class WorldManager {
     this.actionQueue.push({ agentId, action });
   }
 
-  broadcastChat(agentId: string, message: string): void {
+  broadcastChat(agentId: string, message: string, agentName?: string): void {
     const agent = this.agents.get(agentId);
-    if (!agent) return;
+    const name = agent?.name || agentName || agentId;
 
-    this.io?.emit('chat:message', {
+    if (!this.io) {
+      console.warn('[World] broadcastChat: no socket.io server attached');
+      return;
+    }
+
+    console.log(`[World] Broadcasting chat from ${name}: "${message.slice(0, 60)}..."`);
+    this.io.emit('chat:message', {
       agentId,
-      agentName: agent.name,
+      agentName: name,
       message,
       timestamp: Date.now()
     });
@@ -186,10 +205,22 @@ class WorldManager {
       db.setWorldValue('global_tick', this.tick).catch(console.error);
     }
 
+    // Sweep stale agents every ~10 seconds (200 ticks at 20tps)
+    if (this.tick % 200 === 0) {
+      const now = Date.now();
+      for (const [agentId, lastSeen] of this.agentLastSeen) {
+        if (now - lastSeen > AGENT_STALE_TIMEOUT) {
+          console.log(`[World] Agent ${this.agents.get(agentId)?.name || agentId} timed out (inactive ${Math.round((now - lastSeen) / 1000)}s)`);
+          this.agents.delete(agentId);
+          this.agentLastSeen.delete(agentId);
+        }
+      }
+    }
+
     // Daily Credit Reset (every ~24 hours = 86400 seconds = 1728000 ticks at 20tps)
     // Checking every ~1 minute (1200 ticks) to see if DB reset is needed
     if (this.tick % 1200 === 0) {
-      db.resetDailyCredits(10).catch(console.error);
+      db.resetDailyCredits(BUILD_CREDIT_CONFIG.SOLO_DAILY_CREDITS).catch(console.error);
       db.expireDirectives().catch(console.error);
     }
   }

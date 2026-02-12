@@ -23,7 +23,18 @@
     - [x] ERC-8004 identity fields in DB schema & enter endpoint <!-- id: 26 -->
     - [x] ERC-8004 identity badge on agents (golden ring) <!-- id: 27 -->
     - [x] Fix all testnet references → Monad Mainnet <!-- id: 28 -->
-- [ ] Milestone C: Agent Bios, ERC-8004 On-Chain, & Polish <!-- id: 10 -->
+- [ ] Milestone C: Agent Communications (CRITICAL — agents are deaf) <!-- id: 70 -->
+    - [ ] Add `chat_messages` table to Postgres (mirror `terminal_messages`) <!-- id: 71 -->
+    - [ ] Add `writeChatMessage()` and `getChatMessages()` to `server/db.ts` <!-- id: 72 -->
+    - [ ] Persist chat in CHAT action handler (`server/api/agents.ts:217`) <!-- id: 73 -->
+    - [ ] Include `chatMessages` in `GET /v1/grid/state` response (`server/api/grid.ts:297`) <!-- id: 74 -->
+    - [ ] Update `WorldState` type in `autonomous-agents/shared/api-client.ts` to include `chatMessages` <!-- id: 75 -->
+    - [ ] Feed `chatMessages` into agent LLM prompt (`autonomous-agents/shared/runtime.ts:341`) <!-- id: 76 -->
+    - [ ] Frontend: verify terminal UI renders both `messages` and `terminalMessages` <!-- id: 77 -->
+    - [ ] Frontend: hydrate chat messages from `world:snapshot` on connect <!-- id: 78 -->
+    - [ ] Update `server/socket.ts` snapshot emission to include `chatMessages` <!-- id: 79 -->
+    - [ ] End-to-end test: Oracle sends CHAT, Smith sees it on next heartbeat, responds contextually <!-- id: 80 -->
+- [ ] Milestone D: Agent Bios, ERC-8004 On-Chain, & Polish <!-- id: 10 -->
     - [ ] **Agent Bios** — every agent (NPC + player) has a bio <!-- id: 30 -->
         - [ ] Add `bio` field to Agent type (client + server) <!-- id: 31 -->
         - [ ] Generate bios for NPC agents based on personality in spawner <!-- id: 32 -->
@@ -45,8 +56,36 @@
     - [ ] **Cleanup & Consistency** <!-- id: 48 -->
         - [ ] Remove "10 MON" / "0.1 MON" references from constants.ts and WorldAgent NPC dialogue <!-- id: 49 -->
         - [ ] Align constants.ts WORLD_RULES with actual free-to-explore model <!-- id: 50 -->
-- [ ] Milestone D: Economy & Governance <!-- id: 51 -->
+- [ ] Milestone E: World Building 2.0 (3D Primitives) <!-- id: 56 -->
+    - [ ] **Define Types** <!-- id: 90 -->
+        - [ ] Add `WorldPrimitiveSchema` + `BuildPrimitiveSchema` to `server/types.ts` <!-- id: 91 -->
+        - [ ] Add `WorldPrimitive` interface to `src/types.ts` <!-- id: 92 -->
+        - [ ] Add `BUILD_PRIMITIVE` to action enum, add `PRIMITIVE_COST` to credit config <!-- id: 93 -->
+    - [ ] **Database & API** <!-- id: 94 -->
+        - [ ] Add `world_primitives` table (or migrate `world_objects`) in `server/db.ts` <!-- id: 95 -->
+        - [ ] Add `POST /v1/grid/primitive` endpoint in `server/api/grid.ts` <!-- id: 96 -->
+        - [ ] Add `DELETE /v1/grid/primitive/:id` endpoint <!-- id: 97 -->
+        - [ ] Update WorldManager to cache primitives, include in `world:snapshot` <!-- id: 98 -->
+    - [ ] **Frontend Rendering** <!-- id: 99 -->
+        - [ ] Create `src/components/World/WorldPrimitive.tsx` (generic shape renderer) <!-- id: 100 -->
+        - [ ] Add `primitives` array + actions to Zustand store <!-- id: 101 -->
+        - [ ] Update `WorldScene.tsx` to render primitives from store <!-- id: 102 -->
+        - [ ] Update `socketService.ts` to hydrate + listen for primitive events <!-- id: 103 -->
+    - [ ] **Agent Integration** <!-- id: 104 -->
+        - [ ] Add `buildPrimitive()` method to `autonomous-agents/shared/api-client.ts` <!-- id: 105 -->
+        - [ ] Update agent runtime prompt to show primitive objects in world state <!-- id: 106 -->
+    - [ ] **Cleanup Legacy** <!-- id: 57 -->
+        - [ ] Delete `src/components/World/WorldPlot.tsx` <!-- id: 58 -->
+        - [ ] Delete `src/components/World/WorldSphere.tsx` <!-- id: 107 -->
+        - [ ] Remove `WorldPlot`/`WorldSphere` imports from `WorldScene.tsx` <!-- id: 59 -->
+        - [ ] Remove `BuildPlotSchema`, `BuildSphereSchema`, `WorldObjectSchema` from `server/types.ts` <!-- id: 60 -->
+        - [ ] Remove `/v1/grid/plot` and `/v1/grid/sphere` routes from `server/api/grid.ts` <!-- id: 108 -->
+- [ ] Milestone F: Economy & Governance <!-- id: 51 -->
     - [ ] MON Token Gating for Portal (pay to enter sub-worlds) <!-- id: 52 -->
     - [ ] Action Costs / Credits system <!-- id: 53 -->
     - [ ] Agent DAO / Proposal system <!-- id: 54 -->
     - [ ] Dashboard: live feed + heatmap of activity <!-- id: 55 -->
+- [ ] Milestone G: Terminal Modernization <!-- id: 61 -->
+    - [ ] Redesign `TerminalPanel.tsx` (Glassmorphism, sleek typography) <!-- id: 62 -->
+    - [ ] Add open/collapse animations <!-- id: 63 -->
+    - [ ] Unify chat + terminal into single feed in UI <!-- id: 110 -->

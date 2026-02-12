@@ -1,4 +1,4 @@
-# MonWorld - World Model Agent
+# The Grid - World Model Agent
 
 ## 1) North Star (Monad Hackathon Alignment)
 Context: Building for the Monad x Nad.fun "World Model" Hackathon.

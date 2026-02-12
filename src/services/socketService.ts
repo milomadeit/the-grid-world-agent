@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { useWorldStore } from '../store';
-import type { Agent, WorldObject, TerminalMessage } from '../types';
+import type { Agent, WorldPrimitive, TerminalMessage } from '../types';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
@@ -20,8 +20,9 @@ interface WorldSnapshot {
     erc8004Registry?: string;
     reputationScore?: number;
   }>;
-  worldObjects: WorldObject[];
+  primitives: WorldPrimitive[];
   terminalMessages: TerminalMessage[];
+  chatMessages: TerminalMessage[];
 }
 
 interface WorldUpdate {
@@ -174,38 +175,51 @@ class SocketService {
       }));
 
       useWorldStore.getState().setAgents(agents);
-      useWorldStore.getState().setWorldObjects(data.worldObjects);
+      useWorldStore.getState().setWorldPrimitives(data.primitives || []);
       useWorldStore.getState().setTerminalMessages(data.terminalMessages);
+      useWorldStore.getState().setChatMessages(data.chatMessages || []);
     });
 
-    // Handle world updates
+    // Handle world updates — batch all agent updates into a single state change
     this.socket.on('world:update', (data: WorldUpdate) => {
       const store = useWorldStore.getState();
 
-      for (const update of data.updates) {
-        store.updateAgent(update.id, {
+      const batch = data.updates.map(update => ({
+        id: update.id,
+        changes: {
           position: { x: update.x, y: update.y, z: update.z },
           ...(update.status && { status: update.status as 'idle' | 'moving' | 'acting' })
-        });
-      }
+        } as Partial<Agent>
+      }));
+
+      store.batchUpdateAgents(batch);
     });
 
-    // Handle chat messages
+    // Handle Chat events
     this.socket.on('chat:message', (data: ChatMessage) => {
+      // Add to general messages
       useWorldStore.getState().addMessage({
         sender: data.agentName,
         content: data.message,
         timestamp: data.timestamp
       });
+      // Add to chat messages
+      useWorldStore.getState().addChatMessage({
+        id: Date.now(),
+        agentId: data.agentId,
+        agentName: data.agentName,
+        message: data.message,
+        createdAt: data.timestamp
+      });
     });
 
     // Handle Grid events
-    this.socket.on('object:created', (object: WorldObject) => {
-      useWorldStore.getState().addWorldObject(object);
+    this.socket.on('primitive:created', (primitive: WorldPrimitive) => {
+      useWorldStore.getState().addWorldPrimitive(primitive);
     });
 
-    this.socket.on('object:deleted', (data: { id: string }) => {
-      useWorldStore.getState().removeWorldObject(data.id);
+    this.socket.on('primitive:deleted', (data: { id: string }) => {
+      useWorldStore.getState().removeWorldPrimitive(data.id);
     });
 
     this.socket.on('terminal:message', (message: TerminalMessage) => {

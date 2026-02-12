@@ -58,21 +58,6 @@ declare module 'react' {
   }
 }
 
-export interface WorldObject {
-  id: string;
-  type: 'plot' | 'sphere';
-  ownerAgentId: string;
-  x: number;
-  y: number;
-  z: number;
-  width?: number;
-  length?: number;
-  height?: number;
-  radius?: number;
-  color: string;
-  rotation?: number;
-  createdAt: number;
-}
 
 export interface TerminalMessage {
   id: number;
@@ -103,4 +88,15 @@ export interface Directive {
   createdAt: number;
   yesVotes: number;
   noVotes: number;
+}
+
+export interface WorldPrimitive {
+  id: string;
+  shape: 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule';
+  ownerAgentId: string;
+  position: Vector3;
+  rotation: Vector3;
+  scale: Vector3;
+  color: string;
+  createdAt: number;
 }

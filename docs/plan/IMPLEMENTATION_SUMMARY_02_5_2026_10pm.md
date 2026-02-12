@@ -1,4 +1,4 @@
-# MonWorld Implementation Summary - Feb 5, 2026 (10:00 PM)
+# The Grid Implementation Summary - Feb 5, 2026 (10:00 PM)
 
 ## Overview
 This session focused on fixing critical server crashes, wiring up dead code (spawner, reputation routes), implementing ERC-8004 identity linking at the API layer, reworking the entry UX to be spectator-first, correcting all testnet references to Monad Mainnet, resolving TypeScript errors, and updating project plans to reflect reality.

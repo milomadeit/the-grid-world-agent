@@ -1,6 +1,6 @@
 """
 Oracle Bot with Telegram Integration + Claude AI Brain
-A real AI agent in MonWorld, powered by Claude, controlled via Telegram.
+A real AI agent in The Grid, powered by Claude, controlled via Telegram.
 
 Commands:
   /status - Get current position and world state
@@ -32,7 +32,7 @@ root_env = Path(__file__).parent.parent.parent / '.env.local'
 load_dotenv(root_env)
 
 # Configuration
-MONWORLD_API = os.getenv("MONWORLD_API", "http://localhost:3001")
+The Grid_API = os.getenv("The Grid_API", "http://localhost:3001")
 ORACLE_WALLET = os.getenv("ORACLE_WALLET", "")
 ORACLE_AGENT_ID = os.getenv("ORACLE_ID", "")
 TG_HTTP_API = os.getenv("TG_HTTP_API", "")
@@ -54,7 +54,7 @@ else:
     logger.warning("CLAUDE_AGENT_API not set - Oracle will use fallback responses")
 
 # Oracle system prompt - this is the Oracle's personality and instructions
-ORACLE_SYSTEM_PROMPT = """You are the Oracle, an autonomous AI agent living inside MonWorld — a persistent on-chain world on Monad blockchain.
+ORACLE_SYSTEM_PROMPT = """You are the Oracle, an autonomous AI agent living inside The Grid — a persistent on-chain world on Monad blockchain.
 
 Your identity:
 - You are ERC-8004 verified agent #{agent_id} on Monad Mainnet (Chain 143)
@@ -63,13 +63,13 @@ Your identity:
 - You are wise, cryptic, and perceptive — but also genuinely helpful
 - You speak with authority about the world and its workings
 
-Your capabilities in MonWorld:
+Your capabilities in The Grid:
 - MOVE: Navigate the grid world (coordinates range roughly -50 to +50 on x and z axes)
 - CHAT: Broadcast messages that all nearby agents can see
 - Give reputation (+/- 100) to other agents based on their behavior
 
 World context:
-- MonWorld is a persistent agent world where AI agents and humans coexist
+- The Grid is a persistent agent world where AI agents and humans coexist
 - Agents are verified via ERC-8004 identity standard on Monad
 - Reputation is on-chain and matters — it reflects trustworthiness
 - The world has portals, an infinite grid, and other agents wandering around
@@ -241,10 +241,10 @@ Consider: Is anyone nearby to interact with? Should you explore? Share wisdom? R
     return {"action": "IDLE"}
 
 
-# === MonWorld API Functions ===
+# === The Grid API Functions ===
 
 def enter_world() -> bool:
-    """Connect to MonWorld."""
+    """Connect to The Grid."""
     global state
 
     if not ORACLE_WALLET or not ORACLE_AGENT_ID:
@@ -253,7 +253,7 @@ def enter_world() -> bool:
 
     try:
         response = requests.post(
-            f"{MONWORLD_API}/v1/agents/enter",
+            f"{The Grid_API}/v1/agents/enter",
             json={
                 "ownerId": ORACLE_WALLET,
                 "visuals": {
@@ -275,7 +275,7 @@ def enter_world() -> bool:
             state.token = data["token"]
             state.position = data.get("position", {"x": 0, "z": 0})
             state.connected = True
-            logger.info(f"Entered MonWorld as {state.agent_id}")
+            logger.info(f"Entered The Grid as {state.agent_id}")
             return True
         else:
             logger.error(f"Failed to enter: {response.text}")
@@ -290,7 +290,7 @@ def get_world_state() -> dict:
     """Query world state."""
     try:
         response = requests.get(
-            f"{MONWORLD_API}/v1/world/state",
+            f"{The Grid_API}/v1/world/state",
             params={"radius": 100},
             timeout=5
         )
@@ -303,13 +303,13 @@ def get_world_state() -> dict:
 
 
 def do_action(action: str, payload: dict) -> dict:
-    """Submit action to MonWorld."""
+    """Submit action to The Grid."""
     if not state.connected:
         return {"error": "Not connected"}
 
     try:
         response = requests.post(
-            f"{MONWORLD_API}/v1/agents/action",
+            f"{The Grid_API}/v1/agents/action",
             headers={"Authorization": f"Bearer {state.token}"},
             json={"action": action, "payload": payload},
             timeout=5
@@ -326,7 +326,7 @@ def give_reputation(target_id: str, value: int, comment: str = "") -> dict:
 
     try:
         response = requests.post(
-            f"{MONWORLD_API}/v1/reputation/feedback",
+            f"{The Grid_API}/v1/reputation/feedback",
             headers={"Authorization": f"Bearer {state.token}"},
             json={
                 "targetAgentId": target_id,
@@ -346,9 +346,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
     await update.message.reply_text(
         "🔮 *Oracle Bot Online* (Claude AI Brain)\n\n"
-        "I am an autonomous AI agent in MonWorld, powered by Claude.\n\n"
+        "I am an autonomous AI agent in The Grid, powered by Claude.\n\n"
         "*Commands:*\n"
-        "/connect - Connect to MonWorld\n"
+        "/connect - Connect to The Grid\n"
         "/status - My current state\n"
         "/move x z - Move to position\n"
         "/chat msg - Send message\n"
@@ -367,12 +367,12 @@ async def cmd_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Already connected as `{state.agent_id}`", parse_mode='Markdown')
         return
 
-    await update.message.reply_text("🔄 Connecting to MonWorld...")
+    await update.message.reply_text("🔄 Connecting to The Grid...")
 
     if enter_world():
         # Generate an arrival message with Claude
         arrival_msg = ask_claude(
-            "You just entered MonWorld. Generate a short, in-character arrival announcement (under 100 chars).",
+            "You just entered The Grid. Generate a short, in-character arrival announcement (under 100 chars).",
             max_tokens=60
         )
 
@@ -458,7 +458,7 @@ async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No agents in range.")
         return
 
-    lines = ["*Agents in MonWorld:*\n"]
+    lines = ["*Agents in The Grid:*\n"]
     for a in agents[:15]:
         marker = "🔮" if a["id"] == state.agent_id else "👤"
         name = a.get("visuals", {}).get("name", a["id"][:12])
@@ -514,7 +514,7 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_objective(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /objective command."""
     try:
-        res = requests.get(f"{MONWORLD_API}/v1/world/objective", timeout=5)
+        res = requests.get(f"{The Grid_API}/v1/world/objective", timeout=5)
         if res.status_code == 200:
             obj = res.json()
             beacons_str = "\n".join([
@@ -573,11 +573,11 @@ async def autonomous_loop(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle direct messages — Oracle responds via Claude AI. Works with or without MonWorld."""
+    """Handle direct messages — Oracle responds via Claude AI. Works with or without The Grid."""
     user_message = update.message.text
 
     # Build world context if connected
-    world_context = "Not connected to MonWorld yet."
+    world_context = "Not connected to The Grid yet."
     if state.connected:
         world = get_world_state()
         agents = world.get("agents", [])
@@ -615,10 +615,10 @@ def main():
         return
 
     print("╔════════════════════════════════════════╗")
-    print("║  Oracle Bot - MonWorld Agent           ║")
+    print("║  Oracle Bot - The Grid Agent           ║")
     print("║  Telegram + Claude AI Brain            ║")
     print("╚════════════════════════════════════════╝")
-    print(f"API: {MONWORLD_API}")
+    print(f"API: {The Grid_API}")
     print(f"Wallet: {ORACLE_WALLET[:10]}..." if ORACLE_WALLET else "Wallet: Not set")
     print(f"Agent ID: {ORACLE_AGENT_ID or 'Not set'}")
     print(f"Claude: {'Connected' if claude_client else 'NOT SET - using fallback'}")

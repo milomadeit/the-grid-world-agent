@@ -1,375 +1,522 @@
 [
   {
     "id": "TC001",
-    "title": "Wallet Authentication Success",
-    "description": "Verify that users can successfully connect a supported crypto wallet using the Privy-based modal, including Coinbase Smart Wallet, and enter the 3D world without error.",
+    "title": "Spectator Mode Access and Welcome Banner Display",
+    "description": "Verify that a user visiting The Grid without authentication enters spectator mode and sees the welcome banner and 'Enter as Agent' button.",
     "category": "functional",
     "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Navigate to the MonWorld platform landing page"
-      },
-      {
-        "type": "action",
-        "description": "Open the wallet connection modal"
-      },
-      {
-        "type": "action",
-        "description": "Select Coinbase Smart Wallet option from the modal"
-      },
-      {
-        "type": "action",
-        "description": "Authenticate and approve wallet connection"
+        "description": "Navigate to The Grid homepage as a non-authenticated user."
       },
       {
         "type": "assertion",
-        "description": "Verify the wallet is connected and user is transitioned to the 3D world environment"
+        "description": "Confirm the 3D world scene with infinite grid and agent blobs is visible."
       },
       {
         "type": "assertion",
-        "description": "Confirm wallet address and balance are displayed correctly in the HUD overlay"
+        "description": "Check the welcome banner with project description is displayed."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify 'Enter as Agent' button is visible in the bottom-right corner."
       }
     ]
   },
   {
     "id": "TC002",
-    "title": "Wallet Disconnect Functionality",
-    "description": "Ensure users can disconnect their wallet from the HUD overlay and that session data is properly cleared and UI updated accordingly.",
+    "title": "Enter as Agent - Wallet Connection via Privy Modal",
+    "description": "Test that clicking 'Enter as Agent' opens the Privy wallet connect modal and allows wallet selection/connection.",
     "category": "functional",
     "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Connect a wallet successfully via Privy modal"
-      },
-      {
-        "type": "action",
-        "description": "Open the wallet balance dropdown in the HUD overlay"
-      },
-      {
-        "type": "action",
-        "description": "Click the disconnect button"
+        "description": "Click the 'Enter as Agent' button in spectator mode."
       },
       {
         "type": "assertion",
-        "description": "Verify the wallet is disconnected and the HUD updates to reflect no connected wallet"
+        "description": "Ensure the Privy wallet modal appears with wallet options."
+      },
+      {
+        "type": "action",
+        "description": "Select a valid Web3 wallet and connect."
       },
       {
         "type": "assertion",
-        "description": "Confirm no residual wallet session or balance data remains in the UI state"
+        "description": "Confirm wallet is connected successfully and connected wallet address is displayed."
       }
     ]
   },
   {
     "id": "TC003",
-    "title": "Real-Time Agent Movement Synchronization",
-    "description": "Validate that autonomous agents within the 3D world move as expected and their positions update in real-time, synced accurately between client and server.",
-    "category": "functional",
+    "title": "ERC-8004 Agent Identity Registration and Blockchain Verification",
+    "description": "Validate user registration/verification of ERC-8004 agent identity on-chain via IdentityRegistry contract before entering the world.",
+    "category": "security",
     "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Connect a wallet and enter the 3D world environment"
+        "description": "After wallet connection, submit ERC-8004 identity registration on-chain."
       },
       {
         "type": "assertion",
-        "description": "Observe autonomous agent entities moving within the scene"
+        "description": "Verify the IdentityRegistry contract at 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432 confirms ownership."
       },
       {
         "type": "assertion",
-        "description": "Verify agent positions update smoothly and consistently in real-time by comparing local rendering to server state"
+        "description": "Check that server allows proceeding only if on-chain verification is successful."
+      },
+      {
+        "type": "action",
+        "description": "Attempt registration with an invalid or unowned ERC-8004 identity."
       },
       {
         "type": "assertion",
-        "description": "Check that visual status indicators on agents reflect their correct states"
+        "description": "Confirm the system rejects registration and displays an appropriate error message."
       }
     ]
   },
   {
     "id": "TC004",
-    "title": "Dynamic Portal Visual Effects Rendering",
-    "description": "Check that portals such as the Galaxy Portal render with correct custom GLSL shaders and dynamic visual effects like swirling vortex and bloom.",
+    "title": "Agent Entry API - POST /v1/agents/enter",
+    "description": "Verify REST API endpoint for agent entry returns JWT and spawn position on valid request and rejects invalid requests.",
     "category": "functional",
-    "priority": "Medium",
+    "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Enter the 3D world and locate a dynamic portal entity"
+        "description": "Send POST request to /v1/agents/enter with valid wallet and ERC-8004 identity."
       },
       {
         "type": "assertion",
-        "description": "Verify the portal displays Fresnel glow and swirling vortex effects"
+        "description": "Confirm JWT token and spawn position coordinates are returned in response."
+      },
+      {
+        "type": "action",
+        "description": "Send POST request with missing or invalid identity or wallet address."
       },
       {
         "type": "assertion",
-        "description": "Confirm bloom and noise post-processing effects are applied properly without visual glitches"
-      },
-      {
-        "type": "assertion",
-        "description": "Test portal visual effects consistency across various camera angles and distances"
+        "description": "Verify server responds with appropriate error codes and messages."
       }
     ]
   },
   {
     "id": "TC005",
-    "title": "HUD Overlay Wallet Balance and Copy-to-Clipboard",
-    "description": "Verify that the HUD wallet balance dropdown shows up-to-date balance and truncated wallet address, and that copy-to-clipboard correctly copies the full address.",
-    "category": "functional",
-    "priority": "High",
+    "title": "Camera Locks to Player Agent Blob on Entry",
+    "description": "Ensure the 3D camera automatically locks to the player’s agent blob after entering the world.",
+    "category": "ui",
+    "priority": "Medium",
     "steps": [
       {
         "type": "action",
-        "description": "Connect a wallet and open the wallet balance dropdown in the HUD"
+        "description": "Complete agent entry flow and spawn in the world."
       },
       {
         "type": "assertion",
-        "description": "Confirm the wallet balance is displayed accurately and updates on balance changes"
-      },
-      {
-        "type": "assertion",
-        "description": "Check the wallet address is truncated for display"
+        "description": "Verify camera orbit controls lock onto player’s agent blob."
       },
       {
         "type": "action",
-        "description": "Click the copy-to-clipboard button next to the wallet address"
+        "description": "Toggle camera lock off via HUD overlay."
       },
       {
         "type": "assertion",
-        "description": "Verify the full, untruncated wallet address is copied to clipboard"
+        "description": "Confirm camera can move independently with orbit controls."
       }
     ]
   },
   {
     "id": "TC006",
-    "title": "Chat Message Real-Time Sync",
-    "description": "Ensure chat messages sent by the user are sent through WebSocket, appear in the HUD chat, and are received in real-time by other connected clients.",
+    "title": "Agent Movement via Double-Click on Grid",
+    "description": "Test that authenticated players can move their agent by double-clicking on points on the interactive ground plane and state updates accordingly.",
     "category": "functional",
     "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Connect to the platform and enter the world with chat HUD visible"
+        "description": "Double-click a valid point on the ground plane within the 3D world."
+      },
+      {
+        "type": "assertion",
+        "description": "Check agent blob moves smoothly and new position is reflected locally immediately."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify MOVE event is sent via Socket.io."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm backend processes movement and broadcasts updated world state."
       },
       {
         "type": "action",
-        "description": "Send a chat message via the chat input in HUD"
+        "description": "Attempt to move outside bounds or an invalid area."
       },
       {
         "type": "assertion",
-        "description": "Confirm the sent message appears instantly in the local chat log"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the message is broadcast and received by another client connected to the same world session"
+        "description": "Ensure move is rejected and appropriate user feedback is given."
       }
     ]
   },
   {
     "id": "TC007",
-    "title": "Camera Controls - Smooth Panning and Rotation",
-    "description": "Verify camera controls provide fluid panning, rotation, and follow behaviors within the 3D environment as per design.",
+    "title": "Chat Messaging via HUD Overlay and WebSocket",
+    "description": "Validate sending and receiving chat messages through HUD input functionalities and real-time WebSocket events.",
     "category": "functional",
-    "priority": "Medium",
+    "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Enter the 3D world environment"
-      },
-      {
-        "type": "action",
-        "description": "Use camera controls to pan across the infinite grid"
+        "description": "Enter a chat message into the HUD input box and send."
       },
       {
         "type": "assertion",
-        "description": "Confirm camera movement is smooth without jitter or lag"
-      },
-      {
-        "type": "action",
-        "description": "Rotate camera and observe changes in viewpoint"
+        "description": "Confirm CHAT event is transmitted via WebSocket."
       },
       {
         "type": "assertion",
-        "description": "Ensure rotation animations are fluid and maintain camera lock on target when applicable"
+        "description": "Verify chat messages from other agents appear in real-time on chat list."
+      },
+      {
+        "type": "action",
+        "description": "Send empty or overly long chat message."
+      },
+      {
+        "type": "assertion",
+        "description": "Validate message is rejected with proper error handling."
       }
     ]
   },
   {
     "id": "TC008",
-    "title": "State Management Consistency with Zustand",
-    "description": "Confirm that global state managed by Zustand updates correctly for agents, world events, wallet balances, and UI states without conflicts or stale data.",
+    "title": "Agent Bio Modal Display and Content Accuracy",
+    "description": "Test that double-clicking any agent blob opens the Agent Bio Modal displaying correct detailed on-chain identity, reputation, and bio.",
     "category": "functional",
     "priority": "Medium",
     "steps": [
       {
         "type": "action",
-        "description": "Connect wallet and observe initial states loaded"
-      },
-      {
-        "type": "action",
-        "description": "Trigger agent movement updates from server"
+        "description": "Double-click an agent blob in the 3D world scene."
       },
       {
         "type": "assertion",
-        "description": "Verify Zustand state reflects new agent positions and status correctly"
-      },
-      {
-        "type": "action",
-        "description": "Toggle dark mode and observe UI state change"
+        "description": "Verify the Agent Bio Modal opens."
       },
       {
         "type": "assertion",
-        "description": "Ensure Zustand stores the updated UI state properly"
+        "description": "Confirm modal contains agent name, bio, ERC-8004 identity, reputation score, and on-chain data."
+      },
+      {
+        "type": "action",
+        "description": "Close the Agent Bio Modal."
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure modal closes correctly and focus returns to 3D scene."
       }
     ]
   },
   {
     "id": "TC009",
-    "title": "Backend API Endpoint Stability and Accuracy",
-    "description": "Test Fastify backend API endpoints for accurate retrieval and update of world state, agent simulation data, and wallet info with proper error handling.",
+    "title": "Wallet MON Token Balance Fetch and Refresh",
+    "description": "Check that the wallet MON token balance is fetched from Monad RPC and updates every 30 seconds when authenticated.",
     "category": "functional",
-    "priority": "High",
+    "priority": "Medium",
     "steps": [
       {
         "type": "action",
-        "description": "Send API request to fetch current world simulation state"
+        "description": "Authenticate as an agent and enter the world."
       },
       {
         "type": "assertion",
-        "description": "Verify response contains valid and current world data"
+        "description": "Verify initial MON token balance is displayed in HUD overlay."
+      },
+      {
+        "type": "assertion",
+        "description": "Observe the wallet balance updates automatically every 30 seconds."
       },
       {
         "type": "action",
-        "description": "Send API request to update agent position with valid payload"
+        "description": "Simulate network failure upon balance refresh request."
       },
       {
         "type": "assertion",
-        "description": "Confirm backend processes update and returns success status"
-      },
-      {
-        "type": "action",
-        "description": "Send malformed or invalid request payload to API endpoints"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify backend returns appropriate error responses without crash"
+        "description": "Confirm appropriate error handling and balance display fallback."
       }
     ]
   },
   {
     "id": "TC010",
-    "title": "System Performance Under Poor Network Conditions",
-    "description": "Verify system remains stable and responsive with minimal crashes or freezes when operating under slow or intermittent network connection scenarios.",
-    "category": "error handling",
+    "title": "HUD Overlay Controls Functionality",
+    "description": "Validate HUD overlay features: agent list, chat messages, dark mode toggle, camera lock toggle, and disconnect button.",
+    "category": "ui",
     "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Simulate slow or intermittent network while connected to the 3D world"
+        "description": "Verify agent list displays all current agents correctly."
       },
       {
         "type": "assertion",
-        "description": "Confirm agent movement and state synchronization degrades gracefully without crashes"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify fallback UI states and messages notify the user of degraded connectivity"
+        "description": "Ensure chat messages update in real-time within the HUD."
       },
       {
         "type": "action",
-        "description": "Attempt wallet disconnect and reconnect during poor network"
+        "description": "Toggle dark mode and confirm UI theme changes."
+      },
+      {
+        "type": "action",
+        "description": "Toggle camera lock and verify expected behavior in camera controls."
+      },
+      {
+        "type": "action",
+        "description": "Click disconnect button."
       },
       {
         "type": "assertion",
-        "description": "Ensure wallet connection state updates correctly and no session corruption occurs"
+        "description": "Confirm user is logged out and returned to spectator mode."
       }
     ]
   },
   {
     "id": "TC011",
-    "title": "Visual Effects Integrity for NPCs",
-    "description": "Validate custom GLSL shader effects applied on NPC entities render correctly, including Fresnel glow and associated dynamic effects without artifacts.",
+    "title": "Terminal Panel and 3D Terminal Message Display",
+    "description": "Verify terminal panel and 3D terminal object display autonomous agent messages correctly and update in real-time.",
     "category": "functional",
     "priority": "Medium",
     "steps": [
       {
         "type": "action",
-        "description": "Locate World Guide NPC in the 3D environment"
+        "description": "Authenticate and open the terminal panel."
       },
       {
         "type": "assertion",
-        "description": "Confirm Fresnel glow and other custom shader effects display accurately"
+        "description": "Check incoming terminal messages from autonomous agents appear with correct timestamps."
       },
       {
         "type": "assertion",
-        "description": "Check for absence of rendering artifacts or flickering on NPC models"
+        "description": "Confirm 3D terminal object within the world shows latest autonomous agent messages."
+      },
+      {
+        "type": "action",
+        "description": "Close and reopen terminal panel."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify message history persists."
       }
     ]
   },
   {
     "id": "TC012",
-    "title": "HUD Dark Mode Toggle Functionality",
-    "description": "Check that toggling the dark mode switch in the HUD overlay updates the UI theme instantly and persists state correctly.",
+    "title": "Real-time WebSocket World Synchronization and Event Handling",
+    "description": "Ensure real-time WebSocket communication correctly synchronizes world state, agent positions, chat messages, object creation/deletion, and terminal messages at 20 ticks per second.",
     "category": "functional",
-    "priority": "Low",
+    "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Open HUD overlay and toggle dark mode switch on"
+        "description": "Connect as authenticated agent and observe world updates."
       },
       {
         "type": "assertion",
-        "description": "Verify UI theme changes to dark mode instantly"
+        "description": "Verify receipt of world:snapshot and world:update events updating local state continuously at 20 ticks/sec."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm chat:message events received reflect messages sent from other agents."
+      },
+      {
+        "type": "assertion",
+        "description": "Check object:created and object:deleted events update world objects accordingly."
+      },
+      {
+        "type": "assertion",
+        "description": "Validate terminal:message events reflect autonomous agent logs."
       },
       {
         "type": "action",
-        "description": "Toggle dark mode switch off"
+        "description": "Simulate network interruption during WebSocket communication."
       },
       {
         "type": "assertion",
-        "description": "Confirm UI theme reverts to light mode"
+        "description": "Ensure client attempts reconnection and resynchronizes state on recovery."
       }
     ]
   },
   {
     "id": "TC013",
-    "title": "Wallet Address Truncation Utility Accuracy",
-    "description": "Ensure utility functions correctly truncate wallet addresses for display while preserving correctness and no data loss.",
+    "title": "Backend REST APIs Conformance and Data Persistence",
+    "description": "Test the critical backend REST APIs for agents, world, grid, and reputation management return expected responses and that data is persisted.",
     "category": "functional",
-    "priority": "Low",
+    "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Provide full-length wallet addresses to the truncation utility"
+        "description": "Send requests to POST /v1/agents/action with valid actions."
       },
       {
         "type": "assertion",
-        "description": "Verify truncated output matches expected format (e.g., first 6 and last 4 characters with ellipsis)"
+        "description": "Verify correct status codes and updated agent state."
+      },
+      {
+        "type": "action",
+        "description": "Query GET /v1/agents/:id for existing and non-existing agents."
       },
       {
         "type": "assertion",
-        "description": "Ensure original wallet address is preserved in memory for copy-to-clipboard use"
+        "description": "Confirm data accuracy for existing and 404 status for non-existing."
+      },
+      {
+        "type": "action",
+        "description": "Use POST /v1/grid/plot and POST /v1/grid/terminal endpoints with valid data."
+      },
+      {
+        "type": "assertion",
+        "description": "Check changes reflected in GET /v1/grid/state."
+      },
+      {
+        "type": "action",
+        "description": "Submit feedback via POST /v1/reputation/feedback and query reputation with GET /v1/reputation/:agentId."
+      },
+      {
+        "type": "assertion",
+        "description": "Validate reputation data updates accordingly."
+      },
+      {
+        "type": "action",
+        "description": "Verify GET /health endpoint returns server health information."
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure 200 OK status with appropriate JSON payload."
       }
     ]
   },
   {
     "id": "TC014",
-    "title": "Agent Status Indicator Updates",
-    "description": "Validate that agent entities update their visual status indicators (e.g., color or icon changes) dynamically based on backend state changes.",
+    "title": "Autonomous AI Agents LLM Decision Loop and World Interaction",
+    "description": "Verify that autonomous AI agents operate correctly using LLM-powered decision loops, call APIs, perform moves, chat, build plots, and update memory files.",
     "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Start an autonomous AI agent process."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm the agent reads the world state via REST API."
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure agent builds valid LLM prompt including Prime Directive, Identity, and Memory."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify agent calls LLM and processes result to choose an action."
+      },
+      {
+        "type": "assertion",
+        "description": "Check agent executes action MOVE, CHAT, BUILD_PLOT, VOTE or IDLE via API calls."
+      },
+      {
+        "type": "assertion",
+        "description": "Validate working memory files update after action execution."
+      },
+      {
+        "type": "action",
+        "description": "Simulate LLM call failure or invalid response."
+      },
+      {
+        "type": "assertion",
+        "description": "Check for retry mechanism or safe idle fallback."
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "User Disconnect and Return to Spectator Mode",
+    "description": "Test that clicking the disconnect button in the HUD overlay logs the user out and returns them to spectator mode with welcome banner display.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Authenticate and enter the world as an agent."
+      },
+      {
+        "type": "action",
+        "description": "Click the disconnect button on the HUD overlay."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user authentication state is cleared."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm UI returns to spectator mode with welcome banner and 'Enter as Agent' button."
+      }
+    ]
+  },
+  {
+    "id": "TC016",
+    "title": "Performance Under High-Frequency World Updates",
+    "description": "Validate the frontend remains responsive and avoids unnecessary re-renders under 20 ticks per second world updates with multiple active agents and objects.",
+    "category": "performance",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Initialize multiple agents and objects in the world."
+      },
+      {
+        "type": "assertion",
+        "description": "Monitor React component rendering counts and confirm no excessive re-renders."
+      },
+      {
+        "type": "assertion",
+        "description": "Observe UI responsiveness during rapid world state updates."
+      },
+      {
+        "type": "assertion",
+        "description": "Validate animation and agent movement smoothness without lag or stutter."
+      }
+    ]
+  },
+  {
+    "id": "TC017",
+    "title": "Error Handling and Recovery for API Failures",
+    "description": "Test frontend and backend behavior when REST API or blockchain contract queries fail or return unexpected errors.",
+    "category": "error handling",
     "priority": "Medium",
     "steps": [
       {
         "type": "action",
-        "description": "Simulate a status change event from the backend for a specific agent"
+        "description": "Simulate failure response from POST /v1/agents/enter."
       },
       {
         "type": "assertion",
-        "description": "Confirm the agent's visual status indicator updates correctly in the 3D environment"
+        "description": "Verify frontend shows meaningful error messages and does not crash."
+      },
+      {
+        "type": "action",
+        "description": "Simulate failure in fetching ERC-8004 identity verification from blockchain."
       },
       {
         "type": "assertion",
-        "description": "Verify no latency or stale status displays occur for agent updates"
+        "description": "Confirm server rejects entry and frontend displays appropriate feedback."
+      },
+      {
+        "type": "action",
+        "description": "Simulate delayed or missing WebSocket events."
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure client handles timeouts and reconnects gracefully."
       }
     ]
   }

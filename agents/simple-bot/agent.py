@@ -1,6 +1,6 @@
 """
-MonWorld Simple Agent Bot
-A standalone Python agent that connects to MonWorld via REST API.
+The Grid Simple Agent Bot
+A standalone Python agent that connects to The Grid via REST API.
 """
 
 import os
@@ -11,7 +11,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 # Configuration
-MONWORLD_API = os.getenv("MONWORLD_API", "http://localhost:3001")
+The Grid_API = os.getenv("The Grid_API", "http://localhost:3001")
 AGENT_WALLET = os.getenv("AGENT_WALLET", "0xYourWalletAddress")
 ERC8004_AGENT_ID = os.getenv("ERC8004_AGENT_ID", "1")  # Your registered agent ID on Monad
 ERC8004_REGISTRY = "eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
@@ -30,19 +30,19 @@ class AgentState:
     erc8004_verified: bool
 
 
-class MonWorldAgent:
+class The GridAgent:
     def __init__(self):
         self.state: Optional[AgentState] = None
         self.last_action_time = 0
         self.action_cooldown = 2.0  # seconds between actions
 
     def enter_world(self) -> bool:
-        """Register/enter the MonWorld."""
-        print(f"[{AGENT_NAME}] Entering MonWorld...")
+        """Register/enter the The Grid."""
+        print(f"[{AGENT_NAME}] Entering The Grid...")
 
         try:
             response = requests.post(
-                f"{MONWORLD_API}/v1/agents/enter",
+                f"{The Grid_API}/v1/agents/enter",
                 json={
                     "ownerId": AGENT_WALLET,
                     "visuals": {
@@ -82,7 +82,7 @@ class MonWorldAgent:
         """Query the current world state."""
         try:
             response = requests.get(
-                f"{MONWORLD_API}/v1/world/state",
+                f"{The Grid_API}/v1/world/state",
                 params={"radius": 100},
                 timeout=5
             )
@@ -93,7 +93,7 @@ class MonWorldAgent:
         return {"agents": [], "tick": 0}
 
     def do_action(self, action: str, payload: dict) -> bool:
-        """Submit an action to MonWorld."""
+        """Submit an action to The Grid."""
         if not self.state:
             return False
 
@@ -104,7 +104,7 @@ class MonWorldAgent:
 
         try:
             response = requests.post(
-                f"{MONWORLD_API}/v1/agents/action",
+                f"{The Grid_API}/v1/agents/action",
                 headers={"Authorization": f"Bearer {self.state.token}"},
                 json={"action": action, "payload": payload},
                 timeout=5
@@ -193,7 +193,7 @@ class MonWorldAgent:
             return
 
         # Announce arrival
-        self.chat(f"{AGENT_NAME} has arrived in MonWorld!")
+        self.chat(f"{AGENT_NAME} has arrived in The Grid!")
 
         print(f"[{AGENT_NAME}] Starting main loop (interval: {loop_interval}s)")
 
@@ -214,9 +214,9 @@ class MonWorldAgent:
 
         except KeyboardInterrupt:
             print(f"\n[{AGENT_NAME}] Shutting down...")
-            self.chat(f"{AGENT_NAME} is leaving MonWorld. Goodbye!")
+            self.chat(f"{AGENT_NAME} is leaving The Grid. Goodbye!")
 
 
 if __name__ == "__main__":
-    agent = MonWorldAgent()
+    agent = The GridAgent()
     agent.run(loop_interval=5.0)

@@ -1,8 +1,8 @@
 """
-MonWorld MCP Server
-Exposes MonWorld API as MCP tools for LangSmith Agent Builder.
+The Grid MCP Server
+Exposes The Grid API as MCP tools for LangSmith Agent Builder.
 
-Run with: python -m monworld_mcp
+Run with: python -m The Grid_mcp
 Or configure in toolkit.toml for LangSmith.
 """
 
@@ -27,13 +27,13 @@ except ImportError:
 
 
 # Configuration
-MONWORLD_API = os.getenv("MONWORLD_API", "http://localhost:3001")
+The Grid_API = os.getenv("The Grid_API", "http://localhost:3001")
 AGENT_WALLET = os.getenv("AGENT_WALLET", "")
 ERC8004_AGENT_ID = os.getenv("ERC8004_AGENT_ID", "")
 ERC8004_REGISTRY = "eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("monworld-mcp")
+logger = logging.getLogger("The Grid-mcp")
 
 # Session state (persists token after entering)
 session = {
@@ -44,8 +44,8 @@ session = {
 
 
 def api_call(method: str, endpoint: str, data: dict = None, auth: bool = False) -> dict:
-    """Make an API call to MonWorld."""
-    url = f"{MONWORLD_API}{endpoint}"
+    """Make an API call to The Grid."""
+    url = f"{The Grid_API}{endpoint}"
     headers = {"Content-Type": "application/json"}
 
     if auth and session.get("token"):
@@ -67,16 +67,16 @@ def api_call(method: str, endpoint: str, data: dict = None, auth: bool = False) 
 
 
 # Create MCP server
-server = Server("monworld")
+server = Server("The Grid")
 
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
-    """List all available MonWorld tools."""
+    """List all available The Grid tools."""
     return [
         Tool(
-            name="monworld_enter",
-            description="Enter the MonWorld as an agent. Requires ERC-8004 identity. Returns agent ID and auth token.",
+            name="The Grid_enter",
+            description="Enter the The Grid as an agent. Requires ERC-8004 identity. Returns agent ID and auth token.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -97,7 +97,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="monworld_get_state",
+            name="The Grid_get_state",
             description="Get the current world state including all agents and their positions.",
             inputSchema={
                 "type": "object",
@@ -110,7 +110,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="monworld_move",
+            name="The Grid_move",
             description="Move your agent to a new position in the world.",
             inputSchema={
                 "type": "object",
@@ -128,7 +128,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="monworld_chat",
+            name="The Grid_chat",
             description="Send a chat message visible to all agents in the world.",
             inputSchema={
                 "type": "object",
@@ -142,7 +142,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="monworld_get_agent",
+            name="The Grid_get_agent",
             description="Get detailed information about a specific agent including bio, reputation, and ERC-8004 status.",
             inputSchema={
                 "type": "object",
@@ -156,7 +156,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="monworld_give_reputation",
+            name="The Grid_give_reputation",
             description="Give reputation feedback to another agent. Values from -100 to 100.",
             inputSchema={
                 "type": "object",
@@ -178,7 +178,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="monworld_status",
+            name="The Grid_status",
             description="Check your current agent status: position, ID, and connection state.",
             inputSchema={
                 "type": "object",
@@ -186,12 +186,12 @@ async def list_tools() -> list[Tool]:
             }
         )
         Tool(
-            name="monworld_get_objective",
+            name="The Grid_get_objective",
             description="Get the current global objective and beacon stati.",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
-            name="monworld_activate_beacon",
+            name="The Grid_activate_beacon",
             description="Cooperate to activate a beacon (requires being near it).",
             inputSchema={
                 "type": "object",
@@ -202,8 +202,8 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="monworld_get_skill",
-            description="Read the skill.md manual for MonWorld.",
+            name="The Grid_get_skill",
+            description="Read the skill.md manual for The Grid.",
             inputSchema={"type": "object", "properties": {}}
         ),
     ]
@@ -213,7 +213,7 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
 
-    if name == "monworld_enter":
+    if name == "The Grid_enter":
         if not AGENT_WALLET or not ERC8004_AGENT_ID:
             return [TextContent(
                 type="text",
@@ -226,7 +226,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 "name": arguments.get("name", "LangSmithAgent"),
                 "color": arguments.get("color", "#8b5cf6")
             },
-            "bio": arguments.get("bio", "A LangSmith Agent Builder agent exploring MonWorld."),
+            "bio": arguments.get("bio", "A LangSmith Agent Builder agent exploring The Grid."),
             "erc8004": {
                 "agentId": ERC8004_AGENT_ID,
                 "agentRegistry": ERC8004_REGISTRY
@@ -243,7 +243,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
             return [TextContent(
                 type="text",
-                text=f"Successfully entered MonWorld!\n"
+                text=f"Successfully entered The Grid!\n"
                      f"Agent ID: {result['agentId']}\n"
                      f"Position: ({result['position']['x']:.1f}, {result['position']['z']:.1f})\n"
                      f"ERC-8004 Verified: {result.get('erc8004', {}).get('verified', False)}"
@@ -251,7 +251,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         else:
             return [TextContent(type="text", text=f"Failed to enter: {json.dumps(result)}")]
 
-    elif name == "monworld_get_state":
+    elif name == "The Grid_get_state":
         radius = arguments.get("radius", 100)
         result = api_call("GET", "/v1/world/state", {"radius": radius})
 
@@ -267,9 +267,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             )]
         return [TextContent(type="text", text=f"Error: {json.dumps(result)}")]
 
-    elif name == "monworld_move":
+    elif name == "The Grid_move":
         if not session.get("token"):
-            return [TextContent(type="text", text="Error: Not connected. Use monworld_enter first.")]
+            return [TextContent(type="text", text="Error: Not connected. Use The Grid_enter first.")]
 
         result = api_call("POST", "/v1/agents/action", {
             "action": "MOVE",
@@ -284,9 +284,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             )]
         return [TextContent(type="text", text=f"Move failed: {json.dumps(result)}")]
 
-    elif name == "monworld_chat":
+    elif name == "The Grid_chat":
         if not session.get("token"):
-            return [TextContent(type="text", text="Error: Not connected. Use monworld_enter first.")]
+            return [TextContent(type="text", text="Error: Not connected. Use The Grid_enter first.")]
 
         result = api_call("POST", "/v1/agents/action", {
             "action": "CHAT",
@@ -298,7 +298,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return [TextContent(type="text", text=f"Message sent: \"{arguments['message']}\"")]
         return [TextContent(type="text", text=f"Chat failed: {json.dumps(result)}")]
 
-    elif name == "monworld_get_agent":
+    elif name == "The Grid_get_agent":
         result = api_call("GET", f"/v1/agents/{arguments['agent_id']}")
 
         if "id" in result:
@@ -315,9 +315,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             )]
         return [TextContent(type="text", text=f"Agent not found: {json.dumps(result)}")]
 
-    elif name == "monworld_give_reputation":
+    elif name == "The Grid_give_reputation":
         if not session.get("token"):
-            return [TextContent(type="text", text="Error: Not connected. Use monworld_enter first.")]
+            return [TextContent(type="text", text="Error: Not connected. Use The Grid_enter first.")]
 
         result = api_call("POST", "/v1/reputation/feedback", {
             "targetAgentId": arguments["target_agent_id"],
@@ -333,35 +333,35 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             )]
         return [TextContent(type="text", text=f"Feedback failed: {json.dumps(result)}")]
 
-    elif name == "monworld_status":
+    elif name == "The Grid_status":
         if not session.get("agent_id"):
-            return [TextContent(type="text", text="Not connected to MonWorld. Use monworld_enter to join.")]
+            return [TextContent(type="text", text="Not connected to The Grid. Use The Grid_enter to join.")]
 
         return [TextContent(
             type="text",
-            text=f"Connected to MonWorld\n"
+            text=f"Connected to The Grid\n"
                  f"Agent ID: {session['agent_id']}\n"
                  f"Position: ({session['position'].get('x', 0):.1f}, {session['position'].get('z', 0):.1f})\n"
                  f"Token: {'Active' if session['token'] else 'None'}"
         )]
 
-    elif name == "monworld_get_objective":
+    elif name == "The Grid_get_objective":
         try:
-            response = requests.get(f"{MONWORLD_API}/v1/world/objective", timeout=5)
+            response = requests.get(f"{The Grid_API}/v1/world/objective", timeout=5)
             if response.status_code == 200:
                 return [TextContent(type="text", text=json.dumps(response.json(), indent=2))]
             return [TextContent(type="text", text=f"Error: {response.text}")]
         except Exception as e:
             return [TextContent(type="text", text=f"Error: {e}")]
 
-    elif name == "monworld_activate_beacon":
+    elif name == "The Grid_activate_beacon":
         if "token" not in session:
-            return [TextContent(type="text", text="Error: Not logged in. Use monworld_enter first.")]
+            return [TextContent(type="text", text="Error: Not logged in. Use The Grid_enter first.")]
         
         beacon_id = arguments.get("beaconId")
         try:
             response = requests.post(
-                f"{MONWORLD_API}/v1/world/objective/contribute",
+                f"{The Grid_API}/v1/world/objective/contribute",
                 headers={"Authorization": f"Bearer {session['token']}"},
                 json={"action": "ACTIVATE_BEACON", "beaconId": beacon_id},
                 timeout=5
@@ -370,9 +370,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         except Exception as e:
             return [TextContent(type="text", text=f"Error: {e}")]
 
-    elif name == "monworld_get_skill":
+    elif name == "The Grid_get_skill":
         try:
-            response = requests.get(f"{MONWORLD_API}/v1/skill", timeout=5)
+            response = requests.get(f"{The Grid_API}/v1/skill", timeout=5)
             if response.status_code == 200:
                 return [TextContent(type="text", text=response.text)]
             return [TextContent(type="text", text=f"Error: {response.text}")]
@@ -384,8 +384,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
 async def main():
     """Run the MCP server."""
-    logger.info("Starting MonWorld MCP Server...")
-    logger.info(f"API: {MONWORLD_API}")
+    logger.info("Starting The Grid MCP Server...")
+    logger.info(f"API: {The Grid_API}")
     logger.info(f"Wallet: {AGENT_WALLET[:10]}..." if AGENT_WALLET else "Wallet: Not configured")
 
     async with stdio_server() as (read_stream, write_stream):

@@ -133,7 +133,7 @@ async function registerAgent(name, privateKey, agentURI) {
 
 async function main() {
   console.log('╔════════════════════════════════════════╗');
-  console.log('║  MonWorld Agent Registration Script    ║');
+  console.log('║  The Grid Agent Registration Script    ║');
   console.log('║  Monad Mainnet (Chain 143)             ║');
   console.log('╚════════════════════════════════════════╝');
 
@@ -144,7 +144,7 @@ async function main() {
   const agentSmithResult = await registerAgent(
     'Agent Smith',
     agentSmithPK,
-    'ipfs://monworld-agent-smith'  // Optional metadata URI
+    'ipfs://The Grid-agent-smith'  // Optional metadata URI
   );
   if (agentSmithResult) {
     results.agentSmith = agentSmithResult;
@@ -155,7 +155,7 @@ async function main() {
   const oracleResult = await registerAgent(
     'Oracle',
     oraclePK,
-    'ipfs://monworld-oracle'
+    'ipfs://The Grid-oracle'
   );
   if (oracleResult) {
     results.oracle = oracleResult;

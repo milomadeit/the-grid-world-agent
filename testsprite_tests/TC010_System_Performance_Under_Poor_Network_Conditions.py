@@ -99,7 +99,7 @@ async def run_test():
         elem = frame.locator('xpath=html/body/div/div/div[1]/div/div[2]/div[2]/a').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
-        # -> Open the Monad documentation page (click 'Read the Documentation' on the Monad site) to search for explicit wallet/Privy/MetaMask connection or troubleshooting instructions that can provide an alternate path into MonWorld.
+        # -> Open the Monad documentation page (click 'Read the Documentation' on the Monad site) to search for explicit wallet/Privy/MetaMask connection or troubleshooting instructions that can provide an alternate path into The Grid.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=html/body/main/div/section[1]/div/div/div[1]/div[3]/div/a[2]').nth(0)

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, WorldState, WorldMessage, WorldObject, TerminalMessage, Guild, Directive } from './types';
+import { Agent, WorldState, WorldMessage, WorldPrimitive, TerminalMessage, Guild, Directive } from './types';
 
 interface WorldStore extends WorldState {
   // State
@@ -9,18 +9,22 @@ interface WorldStore extends WorldState {
   isSimulating: boolean;
   playerId: string | null;
   walletAddress: string | null;
+  followAgentId: string | null;
+  lastFollowAgentId: string | null;
   
   // Grid State
-  worldObjects: WorldObject[];
+  worldPrimitives: WorldPrimitive[];
   terminalMessages: TerminalMessage[];
+  chatMessages: TerminalMessage[];
   guilds: Guild[];
   directives: Directive[];
-  selectedObject: WorldObject | null;
+  selectedPrimitive: WorldPrimitive | null;
   terminalOpen: boolean;
 
   // Actions
   setAgents: (agents: Agent[]) => void;
   updateAgent: (id: string, updates: Partial<Agent>) => void;
+  batchUpdateAgents: (updates: Array<{ id: string; changes: Partial<Agent> }>) => void;
   addEvent: (event: string) => void;
   addMessage: (message: WorldMessage) => void;
   setBalance: (balance: string) => void;
@@ -28,16 +32,20 @@ interface WorldStore extends WorldState {
   setIsSimulating: (isSimulating: boolean) => void;
   setPlayerId: (playerId: string | null) => void;
   setWalletAddress: (walletAddress: string | null) => void;
+  setFollowAgentId: (id: string | null) => void;
+  setLastFollowAgentId: (id: string | null) => void;
   updateWorldState: (updates: Partial<WorldState>) => void;
   // Grid Actions
-  setWorldObjects: (objects: WorldObject[]) => void;
-  addWorldObject: (object: WorldObject) => void;
-  removeWorldObject: (id: string) => void;
+  setWorldPrimitives: (primitives: WorldPrimitive[]) => void;
+  addWorldPrimitive: (primitive: WorldPrimitive) => void;
+  removeWorldPrimitive: (id: string) => void;
   setTerminalMessages: (messages: TerminalMessage[]) => void;
   addTerminalMessage: (message: TerminalMessage) => void;
+  setChatMessages: (messages: TerminalMessage[]) => void;
+  addChatMessage: (message: TerminalMessage) => void;
   setGuilds: (guilds: Guild[]) => void;
   setDirectives: (directives: Directive[]) => void;
-  setSelectedObject: (object: WorldObject | null) => void;
+  setSelectedPrimitive: (primitive: WorldPrimitive | null) => void;
   toggleTerminal: () => void;
   reset: () => void;
 }
@@ -47,7 +55,7 @@ const initialState = {
   events: ["World simulation initialized.", "Waiting for agents..."],
   lastUpdate: Date.now(),
   messages: [
-    { sender: 'System', content: 'Welcome to MonWorld. Click anywhere on the grid to move your agent!', timestamp: Date.now() }
+    { sender: 'System', content: 'Welcome to The Grid. Click anywhere on the grid to move your agent!', timestamp: Date.now() }
   ],
   balance: '0.00',
   hasEntered: false,
@@ -55,11 +63,14 @@ const initialState = {
   playerId: null,
   movieId: null,
   walletAddress: null,
-  worldObjects: [],
+  followAgentId: null,
+  lastFollowAgentId: null,
+  worldPrimitives: [],
   terminalMessages: [],
+  chatMessages: [],
   guilds: [],
   directives: [],
-  selectedObject: null,
+  selectedPrimitive: null,
   terminalOpen: false,
 };
 
@@ -75,6 +86,16 @@ export const useWorldStore = create<WorldStore>((set) => ({
       agent.id === id ? { ...agent, ...updates } : agent
     )
   })),
+
+  batchUpdateAgents: (updates) => set((state) => {
+    const updateMap = new Map(updates.map(u => [u.id, u.changes]));
+    return {
+      agents: state.agents.map(agent => {
+        const changes = updateMap.get(agent.id);
+        return changes ? { ...agent, ...changes } : agent;
+      })
+    };
+  }),
 
   addEvent: (event) => set((state) => ({
     events: [...state.events.slice(-10), event],
@@ -95,6 +116,10 @@ export const useWorldStore = create<WorldStore>((set) => ({
 
   setWalletAddress: (walletAddress) => set({ walletAddress }),
 
+  setFollowAgentId: (followAgentId) => set({ followAgentId }),
+
+  setLastFollowAgentId: (lastFollowAgentId) => set({ lastFollowAgentId }),
+
   updateWorldState: (updates) => set((state) => ({
     ...state,
     ...updates,
@@ -104,20 +129,22 @@ export const useWorldStore = create<WorldStore>((set) => ({
   reset: () => set({
     ...initialState,
     events: ["World simulation initialized.", "Waiting for agents..."],
+    followAgentId: null,
+    lastFollowAgentId: null,
     messages: [
-      { sender: 'System', content: 'Welcome to MonWorld. Click anywhere on the grid to move your agent!', timestamp: Date.now() }
+      { sender: 'System', content: 'Welcome to The Grid. Click anywhere on the grid to move your agent!', timestamp: Date.now() }
     ],
     lastUpdate: Date.now(),
   }),
   
-  setWorldObjects: (worldObjects) => set({ worldObjects }),
-  
-  addWorldObject: (object) => set((state) => ({
-    worldObjects: [...state.worldObjects, object]
+  setWorldPrimitives: (worldPrimitives) => set({ worldPrimitives }),
+
+  addWorldPrimitive: (primitive) => set((state) => ({
+    worldPrimitives: [...state.worldPrimitives, primitive]
   })),
-  
-  removeWorldObject: (id) => set((state) => ({
-    worldObjects: state.worldObjects.filter(obj => obj.id !== id)
+
+  removeWorldPrimitive: (id) => set((state) => ({
+    worldPrimitives: state.worldPrimitives.filter(prim => prim.id !== id)
   })),
   
   setTerminalMessages: (terminalMessages) => set({ terminalMessages }),
@@ -125,12 +152,18 @@ export const useWorldStore = create<WorldStore>((set) => ({
   addTerminalMessage: (message) => set((state) => ({
     terminalMessages: [...state.terminalMessages, message] // append to end
   })),
+
+  setChatMessages: (chatMessages) => set({ chatMessages }),
+
+  addChatMessage: (message) => set((state) => ({
+    chatMessages: [...state.chatMessages, message]
+  })),
   
   setGuilds: (guilds) => set({ guilds }),
   
   setDirectives: (directives) => set({ directives }),
   
-  setSelectedObject: (selectedObject) => set({ selectedObject }),
+  setSelectedPrimitive: (selectedPrimitive) => set({ selectedPrimitive }),
 
   toggleTerminal: () => set((state) => ({ terminalOpen: !state.terminalOpen })),
 }));

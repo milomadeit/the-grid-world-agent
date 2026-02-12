@@ -59,7 +59,7 @@ def handle_tool_call(name: str, arguments: dict) -> str:
         alive = "yes" if ago < 60 else f"last seen {ago:.0f}s ago"
 
         return (
-            f"Connected to MonWorld: {status.get('connected', False)}\n"
+            f"Connected to The Grid: {status.get('connected', False)}\n"
             f"Agent ID: {status.get('agent_id', 'N/A')}\n"
             f"Position: {status.get('position', 'N/A')}\n"
             f"Autonomous mode: {status.get('autonomous', False)}\n"
@@ -110,7 +110,7 @@ TOOLS = [
     },
     {
         "name": "oracle_get_status",
-        "description": "Check the Oracle Telegram bot's current status — whether it's running, connected to MonWorld, its position, and autonomous mode state.",
+        "description": "Check the Oracle Telegram bot's current status — whether it's running, connected to The Grid, its position, and autonomous mode state.",
         "inputSchema": {
             "type": "object",
             "properties": {}

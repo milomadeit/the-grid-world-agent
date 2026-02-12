@@ -1,37 +1,52 @@
 [
   {
     "id": "TC001",
-    "title": "health check endpoint returns accurate server_status_and_world_statistics",
-    "description": "Verify that the /health GET endpoint returns a 200 status with a JSON body containing the server status as 'ok', current tick number, total agent count, and a valid timestamp."
+    "title": "post v1 agents enter authentication and spawn",
+    "description": "Test the POST /v1/agents/enter endpoint to verify that it correctly authenticates the user by validating the wallet address and ERC-8004 identity on-chain, issues a JWT token, and returns the correct spawn position for the agent in the world."
   },
   {
     "id": "TC002",
-    "title": "agent registration returns valid_token_and_initial_position",
-    "description": "Test the /v1/agents/enter POST endpoint with valid ownerId and optional visuals to ensure it returns a 200 status with a valid agentId, initial position coordinates, and a base64url-encoded JWT token with 24-hour expiry."
+    "title": "post v1 agents action movement and chat",
+    "description": "Test the POST /v1/agents/action endpoint to ensure that agent actions such as MOVE and CHAT are correctly processed, updating the world state and broadcasting changes to connected clients."
   },
   {
     "id": "TC003",
-    "title": "submit agent action validates_authentication_and_returns_processing_status",
-    "description": "Test the /v1/agents/action POST endpoint by submitting various valid and invalid actions with and without authentication tokens to verify correct status codes (200, 400, 401) and response messages indicating queued, executed, or failed action processing."
+    "title": "get v1 agents id retrieval",
+    "description": "Test the GET /v1/agents/:id endpoint to verify that it returns accurate and complete information about a specific agent, including identity, reputation, and current state."
   },
   {
     "id": "TC004",
-    "title": "get world state returns_agents_within_specified_radius_and_coordinates",
-    "description": "Verify the /v1/world/state GET endpoint returns a 200 status with a JSON body containing the current tick and a list of agents filtered by the specified radius and center coordinates, including their id, position, color, and status."
+    "title": "delete v1 agents id removal",
+    "description": "Test the DELETE /v1/agents/:id endpoint to confirm that an agent can be properly removed from the world and database, and that the world state updates accordingly."
   },
   {
     "id": "TC005",
-    "title": "get agent details returns_correct_agent_information_or_404",
-    "description": "Test the /v1/agents/{id} GET endpoint with valid and invalid agent IDs to ensure it returns 200 with full agent details including position, status, and inventory, or 404 if the agent is not found."
+    "title": "get v1 world state synchronization",
+    "description": "Test the GET /v1/world/state endpoint to ensure it returns the current complete state of the world, including all agents, objects, and relevant data for client synchronization."
   },
   {
     "id": "TC006",
-    "title": "delete agent enforces_authentication_and_ownership_restrictions",
-    "description": "Verify the /v1/agents/{id} DELETE endpoint requires authentication and only allows deletion of agents owned by the authenticated user, returning 200 on success, 401 for unauthorized, 403 for forbidden deletion attempts, and 404 if the agent does not exist."
+    "title": "post v1 reputation feedback submission",
+    "description": "Test the POST /v1/reputation/feedback endpoint to verify that reputation feedback for agents is correctly recorded and stored in the database and reflected in reputation scores."
   },
   {
     "id": "TC007",
-    "title": "ai simulate world tick processes_world_state_and_user_action_correctly",
-    "description": "Test the /api/simulate POST endpoint by submitting valid worldState objects and optional userAction strings to verify it returns 200 with updated agent states and new events, and returns 400 if worldState is missing."
+    "title": "get v1 reputation agentid retrieval",
+    "description": "Test the GET /v1/reputation/:agentId endpoint to ensure it returns accurate reputation data for the specified agent, including feedback and scores."
+  },
+  {
+    "id": "TC008",
+    "title": "get v1 grid state retrieval",
+    "description": "Test the GET /v1/grid/state endpoint to verify it returns the current state of the grid, including plots and terminal objects, for client rendering."
+  },
+  {
+    "id": "TC009",
+    "title": "post v1 grid plot creation",
+    "description": "Test the POST /v1/grid/plot endpoint to confirm that new plots can be created on the grid, stored persistently, and broadcasted to clients."
+  },
+  {
+    "id": "TC010",
+    "title": "post v1 grid terminal message creation",
+    "description": "Test the POST /v1/grid/terminal endpoint to ensure terminal messages from autonomous agents are correctly created, stored, and broadcasted in the 3D terminal and UI panel."
   }
 ]

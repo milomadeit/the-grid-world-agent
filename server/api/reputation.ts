@@ -4,7 +4,7 @@ import * as db from '../db.js';
 
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-monworld-key-123';
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-The Grid-key-123';
 
 function verifyToken(token: string): { agentId: string } | null {
   try {

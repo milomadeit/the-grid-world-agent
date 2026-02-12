@@ -1,0 +1,22 @@
+{
+  "name": "The Grid-autonomous-agents",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts",
+    "dev": "tsx watch index.ts",
+    "start:smith": "tsx index.ts smith",
+    "start:oracle": "tsx index.ts oracle",
+    "start:clank": "tsx index.ts clank"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.4",
+    "playwright": "^1.58.2",
+    "tsx": "^4.19.0",
+    "viem": "^2.45.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

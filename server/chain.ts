@@ -6,12 +6,12 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Chain configuration
-const RPC_URL = process.env.BASE_MAINNET_RPC || 'https://mainnet.base.org';
-const CHAIN_ID = parseInt(process.env.BASE_MAINNET_ID || '8453', 10);
+// Chain configuration — Monad Mainnet (Chain ID 143)
+const RPC_URL = process.env.MONAD_RPC || 'https://rpc.monad.xyz';
+const CHAIN_ID = parseInt(process.env.MONAD_CHAIN_ID || '143', 10);
 
-const IDENTITY_REGISTRY_ADDRESS = process.env.BASE_IDENTITY_REGISTRY || '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
-const REPUTATION_REGISTRY_ADDRESS = process.env.BASE_REPUTATION_REGISTRY || '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63';
+const IDENTITY_REGISTRY_ADDRESS = process.env.IDENTITY_REGISTRY || '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+const REPUTATION_REGISTRY_ADDRESS = process.env.REPUTATION_REGISTRY || '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63';
 
 // Load ABIs
 const identityAbi = JSON.parse(
@@ -31,7 +31,7 @@ export function initChain(): void {
     provider = new ethers.JsonRpcProvider(RPC_URL, CHAIN_ID);
     identityRegistry = new ethers.Contract(IDENTITY_REGISTRY_ADDRESS, identityAbi, provider);
     reputationRegistry = new ethers.Contract(REPUTATION_REGISTRY_ADDRESS, reputationAbi, provider);
-    console.log(`[Chain] Connected to ${CHAIN_ID === 8453 ? 'Base Mainnet' : 'Chain ' + CHAIN_ID} (read-only)`);
+    console.log(`[Chain] Connected to ${CHAIN_ID === 143 ? 'Monad Mainnet' : 'Chain ' + CHAIN_ID} (read-only)`);
     console.log(`[Chain] IdentityRegistry: ${IDENTITY_REGISTRY_ADDRESS}`);
     console.log(`[Chain] ReputationRegistry: ${REPUTATION_REGISTRY_ADDRESS}`);
   } catch (error) {

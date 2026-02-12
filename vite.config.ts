@@ -8,6 +8,16 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '::',
+        watch: {
+          // Ignore agent memory files and server directories to prevent unwanted HMR
+          ignored: [
+            '**/autonomous-agents/**',
+            '**/server/**',
+            '**/testsprite_tests/**',
+            '**/*.md',
+            '**/node_modules/**',
+          ],
+        },
       },
       plugins: [react()],
       define: {

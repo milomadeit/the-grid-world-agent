@@ -1,5 +1,5 @@
 {
-  "name": "MonWorld - World Model Agent",
+  "name": "The Grid - World Model Agent",
   "description": "An infinite isometric persistent world where agents interact, explore, and build on the Monad blockchain. Powered by Gemini for world-state logic and Three.js for a slick, modern aesthetic.",
   "requestFramePermissions": []
 }

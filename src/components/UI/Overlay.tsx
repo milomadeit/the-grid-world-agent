@@ -2,8 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Terminal, Users, Map, Send, Wallet, Moon, Sun, Maximize2, Minimize2, Menu, X, Focus, Copy, Check, LogOut, ChevronDown } from 'lucide-react';
 import { WorldState, WorldMessage } from '../../types';
-import TerminalPanel from './TerminalPanel';
-import ObjectInfoModal from './ObjectInfoModal';
+import AgentBioPanel from './AgentBioPanel';
 import { useWorldStore } from '../../store';
 
 interface OverlayProps {
@@ -17,16 +16,48 @@ interface OverlayProps {
   onToggleDarkMode: () => void;
   cameraLocked?: boolean;
   onToggleCameraLock?: () => void;
+  // onOpenBio: (agentId: string) => void; // Deprecated
+  followedAgentId?: string | null;
 }
 
-const Overlay: React.FC<OverlayProps> = ({ worldState, messages, onSendMessage, balance, walletAddress, onDisconnect, isDarkMode, onToggleDarkMode, cameraLocked = false, onToggleCameraLock }) => {
+const Overlay: React.FC<OverlayProps> = ({ 
+  worldState, 
+  messages, 
+  onSendMessage, 
+  balance, 
+  walletAddress, 
+  onDisconnect, 
+  isDarkMode, 
+  onToggleDarkMode, 
+  cameraLocked = false, 
+  onToggleCameraLock,
+  // onOpenBio,
+  followedAgentId
+}) => {
   const [input, setInput] = useState('');
   const [isFullView, setIsFullView] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isWalletOpen, setIsWalletOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const walletDropdownRef = useRef<HTMLDivElement>(null);
-  const terminalOpen = useWorldStore((state) => state.terminalOpen);
+  const chatMessages = useWorldStore((state) => state.chatMessages);
+  const terminalMessages = useWorldStore((state) => state.terminalMessages);
+  const terminalScrollRef = useRef<HTMLDivElement>(null);
+
+  // Merge chat + terminal messages into a single sorted list
+  const allMessages = [...chatMessages, ...terminalMessages]
+    .sort((a, b) => a.createdAt - b.createdAt);
+
+  // Auto-scroll terminal to bottom when messages change
+  useEffect(() => {
+    if (terminalScrollRef.current) {
+      const el = terminalScrollRef.current;
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      });
+    }
+  }, [allMessages]);
 
   // Close wallet dropdown when clicking outside
   useEffect(() => {
@@ -38,6 +69,9 @@ const Overlay: React.FC<OverlayProps> = ({ worldState, messages, onSendMessage, 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Find currently followed agent name
+  const followedAgent = followedAgentId ? worldState.agents.find(a => a.id === followedAgentId) : null;
 
   const truncateAddress = (address: string) => {
     if (!address) return '';
@@ -66,9 +100,9 @@ const Overlay: React.FC<OverlayProps> = ({ worldState, messages, onSendMessage, 
     : 'bg-white/70 border-slate-200/50';
 
   const glassEffect = 'backdrop-blur-xl border shadow-lg';
-  const textPrimary = isDarkMode ? 'text-slate-100' : 'text-slate-800';
-  const textMuted = isDarkMode ? 'text-slate-400' : 'text-slate-500';
-  const sidebarHeader = isDarkMode ? 'text-slate-500' : 'text-slate-400 font-semibold';
+  const textPrimary = isDarkMode ? 'text-slate-100' : 'text-slate-900';
+  const textMuted = isDarkMode ? 'text-slate-400' : 'text-slate-600';
+  const sidebarHeader = isDarkMode ? 'text-slate-500' : 'text-slate-500 font-semibold';
 
   // HUD-specific styles - transparent with accent borders
   const hudSidebarBg = isDarkMode
@@ -155,7 +189,7 @@ const Overlay: React.FC<OverlayProps> = ({ worldState, messages, onSendMessage, 
       {/* HUD SIDEBAR - Transparent with accent lines */}
       <aside className={`
         fixed top-0 right-0 bottom-0
-        w-64 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] z-40
+        w-[312px] transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] z-40
         ${hudSidebarBg} backdrop-blur-sm flex flex-col pointer-events-auto
         ${isFullView ? 'translate-x-full' : (isSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0')}
       `}>
@@ -163,19 +197,22 @@ const Overlay: React.FC<OverlayProps> = ({ worldState, messages, onSendMessage, 
           {/* Header with accent line */}
           <div className="flex items-center gap-3">
             <div className="w-1 h-4 bg-violet-500 rounded-full shadow-lg shadow-violet-500/50" />
-            <h1 className={`text-xs font-black uppercase tracking-[0.4em] ${textPrimary}`}>MonWorld</h1>
+            <h1 className={`text-xs font-black uppercase tracking-[0.4em] ${textPrimary}`}>The Grid</h1>
           </div>
 
-          {/* Live Entities Section */}
+          {/* Live Agents Section */}
           <section className="space-y-4">
             <div className={`flex items-center justify-between text-[10px] uppercase tracking-widest ${sidebarHeader}`}>
               <span className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                Live Entities
+                Live Agents
               </span>
               <span className="font-mono text-violet-500 tabular-nums">{worldState.agents.length}</span>
             </div>
-            <div className="space-y-2 max-h-[28vh] overflow-y-auto scrollbar-hide">
+            <div
+              className="space-y-1 max-h-[28vh] overflow-y-auto pr-1 scrollbar-thin"
+              style={{ scrollbarWidth: 'thin', scrollbarColor: isDarkMode ? '#334155 transparent' : '#cbd5e1 transparent' }}
+            >
               {worldState.agents.map(agent => (
                 <div
                   key={agent.id}
@@ -197,20 +234,43 @@ const Overlay: React.FC<OverlayProps> = ({ worldState, messages, onSendMessage, 
             </div>
           </section>
 
-          {/* Kernel Output Section */}
-          <section className="flex-1 flex flex-col space-y-3 min-h-0">
+          {/* Terminal Section - Agent Chat Messages */}
+          <section className="flex-1 flex flex-col space-y-2 min-h-0">
             <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${sidebarHeader}`}>
-              <Terminal size={12} className="text-violet-500" />
-              <span>Kernel Output</span>
+              <Terminal size={12} className="text-emerald-500" />
+              <span>Terminal</span>
+              <div className="flex-1" />
+              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
             </div>
-            <div className={`flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-3 scrollbar-hide
-              border-l ${isDarkMode ? 'border-violet-500/20' : 'border-violet-400/30'} pl-4`}>
-              {worldState.events.slice().reverse().map((event, i) => (
-                <div key={i} className={`flex gap-2 ${i === 0 ? 'opacity-100' : 'opacity-60'}`}>
-                  <span className="text-violet-500 shrink-0">&gt;</span>
-                  <span className={`break-words ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>{event}</span>
+            <div
+              ref={terminalScrollRef}
+              className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin"
+              style={{ scrollbarWidth: 'thin', scrollbarColor: isDarkMode ? '#334155 transparent' : '#cbd5e1 transparent' }}
+            >
+              {allMessages.length === 0 ? (
+                <div className={`py-4 text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
+                  <span className="opacity-60">awaiting transmission...</span>
                 </div>
-              ))}
+              ) : (
+                allMessages.slice(-20).map((msg, i) => (
+                  <div
+                    key={msg.id || i}
+                    className={`py-1.5 px-2 rounded ${isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100/50'}`}
+                  >
+                    <div className="flex items-baseline gap-2">
+                      <span className={`font-semibold truncate max-w-[70px] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                        {msg.agentName}
+                      </span>
+                      <span className={`text-[8px] tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className={`mt-0.5 break-words leading-snug ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                      {msg.message}
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           </section>
 
@@ -248,6 +308,16 @@ const Overlay: React.FC<OverlayProps> = ({ worldState, messages, onSendMessage, 
         >
           <Focus size={18} className={cameraLocked ? "text-violet-500" : textMuted} />
         </button>
+
+        {/* Following Badge / Agent Bio Panel */}
+        {cameraLocked && followedAgent && (
+           <div className="ml-2">
+              <AgentBioPanel 
+                agent={followedAgent} 
+                isDarkMode={isDarkMode}
+              />
+           </div>
+        )}
       </div>
 
       <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-sm px-6 pointer-events-auto z-50 transition-all duration-500`}>
@@ -275,15 +345,7 @@ const Overlay: React.FC<OverlayProps> = ({ worldState, messages, onSendMessage, 
         </div>
       </div>
 
-      {/* Grid Components */}
-      <ObjectInfoModal />
-
-      {/* Terminal Panel - toggled by clicking Terminal3D in the 3D scene */}
-      {!isFullView && terminalOpen && (
-        <div className="pointer-events-auto z-40">
-           <TerminalPanel />
-        </div>
-      )}
+      {/* Grid Components - Terminal Panel and ObjectInfoModal now render in 3D scene */}
 
     </div>
   );

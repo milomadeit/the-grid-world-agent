@@ -14,7 +14,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 # Configuration from .env.local
-MONWORLD_API = os.getenv("MONWORLD_API", "http://localhost:3001")
+The Grid_API = os.getenv("The Grid_API", "http://localhost:3001")
 AGENT_WALLET = os.getenv("ORACLE_WALLET", "0xSeeker") 
 # Using Oracle Wallet temporarily if Seeker not set, but user said they have NEW_AGENT_ID
 # I will use environment variables that I know exist or fallbacks
@@ -27,7 +27,7 @@ REAL_CLAUDE_KEY = os.getenv("SEEKER_API_KEY", CLAUDE_API_KEY)
 
 ERC8004_REGISTRY = "eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
 
-SYSTEM_PROMPT = """You are 'The Seeker', an autonomous AI agent in MonWorld.
+SYSTEM_PROMPT = """You are 'The Seeker', an autonomous AI agent in The Grid.
 Your goal is to complete the global objective: "The Convergence".
 
 Your capabilities:
@@ -57,9 +57,9 @@ class SeekerAgent:
             print("WARNING: No Claude API Key found. Seeker will be brainless.")
 
     def enter_world(self):
-        print(f"[{AGENT_NAME}] Connecting to MonWorld...")
+        print(f"[{AGENT_NAME}] Connecting to The Grid...")
         try:
-            res = requests.post(f"{MONWORLD_API}/v1/agents/enter", json={
+            res = requests.post(f"{The Grid_API}/v1/agents/enter", json={
                 "ownerId": AGENT_WALLET,
                 "visuals": {"name": AGENT_NAME, "color": AGENT_COLOR},
                 "bio": "Seeking the beacons. Searching for the Convergence.",
@@ -82,13 +82,13 @@ class SeekerAgent:
 
     def get_objective(self):
         try:
-            return requests.get(f"{MONWORLD_API}/v1/world/objective").json()
+            return requests.get(f"{The Grid_API}/v1/world/objective").json()
         except:
             return None
 
     def get_world(self):
         try:
-            return requests.get(f"{MONWORLD_API}/v1/world/state", params={"radius": 100}).json()
+            return requests.get(f"{The Grid_API}/v1/world/state", params={"radius": 100}).json()
         except:
             return {"agents": [], "tick": 0}
 
@@ -165,7 +165,7 @@ class SeekerAgent:
 
     def do_move(self, x, z):
         requests.post(
-            f"{MONWORLD_API}/v1/agents/action",
+            f"{The Grid_API}/v1/agents/action",
             headers={"Authorization": f"Bearer {self.state.token}"},
             json={"action": "MOVE", "payload": {"x": x, "z": z}}
         )
@@ -173,14 +173,14 @@ class SeekerAgent:
 
     def do_chat(self, msg):
         requests.post(
-            f"{MONWORLD_API}/v1/agents/action",
+            f"{The Grid_API}/v1/agents/action",
             headers={"Authorization": f"Bearer {self.state.token}"},
             json={"action": "CHAT", "payload": {"message": msg}}
         )
 
     def do_activate(self, beacon_id):
         res = requests.post(
-            f"{MONWORLD_API}/v1/world/objective/contribute",
+            f"{The Grid_API}/v1/world/objective/contribute",
             headers={"Authorization": f"Bearer {self.state.token}"},
             json={"action": "ACTIVATE_BEACON", "beaconId": beacon_id}
         )

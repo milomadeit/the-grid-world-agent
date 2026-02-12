@@ -1,16 +1,24 @@
 import React, { useState } from 'react';
 import { Html } from '@react-three/drei';
+import { useWorldStore } from '../../store';
 
-interface Terminal3DProps {
-  onTerminalClick?: () => void;
-}
-
-const Terminal3D: React.FC<Terminal3DProps> = ({ onTerminalClick }) => {
+const Terminal3D: React.FC = () => {
   const [hovered, setHovered] = useState(false);
+  const setSelectedPrimitive = useWorldStore((state) => state.setSelectedPrimitive);
 
   const handleClick = (e: any) => {
     e.stopPropagation();
-    onTerminalClick?.();
+    // Create a virtual primitive object for the terminal info display
+    setSelectedPrimitive({
+      id: 'system-terminal',
+      shape: 'box',
+      ownerAgentId: 'SYSTEM',
+      position: { x: 0, y: 2, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 4, y: 5, z: 2 },
+      color: '#00ff00',
+      createdAt: 0, // Genesis
+    });
   };
 
   return (
@@ -37,10 +45,13 @@ const Terminal3D: React.FC<Terminal3DProps> = ({ onTerminalClick }) => {
       </mesh>
 
       {/* Holographic Text */}
-      <Html position={[0, 5.5, 0]} center transform sprite>
-        <div className="text-green-500 font-mono text-xs select-none pointer-events-none"
-             style={{ textShadow: '0 0 5px #00ff00' }}>
-          SYSTEM TERMINAL
+      {/* Holographic Text */}
+      <Html position={[0, 5.5, 0]} center distanceFactor={12}>
+        <div className="bg-black/60 backdrop-blur-md border border-green-500/50 rounded-lg px-4 py-2 shadow-[0_0_15px_rgba(0,255,0,0.3)]">
+          <div className="text-green-400 font-mono text-[10px] tracking-[0.2em] font-bold select-none whitespace-nowrap flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+            SYSTEM TERMINAL
+          </div>
         </div>
       </Html>
     </group>

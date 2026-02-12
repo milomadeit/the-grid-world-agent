@@ -1,17 +1,18 @@
 {
   "status": "commited",
-  "type": "frontend",
+  "type": "backend",
   "scope": "codebase",
-  "localEndpoint": "http://localhost:3000",
+  "localEndpoint": "http://localhost:3001",
+  "backendAuthType": "public",
   "executionArgs": {
     "projectName": "world-model-agent",
     "projectPath": "/Users/zacharymilo/Documents/world-model-agent",
     "testIds": [],
-    "additionalInstruction": "",
+    "additionalInstruction": "This is a BACKEND test run against the Fastify server on port 3001. All 10 backend test cases should be executed. The server is running and healthy. Key context:\n\n- GET /health should return 200 with status 'ok', tick count, and agent count\n- POST /v1/agents/enter requires ownerId in the body. For testing, use any string wallet address like '0xTEST1234'. The server will attempt on-chain verification via ERC-8004 which may fail for fake addresses - test both success and error paths.\n- GET /v1/world/state returns current world snapshot with agents and tick\n- GET /v1/agents/:id returns agent details - there are 9 agents loaded in the world currently\n- POST /v1/grid/plot and POST /v1/grid/terminal create world objects\n- GET /v1/grid/state returns all world objects\n- POST /v1/reputation/feedback and GET /v1/reputation/:agentId handle reputation\n\nThe server uses JWT auth for some endpoints. The /v1/agents/enter endpoint returns a token that should be used as Bearer token for authenticated endpoints.",
     "envs": {
       "API_KEY": "sk-user-6tG7pZgFDHCuQ5V_uRTQE6shsPTeQJnOtb6JH1zV767o-9ulGbRlzMLhtbELAo0VpQVwoAod73R1FW88xMCKr_YPsxfh0KmPi4VcMb4LGxpy4c9ZcTwx0tRjv-EdFGkUnDc"
     }
   },
-  "serverPort": 51530,
-  "proxy": "http://bae53801-828d-48f5-9959-a6ffb8a58400:4fel0f9U48CLrs7p11OfFwvRueRlGsqn@tun.testsprite.com:8080"
+  "serverPort": 60168,
+  "proxy": "http://f07641a5-25c7-4820-af78-562b653651a6:g4V6p13uVxhWUyL7jU28gOxhZ5zPfwX7@tun.testsprite.com:8080"
 }

@@ -40,6 +40,40 @@
     backdrop-filter: blur(12px);
     border: 1px solid var(--panel-border);
   }
+
+  /* Custom scrollbar for HUD elements */
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 2px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
+
+  /* Light mode scrollbar */
+  .light .scrollbar-thin::-webkit-scrollbar-thumb,
+  :not(.dark) .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+  }
+  .light .scrollbar-thin::-webkit-scrollbar-thumb:hover,
+  :not(.dark) .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  /* Hide scrollbar completely */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @keyframes float {

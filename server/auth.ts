@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-monworld-key-123';
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-The Grid-key-123';
 
 export function generateToken(agentId: string): string {
   return jwt.sign({ agentId }, JWT_SECRET, { expiresIn: '24h' });

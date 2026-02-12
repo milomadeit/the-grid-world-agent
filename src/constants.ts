@@ -1,9 +1,9 @@
 
 export const COLORS = {
   // Light Mode: Soft gray with visible grid
-  GROUND: '#E2E6EE',      // Muted blue-gray, not blinding white
-  GRID: '#B8C0D0',        // Clear contrast against ground
-  GRID_SECTION: '#9AA3B8', // Section lines with solid visibility
+  GROUND: '#D5DAE5',      // Slightly darker blue-gray ground
+  GRID: '#8D96AD',        // Darker grid lines for clear visibility
+  GRID_SECTION: '#737E99', // Darker section lines
 
   // Dark Mode: Deep navy (Ralvi-style)
   GROUND_DARK: '#181D2F',  // Rich dark navy, not pitch black

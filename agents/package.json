@@ -2,7 +2,7 @@
   "name": "monworld-agents",
   "version": "1.0.0",
   "type": "module",
-  "description": "External agents for MonWorld",
+  "description": "External agents for The Grid",
   "scripts": {
     "derive-wallets": "node derive-wallets.js",
     "register": "node register-agents.js"

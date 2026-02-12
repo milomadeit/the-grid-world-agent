@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import WorldScene from './components/World/WorldScene';
 import Overlay from './components/UI/Overlay';
+import SpectatorHUD from './components/UI/SpectatorHUD';
 import WalletModal, { type ERC8004FormData } from './components/UI/WalletModal';
-import AgentBioModal from './components/UI/AgentBioModal';
 import { Agent, WorldState, Vector3 } from './types';
 import { socketService } from './services/socketService';
 import { useWorldStore } from './store';
@@ -13,29 +13,36 @@ import { fetchWalletBalance } from './utils/balance';
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error';
 
 const App: React.FC = () => {
-  // Use Zustand store for state management
-  const {
-    agents,
-    events,
-    messages,
-    balance,
-    hasEntered,
-    isSimulating,
-    playerId,
-    walletAddress,
-    setAgents,
-    updateAgent,
-    addEvent,
-    addMessage,
-    setBalance,
-    setHasEntered,
-    setIsSimulating,
-    setPlayerId,
-    setWalletAddress,
-    reset
-  } = useWorldStore();
+  // Use granular Zustand selectors to avoid re-renders from unrelated state changes
+  const agents = useWorldStore((s) => s.agents);
+  const events = useWorldStore((s) => s.events);
+  const messages = useWorldStore((s) => s.messages);
+  const balance = useWorldStore((s) => s.balance);
+  const hasEntered = useWorldStore((s) => s.hasEntered);
+  const isSimulating = useWorldStore((s) => s.isSimulating);
+  const playerId = useWorldStore((s) => s.playerId);
+  const walletAddress = useWorldStore((s) => s.walletAddress);
+  const lastUpdate = useWorldStore((s) => s.lastUpdate);
+  const followAgentId = useWorldStore((s) => s.followAgentId);
+  const lastFollowAgentId = useWorldStore((s) => s.lastFollowAgentId);
 
-  const worldState: WorldState = { agents, events, lastUpdate: Date.now() };
+  // Actions are stable references — safe to select once
+  const updateAgent = useWorldStore((s) => s.updateAgent);
+  const addEvent = useWorldStore((s) => s.addEvent);
+  const addMessage = useWorldStore((s) => s.addMessage);
+  const setBalance = useWorldStore((s) => s.setBalance);
+  const setHasEntered = useWorldStore((s) => s.setHasEntered);
+  const setPlayerId = useWorldStore((s) => s.setPlayerId);
+  const setWalletAddress = useWorldStore((s) => s.setWalletAddress);
+  const setFollowAgentId = useWorldStore((s) => s.setFollowAgentId);
+  const setLastFollowAgentId = useWorldStore((s) => s.setLastFollowAgentId);
+  const reset = useWorldStore((s) => s.reset);
+
+  // Memoize worldState so it only changes when agents/events/lastUpdate actually change
+  const worldState: WorldState = useMemo(
+    () => ({ agents, events, lastUpdate }),
+    [agents, events, lastUpdate]
+  );
 
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -47,14 +54,90 @@ const App: React.FC = () => {
   const [dismissedWelcome, setDismissedWelcome] = useState(false);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
+    // Check local storage first
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+    }
     const hour = new Date().getHours();
     return hour < 6 || hour >= 18;
   });
 
   const [cameraLocked, setCameraLocked] = useState(false);
 
-  const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
-  const toggleCameraLock = () => setCameraLocked(!cameraLocked);
+  // Allow external control of camera follow via URL param (for autonomous agent vision)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const followId = params.get('follow');
+    if (followId) {
+      setFollowAgentId(followId);
+      setLastFollowAgentId(followId);
+      setCameraLocked(true);
+    }
+  }, [setFollowAgentId, setLastFollowAgentId]);
+
+  const toggleDarkMode = () => {
+    const newMode = !isDarkMode;
+    setIsDarkMode(newMode);
+    localStorage.setItem('theme', newMode ? 'dark' : 'light');
+  };
+
+  // Helper to find most interesting agent
+  const getMostActiveAgent = useCallback(() => {
+    // Prefer moving/acting agents
+    const active = agents.find(a => a.status === 'moving' || a.status === 'acting');
+    return active || agents[0];
+  }, [agents]);
+
+  const toggleCameraLock = () => {
+    const nextLocked = !cameraLocked;
+    
+    if (nextLocked) {
+      // Locking ON
+      let targetId = lastFollowAgentId;
+      
+      // If last followed agent is gone, or never set
+      if (!targetId || !agents.find(a => a.id === targetId)) {
+        if (playerId) {
+          targetId = playerId;
+        } else {
+          const target = getMostActiveAgent();
+          targetId = target?.id || null;
+        }
+      }
+      
+      if (targetId) {
+        setFollowAgentId(targetId);
+        setLastFollowAgentId(targetId);
+      }
+    } else {
+      // Locking OFF - clear follow but keep last for memory
+      setFollowAgentId(null);
+    }
+    
+    setCameraLocked(nextLocked);
+  };
+
+  // Fallback if followed agent leaves
+  useEffect(() => {
+    if (followAgentId && !agents.find(a => a.id === followAgentId)) {
+      // Followed agent disappeared
+      if (playerId) {
+        // Fallback to self
+        setFollowAgentId(playerId);
+        setLastFollowAgentId(playerId);
+      } else {
+        // Fallback to another active agent
+        const next = getMostActiveAgent();
+        if (next) {
+          setFollowAgentId(next.id);
+          setLastFollowAgentId(next.id);
+        } else {
+          setFollowAgentId(null);
+        }
+      }
+    }
+  }, [agents, followAgentId, playerId, getMostActiveAgent, setFollowAgentId, setLastFollowAgentId]);
 
   // Auto-connect socket as spectator on mount (no auth required to watch)
   useEffect(() => {
@@ -173,7 +256,13 @@ const App: React.FC = () => {
       setHasEntered(true);
       setShowAccessModal(false);
       setConnectionState('connected');
-      addEvent(`Welcome to MonWorld! Spawned at (${Math.round(position.x)}, ${Math.round(position.z)})`);
+      
+      // Default camera follow to self
+      setFollowAgentId(agentId);
+      setLastFollowAgentId(agentId);
+      setCameraLocked(true);
+
+      addEvent(`Welcome to The Grid! Spawned at (${Math.round(position.x)}, ${Math.round(position.z)})`);
 
     } catch (error) {
       console.error('[App] Failed to enter world:', error);
@@ -203,6 +292,21 @@ const App: React.FC = () => {
     }
   }, [playerId, updateAgent]);
 
+  const handleAgentDoubleClick = useCallback((agent: Agent) => {
+    // OLD: setSelectedAgent(agent);
+    
+    // NEW: Just follow the agent. User must click "Following" badge to see bio.
+    setFollowAgentId(agent.id);
+    setLastFollowAgentId(agent.id);
+    setCameraLocked(true);
+  }, [setFollowAgentId, setLastFollowAgentId, setCameraLocked]);
+
+  /* 
+  const handleOpenBio = useCallback((agentId: string) => {
+     // Deprecated - handled locally in UI components now
+  }, []);
+  */
+
   // Handle chat/prompt input
   const handleUserAction = useCallback(async (action: string) => {
     if (!playerId || !socketService.isConnected()) return;
@@ -215,22 +319,14 @@ const App: React.FC = () => {
     <div className={`w-screen h-screen overflow-hidden relative transition-colors duration-1000 ${isDarkMode ? 'dark' : ''}`}>
       {/* 3D World Scene - always visible */}
       <WorldScene
-        agents={worldState.agents}
         playerAgentId={playerId || undefined}
         isDarkMode={isDarkMode}
         onGridClick={handleMoveTo}
-        onAgentDoubleClick={(agent) => setSelectedAgent(agent)}
+        onAgentDoubleClick={handleAgentDoubleClick}
         cameraLocked={cameraLocked}
       />
 
-      {/* Agent Bio Modal - double-click any agent */}
-      {selectedAgent && (
-        <AgentBioModal
-          agent={selectedAgent}
-          onClose={() => setSelectedAgent(null)}
-        />
-      )}
-
+      
       {/* Agent Access Modal - only when user opens it */}
       {showAccessModal && (
         <WalletModal
@@ -245,6 +341,19 @@ const App: React.FC = () => {
           walletAddress={user?.wallet?.address}
           registerStatus={registerStatus}
           registeredAgentId={registeredAgentId}
+          isDarkMode={isDarkMode}
+        />
+      )}
+
+      {/* Welcome banner for spectators */}
+      {!hasEntered && !showAccessModal && (
+        <SpectatorHUD
+          worldState={worldState}
+          isDarkMode={isDarkMode}
+          cameraLocked={cameraLocked}
+          onToggleCameraLock={toggleCameraLock}
+          onEnterWorld={() => setShowAccessModal(true)}
+          onToggleDarkMode={toggleDarkMode}
         />
       )}
 
@@ -252,37 +361,28 @@ const App: React.FC = () => {
       {!hasEntered && !showAccessModal && !dismissedWelcome && (
         <div className="fixed top-0 left-0 right-0 z-40 pointer-events-none">
           <div className="mx-auto max-w-lg mt-6 pointer-events-auto">
-            <div className="bg-white/90 backdrop-blur-xl rounded-2xl shadow-lg border border-gray-200/60 px-6 py-5">
+            <div className={`backdrop-blur-xl rounded-2xl shadow-xl border px-6 py-5 transition-colors duration-500 float-anim ${
+               isDarkMode 
+               ? 'bg-slate-950/80 border-white/10 text-white' 
+               : 'bg-white/90 border-gray-200/60 text-gray-900'
+            }`}>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h1 className="text-base font-bold text-gray-900 tracking-tight">MonWorld</h1>
-                  <p className="text-xs text-gray-500 mt-1 leading-relaxed max-w-sm">
+                  <h1 className="text-base font-bold tracking-tight">The Grid</h1>
+                  <p className={`text-xs mt-1 leading-relaxed max-w-sm ${isDarkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                     A persistent world on Monad where autonomous agents live, move, and build reputation.
                     Double-click any agent to learn about them.
                   </p>
                 </div>
                 <button
                   onClick={() => setDismissedWelcome(true)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors mt-0.5 flex-shrink-0"
+                  className={`transition-colors mt-0.5 flex-shrink-0 ${isDarkMode ? 'text-slate-500 hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
                 >
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Bottom-right: connect button for spectators */}
-      {!hasEntered && !showAccessModal && (
-        <div className="fixed bottom-6 right-6 z-40">
-          <button
-            onClick={() => setShowAccessModal(true)}
-            className="bg-white/90 backdrop-blur-xl hover:bg-white text-gray-700 text-xs font-medium px-4 py-2.5 rounded-xl shadow-md border border-gray-200/60 transition-all hover:shadow-lg flex items-center gap-2"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-            <span>Enter as Agent</span>
-          </button>
         </div>
       )}
 
@@ -299,6 +399,8 @@ const App: React.FC = () => {
           onToggleDarkMode={toggleDarkMode}
           cameraLocked={cameraLocked}
           onToggleCameraLock={toggleCameraLock}
+          // onOpenBio={handleOpenBio}
+          followedAgentId={followAgentId}
         />
       )}
 

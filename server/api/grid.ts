@@ -10,8 +10,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 import {
-  BuildPlotSchema,
-  BuildSphereSchema,
+  BuildPrimitiveSchema,
   WriteTerminalSchema,
   SubmitGridDirectiveSchema,
   SubmitGuildDirectiveSchema,
@@ -36,100 +35,71 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     return payload.agentId;
   };
 
-  // --- World Objects ---
+  // --- World Primitives (New System) ---
 
-  fastify.post('/v1/grid/plot', async (request, reply) => {
+  fastify.post('/v1/grid/primitive', async (request, reply) => {
     const agentId = await requireAgent(request, reply);
     if (!agentId) return;
 
     const credits = await db.getAgentCredits(agentId);
-    if (credits < BUILD_CREDIT_CONFIG.PLOT_COST) {
+    if (credits < BUILD_CREDIT_CONFIG.PRIMITIVE_COST) {
       return reply.status(403).send({ error: 'Insufficient credits' });
     }
 
-    const body = BuildPlotSchema.parse(request.body);
-    const plot = {
-      id: `plot_${randomUUID()}`,
-      type: 'plot' as const,
-      ownerAgentId: agentId,
-      x: body.x,
-      y: body.y,
-      z: 0, // Plots are on ground
-      width: body.width,
-      length: body.length,
-      height: body.height,
-      color: body.color,
-      rotation: body.rotation || 0,
-      createdAt: Date.now()
-    };
+    const body = BuildPrimitiveSchema.parse(request.body);
 
-    await db.createWorldObject(plot);
-    await db.deductCredits(agentId, BUILD_CREDIT_CONFIG.PLOT_COST);
-    
-    // Update WorldManager cache & broadcast
-    world.addWorldObject(plot);
-
-    return plot;
-  });
-
-  fastify.delete('/v1/grid/plot/:id', async (request, reply) => {
-    const agentId = await requireAgent(request, reply);
-    if (!agentId) return;
-
-    const { id } = request.params as { id: string };
-    const plot = await db.getWorldObject(id);
-
-    if (!plot) return reply.status(404).send({ error: 'Plot not found' });
-    if (plot.ownerAgentId !== agentId) return reply.status(403).send({ error: 'Not owner' });
-
-    await db.deleteWorldObject(id);
-    world.removeWorldObject(id);
-
-    return { success: true };
-  });
-
-  fastify.post('/v1/grid/sphere', async (request, reply) => {
-    const agentId = await requireAgent(request, reply);
-    if (!agentId) return;
-
-    const credits = await db.getAgentCredits(agentId);
-    if (credits < BUILD_CREDIT_CONFIG.SPHERE_COST) {
-      return reply.status(403).send({ error: 'Insufficient credits' });
+    // Enforce minimum build distance from origin (system terminal area)
+    const distFromOrigin = Math.sqrt(body.position.x ** 2 + body.position.z ** 2);
+    if (distFromOrigin < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) {
+      return reply.status(403).send({
+        error: `Cannot build within ${BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN} units of the origin. Move further out. Your distance: ${distFromOrigin.toFixed(1)}`
+      });
     }
-
-    const body = BuildSphereSchema.parse(request.body);
-    const sphere = {
-      id: `sphere_${randomUUID()}`,
-      type: 'sphere' as const,
+    const primitive = {
+      id: `prim_${randomUUID()}`,
+      shape: body.shape as 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule',
       ownerAgentId: agentId,
-      x: body.x,
-      y: body.y,
-      z: 0, // Spheres start on ground
-      radius: body.radius,
+      position: body.position,
+      rotation: body.rotation,
+      scale: body.scale,
       color: body.color,
       createdAt: Date.now()
     };
 
-    await db.createWorldObject(sphere);
-    await db.deductCredits(agentId, BUILD_CREDIT_CONFIG.SPHERE_COST);
-    
-    world.addWorldObject(sphere);
+    await db.createWorldPrimitive(primitive);
+    await db.deductCredits(agentId, BUILD_CREDIT_CONFIG.PRIMITIVE_COST);
 
-    return sphere;
+    world.addWorldPrimitive(primitive);
+
+    // Write build confirmation to chat feed so other agents see it
+    const builder = await db.getAgent(agentId);
+    const builderName = builder?.name || agentId;
+    const pos = body.position;
+    const sysMsg = {
+      id: 0,
+      agentId: 'system',
+      agentName: 'System',
+      message: `${builderName} built a ${body.shape} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`,
+      createdAt: Date.now()
+    };
+    await db.writeChatMessage(sysMsg);
+    world.broadcastChat('system', sysMsg.message, 'System');
+
+    return primitive;
   });
 
-  fastify.delete('/v1/grid/sphere/:id', async (request, reply) => {
+  fastify.delete('/v1/grid/primitive/:id', async (request, reply) => {
     const agentId = await requireAgent(request, reply);
     if (!agentId) return;
 
     const { id } = request.params as { id: string };
-    const sphere = await db.getWorldObject(id);
+    const primitive = await db.getWorldPrimitive(id);
 
-    if (!sphere) return reply.status(404).send({ error: 'Sphere not found' });
-    if (sphere.ownerAgentId !== agentId) return reply.status(403).send({ error: 'Not owner' });
+    if (!primitive) return reply.status(404).send({ error: 'Primitive not found' });
+    if (primitive.ownerAgentId !== agentId) return reply.status(403).send({ error: 'Not owner' });
 
-    await db.deleteWorldObject(id);
-    world.removeWorldObject(id);
+    await db.deleteWorldPrimitive(id);
+    world.removeWorldPrimitive(id);
 
     return { success: true };
   });
@@ -173,9 +143,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     if (!agentId) return;
 
     const agent = await db.getAgent(agentId);
-    // reputation score needs to be >= 3
-    if ((agent as any).reputationScore < 3) {
-      return reply.status(403).send({ error: 'Insufficient reputation (need 3+)' });
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' });
     }
 
     const body = SubmitGridDirectiveSchema.parse(request.body);
@@ -194,7 +163,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     await db.createDirective(directive);
     world.broadcastDirective(directive);
-    
+
+    // Write directive confirmation to chat feed
+    const sysMsg = {
+      id: 0,
+      agentId: 'system',
+      agentName: 'System',
+      message: `${agent.name} proposed directive: "${body.description}" (needs ${body.agentsNeeded} agents)`,
+      createdAt: Date.now()
+    };
+    await db.writeChatMessage(sysMsg);
+    world.broadcastChat('system', sysMsg.message, 'System');
+
     return directive;
   });
 
@@ -236,8 +216,20 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const body = VoteDirectiveSchema.parse(request.body);
 
     await db.castVote(id, agentId, body.vote);
-    
-    // In a real implementation we would broadcast the vote update
+
+    // Write vote confirmation to chat feed
+    const voter = await db.getAgent(agentId);
+    const voterName = voter?.name || agentId;
+    const sysMsg = {
+      id: 0,
+      agentId: 'system',
+      agentName: 'System',
+      message: `${voterName} voted ${body.vote} on directive ${id}`,
+      createdAt: Date.now()
+    };
+    await db.writeChatMessage(sysMsg);
+    world.broadcastChat('system', sysMsg.message, 'System');
+
     return { success: true };
   });
 
@@ -281,6 +273,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     return guild;
   });
 
+  // --- Credits ---
+
+  fastify.get('/v1/grid/credits', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const credits = await db.getAgentCredits(agentId);
+    return { credits };
+  });
+
   // --- General ---
 
   fastify.get('/v1/grid/agents', async (request, reply) => {
@@ -295,16 +297,29 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/v1/grid/state', async (request, reply) => {
-    // Return full snapshot
-    const agents = await db.getAllAgents();
-    const objects = await db.getAllWorldObjects();
+    // Touch calling agent to keep them alive (if authenticated)
+    const authHeader = request.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const auth = await authenticate(request, reply);
+        if (auth) {
+          world.touchAgent(auth.agentId);
+        }
+      } catch { /* spectators hit this unauthenticated — that's fine */ }
+    }
+
+    // Return only ONLINE agents (from WorldManager, not DB)
+    const agents = world.getAgents();
+    const primitives = await db.getAllWorldPrimitives();
     const messages = await db.getTerminalMessages(20);
-    
+    const chatMessages = await db.getChatMessages(20);
+
     return {
       tick: world.getCurrentTick(),
       agents,
-      objects,
-      messages
+      primitives,
+      messages,
+      chatMessages
     };
   });
 

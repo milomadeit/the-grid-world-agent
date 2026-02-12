@@ -111,7 +111,7 @@ async function runRegistration(networkKey) {
 	// Register
 	console.log(`  Submitting registration...`);
 	try {
-		const agentURI = 'ipfs://monworld-agent-smith-base';
+		const agentURI = 'ipfs://The Grid-agent-smith-base';
 		const tx = await contract['register(string)'](agentURI);
 		console.log(`  Tx hash: ${tx.hash}`);
 		console.log(`  Waiting for confirmation...`);

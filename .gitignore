@@ -22,6 +22,10 @@ dist-ssr
 server/.env
 server/.env.*
 !server/.env.example
+agents/.env
+agents/.env.*
+autonomous-agents/.env
+autonomous-agents/.env.*
 
 # Editor directories and files
 .vscode/*

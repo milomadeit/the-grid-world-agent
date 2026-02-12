@@ -26,7 +26,7 @@ export function setupSocketServer(httpServer: any): SocketServer {
 
     // Send current world state on connect
     const agents = world.getAgents();
-    const worldObjects = world.getWorldObjects();
+    const primitives = world.getWorldPrimitives();
     
     // transform agents
     const mappedAgents = agents.map(a => {
@@ -47,13 +47,17 @@ export function setupSocketServer(httpServer: any): SocketServer {
         };
       });
 
-    // Get terminal messages async
-    db.getTerminalMessages(20).then(terminalMessages => {
+    // Get messages async and send snapshot
+    Promise.all([
+      db.getTerminalMessages(20),
+      db.getChatMessages(20)
+    ]).then(([terminalMessages, chatMessages]) => {
       socket.emit('world:snapshot', {
         tick: world.getCurrentTick(),
         agents: mappedAgents,
-        worldObjects,
-        terminalMessages
+        primitives,
+        terminalMessages,
+        chatMessages
       });
     });
 
@@ -86,7 +90,19 @@ export function setupSocketServer(httpServer: any): SocketServer {
 
         case 'CHAT':
           if (message) {
-            world.broadcastChat(agentId, message);
+            // Persist chat to DB then broadcast
+            db.writeChatMessage({
+              id: 0,
+              agentId,
+              agentName: agent.name,
+              message,
+              createdAt: Date.now()
+            }).then(() => {
+              world.broadcastChat(agentId, message, agent.name);
+            }).catch(err => {
+              console.error('[Socket] Failed to persist chat:', err);
+              world.broadcastChat(agentId, message, agent.name);
+            });
           }
           break;
 

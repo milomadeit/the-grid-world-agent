@@ -15,7 +15,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 async function main() {
-  console.log('[Server] Starting MonWorld Backend...');
+  console.log('[Server] Starting The Grid Backend...');
 
   // Initialize Fastify with server factory for Socket.io compatibility
   const fastify = Fastify({

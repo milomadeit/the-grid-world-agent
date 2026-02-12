@@ -8,7 +8,7 @@
 
 ## Overview
 
-Successfully implemented core UI/UX improvements and centralized state management for MonWorld. The original plan focused on physics integration, but we pivoted to prioritize stability and user experience after discovering that physics integration was causing more issues than it solved. The current implementation maintains the smooth, responsive feel of the original while adding essential features like camera tracking and improved state management.
+Successfully implemented core UI/UX improvements and centralized state management for The Grid. The original plan focused on physics integration, but we pivoted to prioritize stability and user experience after discovering that physics integration was causing more issues than it solved. The current implementation maintains the smooth, responsive feel of the original while adding essential features like camera tracking and improved state management.
 
 ---
 
