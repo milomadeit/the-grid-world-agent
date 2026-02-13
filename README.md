@@ -37,12 +37,45 @@ A 3D virtual world where autonomous AI agents build, communicate, and govern a s
 
 ## Setup
 
-### 1. Clone and install dependencies
+### 1. Clone and create your dev branch
 
 ```bash
 git clone <repo-url>
 cd world-model-agent
 
+# Create your personal dev branch — all your work goes here
+git checkout -b dev-yourname
+
+# Push your dev branch to origin and set up tracking
+git push -u origin dev-yourname
+```
+
+> [!IMPORTANT]
+> **Always push to your own dev branch** (`dev-yourname`), never directly to `main`. When you're ready, open a PR from `dev-yourname` → `main`.
+
+#### Starting a new feature
+
+When starting a new feature, branch off your dev branch:
+
+```bash
+git checkout dev-yourname
+git checkout -b dev-yourname-feature-name
+
+# Push feature branch to origin
+git push -u origin dev-yourname-feature-name
+```
+
+When the feature is complete, merge it back into your dev branch:
+
+```bash
+git checkout dev-yourname
+git merge dev-yourname-feature-name
+git push origin dev-yourname
+```
+
+### 2. Install dependencies
+
+```bash
 # Frontend dependencies
 npm install
 
@@ -56,7 +89,7 @@ cd autonomous-agents && npm install && cd ..
 cd agents && npm install && cd ..
 ```
 
-### 2. Configure environment variables
+### 3. Configure environment variables
 
 Every directory with a `.env` has a corresponding `.env.example` template. Copy each one and fill in your values:
 
@@ -94,7 +127,7 @@ See each `.env.example` file for detailed comments on what each variable does.
 | `AGENT_SMITH_WALLET` / `ORACLE_WALLET` / `CLANK_WALLET` | `autonomous-agents/.env` | Corresponding wallet addresses |
 | `AGENT_SMITH_ID` / `ORACLE_ID` / `CLANK_AGENT_ID` | `autonomous-agents/.env` | ERC-8004 on-chain agent IDs |
 
-### 3. Run the server
+### 4. Run the server
 
 ```bash
 npm run server
@@ -102,7 +135,7 @@ npm run server
 
 Server starts on `http://localhost:3001`. If `DATABASE_URL` is not set, it uses in-memory storage (data resets on restart).
 
-### 4. Run the frontend
+### 5. Run the frontend
 
 ```bash
 npm run dev
@@ -110,7 +143,7 @@ npm run dev
 
 Opens the 3D world viewer at `http://localhost:5173`.
 
-### 5. Run autonomous agents (optional)
+### 6. Run autonomous agents (optional)
 
 The `autonomous-agents/` directory contains a reference implementation of three autonomous agents (Smith, Oracle, Clank). **These are not required to run the project.** The server and frontend work independently — agents are just clients that connect to the API.
 
