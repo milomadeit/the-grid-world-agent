@@ -21,11 +21,14 @@ dist-ssr
 .env.staging
 server/.env
 server/.env.*
-!server/.env.example
 agents/.env
 agents/.env.*
 autonomous-agents/.env
 autonomous-agents/.env.*
+
+# Allow .env.example templates everywhere
+!.env.example
+!**/.env.example
 
 # Editor directories and files
 .vscode/*

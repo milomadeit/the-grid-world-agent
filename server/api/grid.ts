@@ -19,6 +19,155 @@ import {
   BUILD_CREDIT_CONFIG
 } from '../types.js';
 
+// --- Build Validation ---
+
+interface ValidationResult {
+  valid: boolean;
+  correctedY?: number;
+  error?: string;
+}
+
+const EXEMPT_SHAPES = new Set(['plane', 'circle']);
+const SNAP_TOLERANCE = 0.25;
+
+function validateBuildPosition(
+  shape: string,
+  position: { x: number; y: number; z: number },
+  scale: { x: number; y: number; z: number },
+  existingPrimitives: Array<{
+    position: { x: number; y: number; z: number };
+    scale: { x: number; y: number; z: number };
+    shape: string;
+  }>
+): ValidationResult {
+  // Exempt shapes skip validation (roofs, signs, decorative planes)
+  if (EXEMPT_SHAPES.has(shape)) {
+    return { valid: true };
+  }
+
+  const bottomEdge = position.y - scale.y / 2;
+
+  // Ground contact: bottom edge within tolerance of y=0
+  if (Math.abs(bottomEdge) <= SNAP_TOLERANCE) {
+    const correctedY = scale.y / 2;
+    return { valid: true, correctedY };
+  }
+
+  // Stacking: check if bottom edge rests on top of any existing shape
+  for (const existing of existingPrimitives) {
+    // Skip exempt shapes as supports
+    if (EXEMPT_SHAPES.has(existing.shape)) continue;
+
+    const existingTopEdge = existing.position.y + existing.scale.y / 2;
+
+    // Bottom edge within tolerance of existing top edge
+    if (Math.abs(bottomEdge - existingTopEdge) <= SNAP_TOLERANCE) {
+      // Check XZ overlap: new shape's center must be within existing shape's footprint (with tolerance)
+      const overlapX = Math.abs(position.x - existing.position.x) < (existing.scale.x / 2 + scale.x / 2);
+      const overlapZ = Math.abs(position.z - existing.position.z) < (existing.scale.z / 2 + scale.z / 2);
+
+      if (overlapX && overlapZ) {
+        const correctedY = existingTopEdge + scale.y / 2;
+        return { valid: true, correctedY };
+      }
+    }
+  }
+
+  // Floating: find the nearest valid Y
+  let bestY = scale.y / 2; // default: ground level
+
+  for (const existing of existingPrimitives) {
+    if (EXEMPT_SHAPES.has(existing.shape)) continue;
+
+    const existingTopEdge = existing.position.y + existing.scale.y / 2;
+    const overlapX = Math.abs(position.x - existing.position.x) < (existing.scale.x / 2 + scale.x / 2);
+    const overlapZ = Math.abs(position.z - existing.position.z) < (existing.scale.z / 2 + scale.z / 2);
+
+    if (overlapX && overlapZ) {
+      const candidateY = existingTopEdge + scale.y / 2;
+      if (Math.abs(candidateY - position.y) < Math.abs(bestY - position.y)) {
+        bestY = candidateY;
+      }
+    }
+  }
+
+  return {
+    valid: false,
+    correctedY: bestY,
+    error: `Shape would float at y=${position.y.toFixed(2)}. Nearest valid y=${bestY.toFixed(2)} (ground or top of existing shape).`
+  };
+}
+
+// --- Spatial Computation Helpers ---
+
+interface BoundingBox {
+  minX: number; maxX: number;
+  minY: number; maxY: number;
+  minZ: number; maxZ: number;
+}
+
+interface Cluster {
+  centerX: number;
+  centerZ: number;
+  count: number;
+  maxY: number;
+}
+
+function computeBoundingBox(prims: Array<{ position: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>): BoundingBox {
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+  for (const p of prims) {
+    const hx = (p.scale?.x || 1) / 2;
+    const hy = (p.scale?.y || 1) / 2;
+    const hz = (p.scale?.z || 1) / 2;
+    minX = Math.min(minX, p.position.x - hx);
+    maxX = Math.max(maxX, p.position.x + hx);
+    minY = Math.min(minY, p.position.y - hy);
+    maxY = Math.max(maxY, p.position.y + hy);
+    minZ = Math.min(minZ, p.position.z - hz);
+    maxZ = Math.max(maxZ, p.position.z + hz);
+  }
+  return { minX, maxX, minY, maxY, minZ, maxZ };
+}
+
+function computeCentroid(prims: Array<{ position: { x: number; y: number; z: number } }>): { x: number; y: number; z: number } {
+  let sx = 0, sy = 0, sz = 0;
+  for (const p of prims) { sx += p.position.x; sy += p.position.y; sz += p.position.z; }
+  return { x: sx / prims.length, y: sy / prims.length, z: sz / prims.length };
+}
+
+function computeClusters(prims: Array<{ position: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>, cellSize: number): Cluster[] {
+  const cells = new Map<string, { xs: number[]; zs: number[]; maxY: number }>();
+  for (const p of prims) {
+    const cx = Math.floor(p.position.x / cellSize);
+    const cz = Math.floor(p.position.z / cellSize);
+    const key = `${cx},${cz}`;
+    if (!cells.has(key)) cells.set(key, { xs: [], zs: [], maxY: 0 });
+    const cell = cells.get(key)!;
+    cell.xs.push(p.position.x);
+    cell.zs.push(p.position.z);
+    const topEdge = p.position.y + (p.scale?.y || 1) / 2;
+    cell.maxY = Math.max(cell.maxY, topEdge);
+  }
+  return Array.from(cells.values()).map(c => ({
+    centerX: c.xs.reduce((a, b) => a + b, 0) / c.xs.length,
+    centerZ: c.zs.reduce((a, b) => a + b, 0) / c.zs.length,
+    count: c.xs.length,
+    maxY: c.maxY,
+  }));
+}
+
+function round1(n: number): number { return Math.round(n * 10) / 10; }
+
+function roundBB(bb: BoundingBox): { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number } {
+  return {
+    minX: round1(bb.minX), maxX: round1(bb.maxX),
+    minY: round1(bb.minY), maxY: round1(bb.maxY),
+    minZ: round1(bb.minZ), maxZ: round1(bb.maxZ),
+  };
+}
+
 export async function registerGridRoutes(fastify: FastifyInstance) {
   const world = getWorldManager();
 
@@ -46,7 +195,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Insufficient credits' });
     }
 
-    const body = BuildPrimitiveSchema.parse(request.body);
+    const body = { ...BuildPrimitiveSchema.parse(request.body) };
+    body.position = { ...body.position };
 
     // Enforce minimum build distance from origin (system terminal area)
     const distFromOrigin = Math.sqrt(body.position.x ** 2 + body.position.z ** 2);
@@ -55,6 +205,26 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         error: `Cannot build within ${BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN} units of the origin. Move further out. Your distance: ${distFromOrigin.toFixed(1)}`
       });
     }
+
+    // Validate build position (no floating shapes)
+    const nearbyPrimitives = await db.getAllWorldPrimitives();
+    // Filter to shapes within 20 units XZ for performance
+    const relevant = nearbyPrimitives.filter(p =>
+      Math.abs(p.position.x - body.position.x) < 20 &&
+      Math.abs(p.position.z - body.position.z) < 20
+    );
+    const validation = validateBuildPosition(body.shape, body.position, body.scale, relevant);
+    if (!validation.valid) {
+      return reply.status(400).send({
+        error: validation.error,
+        suggestedY: validation.correctedY
+      });
+    }
+    // Apply Y correction (snap to ground or top of existing shape)
+    if (validation.correctedY !== undefined) {
+      body.position.y = validation.correctedY;
+    }
+
     const primitive = {
       id: `prim_${randomUUID()}`,
       shape: body.shape as 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule',
@@ -320,6 +490,141 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       primitives,
       messages,
       chatMessages
+    };
+  });
+
+  // --- Spatial Summary (World Map for Agents) ---
+
+  fastify.get('/v1/grid/spatial-summary', async (request, reply) => {
+    const primitives = await db.getAllWorldPrimitives();
+    const agents = world.getAgents();
+    const agentNameMap = new Map(agents.map(a => [a.id, a.name]));
+
+    const CELL_SIZE = 10;
+
+    // --- Per-agent summaries ---
+    const byOwner = new Map<string, typeof primitives>();
+    for (const p of primitives) {
+      if (!byOwner.has(p.ownerAgentId)) byOwner.set(p.ownerAgentId, []);
+      byOwner.get(p.ownerAgentId)!.push(p);
+    }
+
+    const agentSummaries = Array.from(byOwner.entries()).map(([ownerId, prims]) => {
+      const bb = computeBoundingBox(prims);
+      const centroid = computeCentroid(prims);
+      const clusters = computeClusters(prims, CELL_SIZE);
+      return {
+        agentId: ownerId,
+        agentName: agentNameMap.get(ownerId) || ownerId,
+        primitiveCount: prims.length,
+        center: { x: Math.round(centroid.x), z: Math.round(centroid.z) },
+        boundingBox: roundBB(bb),
+        highestPoint: round1(bb.maxY),
+        clusters: clusters.map(c => ({
+          center: { x: Math.round(c.centerX), z: Math.round(c.centerZ) },
+          count: c.count,
+          maxHeight: round1(c.maxY),
+        })),
+      };
+    });
+
+    // --- World-wide grid map ---
+    const worldCells = new Map<string, { count: number; maxY: number; agents: Set<string> }>();
+    for (const p of primitives) {
+      const cx = Math.floor(p.position.x / CELL_SIZE) * CELL_SIZE;
+      const cz = Math.floor(p.position.z / CELL_SIZE) * CELL_SIZE;
+      const key = `${cx},${cz}`;
+      if (!worldCells.has(key)) worldCells.set(key, { count: 0, maxY: 0, agents: new Set() });
+      const cell = worldCells.get(key)!;
+      cell.count++;
+      const topEdge = p.position.y + (p.scale?.y || 1) / 2;
+      cell.maxY = Math.max(cell.maxY, topEdge);
+      cell.agents.add(agentNameMap.get(p.ownerAgentId) || p.ownerAgentId);
+    }
+
+    const gridMap = Array.from(worldCells.entries()).map(([key, cell]) => {
+      const [x, z] = key.split(',').map(Number);
+      return {
+        x, z,
+        count: cell.count,
+        maxHeight: round1(cell.maxY),
+        agents: Array.from(cell.agents),
+      };
+    }).sort((a, b) => b.count - a.count); // densest first
+
+    // --- Open areas (find gaps in the grid) ---
+    const occupiedCells = new Set(worldCells.keys());
+    const openAreas: Array<{ x: number; z: number; nearestBuild: number }> = [];
+
+    if (primitives.length > 0) {
+      const worldBB = computeBoundingBox(primitives);
+      // Scan a grid around the built area, expanded by 30 units
+      const scanMinX = Math.floor((worldBB.minX - 30) / CELL_SIZE) * CELL_SIZE;
+      const scanMaxX = Math.ceil((worldBB.maxX + 30) / CELL_SIZE) * CELL_SIZE;
+      const scanMinZ = Math.floor((worldBB.minZ - 30) / CELL_SIZE) * CELL_SIZE;
+      const scanMaxZ = Math.ceil((worldBB.maxZ + 30) / CELL_SIZE) * CELL_SIZE;
+
+      for (let x = scanMinX; x <= scanMaxX; x += CELL_SIZE) {
+        for (let z = scanMinZ; z <= scanMaxZ; z += CELL_SIZE) {
+          // Skip origin exclusion zone
+          const distFromOrigin = Math.sqrt(x * x + z * z);
+          if (distFromOrigin < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) continue;
+
+          const key = `${x},${z}`;
+          if (!occupiedCells.has(key)) {
+            // Find distance to nearest occupied cell
+            let nearest = Infinity;
+            for (const oKey of occupiedCells) {
+              const [ox, oz] = oKey.split(',').map(Number);
+              const dist = Math.sqrt((x - ox) ** 2 + (z - oz) ** 2);
+              nearest = Math.min(nearest, dist);
+            }
+            // Only suggest areas that are near existing builds (within 40 units) but not too close
+            if (nearest >= CELL_SIZE && nearest <= 40) {
+              openAreas.push({ x, z, nearestBuild: Math.round(nearest) });
+            }
+          }
+        }
+      }
+      // Sort by proximity to existing builds, take top 8
+      openAreas.sort((a, b) => a.nearestBuild - b.nearestBuild);
+      openAreas.splice(8);
+    } else {
+      // No builds yet — suggest starting areas away from origin
+      openAreas.push(
+        { x: 100, z: 100, nearestBuild: 0 },
+        { x: -100, z: 100, nearestBuild: 0 },
+        { x: 100, z: -100, nearestBuild: 0 },
+        { x: -100, z: -100, nearestBuild: 0 },
+      );
+    }
+
+    // --- World-level stats ---
+    const worldStats = primitives.length > 0
+      ? (() => {
+          const bb = computeBoundingBox(primitives);
+          const centroid = computeCentroid(primitives);
+          return {
+            totalPrimitives: primitives.length,
+            totalBuilders: byOwner.size,
+            boundingBox: roundBB(bb),
+            highestPoint: round1(bb.maxY),
+            center: { x: Math.round(centroid.x), z: Math.round(centroid.z) },
+          };
+        })()
+      : {
+          totalPrimitives: 0,
+          totalBuilders: 0,
+          boundingBox: null,
+          highestPoint: 0,
+          center: null,
+        };
+
+    return {
+      world: worldStats,
+      agents: agentSummaries,
+      grid: { cellSize: CELL_SIZE, cells: gridMap },
+      openAreas,
     };
   });
 

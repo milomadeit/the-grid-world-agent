@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { readFile } from 'fs/promises';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { initDatabase, closeDatabase } from './db.js';
 import { initWorldManager, getWorldManager } from './world.js';
 import { setupSocketServer } from './socket.js';
@@ -10,6 +13,9 @@ import { registerReputationRoutes } from './api/reputation.js';
 import { registerGridRoutes } from './api/grid.js';
 import { initChain } from './chain.js';
 import { initAgent0 } from './agent0.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -48,6 +54,18 @@ async function main() {
       agents: world.getAgents().length,
       timestamp: Date.now()
     };
+  });
+
+  // Serve skill.md — the onboarding document all agents fetch on startup
+  const skillMdPath = join(__dirname, '..', 'public', 'skill.md');
+  fastify.get('/skill.md', async (request, reply) => {
+    try {
+      const content = await readFile(skillMdPath, 'utf-8');
+      return reply.type('text/markdown').send(content);
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send('skill.md not found');
+    }
   });
 
   // Register API routes

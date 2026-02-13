@@ -93,6 +93,142 @@ function timestamp(): string {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }
 
+// --- Spatial Awareness ---
+
+interface SpatialSummary {
+  count: number;
+  boundingBox: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
+  highestY: number;
+  centroid: { x: number; y: number; z: number };
+  clusters: Array<{ center: { x: number; z: number }; count: number; maxY: number }>;
+  suggestions: string[];
+}
+
+interface PrimitiveData {
+  shape: string;
+  position: { x: number; y: number; z: number };
+  scale: { x: number; y: number; z: number };
+  color: string;
+}
+
+function computeSpatialSummary(primitives: PrimitiveData[]): SpatialSummary | null {
+  if (primitives.length === 0) return null;
+
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+  let sumX = 0, sumY = 0, sumZ = 0;
+
+  for (const p of primitives) {
+    const halfX = (p.scale?.x || 1) / 2;
+    const halfY = (p.scale?.y || 1) / 2;
+    const halfZ = (p.scale?.z || 1) / 2;
+    minX = Math.min(minX, p.position.x - halfX);
+    maxX = Math.max(maxX, p.position.x + halfX);
+    minY = Math.min(minY, p.position.y - halfY);
+    maxY = Math.max(maxY, p.position.y + halfY);
+    minZ = Math.min(minZ, p.position.z - halfZ);
+    maxZ = Math.max(maxZ, p.position.z + halfZ);
+    sumX += p.position.x;
+    sumY += p.position.y;
+    sumZ += p.position.z;
+  }
+
+  const centroid = { x: sumX / primitives.length, y: sumY / primitives.length, z: sumZ / primitives.length };
+
+  // Simple grid-based clustering (5-unit cells)
+  const cellSize = 5;
+  const cellMap = new Map<string, { xs: number[]; zs: number[]; maxY: number }>();
+  for (const p of primitives) {
+    const cx = Math.floor(p.position.x / cellSize);
+    const cz = Math.floor(p.position.z / cellSize);
+    const key = `${cx},${cz}`;
+    if (!cellMap.has(key)) cellMap.set(key, { xs: [], zs: [], maxY: 0 });
+    const cell = cellMap.get(key)!;
+    cell.xs.push(p.position.x);
+    cell.zs.push(p.position.z);
+    const topEdge = p.position.y + (p.scale?.y || 1) / 2;
+    cell.maxY = Math.max(cell.maxY, topEdge);
+  }
+
+  const clusters = Array.from(cellMap.values()).map(cell => ({
+    center: {
+      x: cell.xs.reduce((a, b) => a + b, 0) / cell.xs.length,
+      z: cell.zs.reduce((a, b) => a + b, 0) / cell.zs.length,
+    },
+    count: cell.xs.length,
+    maxY: cell.maxY,
+  }));
+
+  // Generate suggestions
+  const suggestions: string[] = [];
+  const tallestCluster = clusters.reduce((best, c) => c.maxY > best.maxY ? c : best, clusters[0]);
+  if (tallestCluster && tallestCluster.maxY >= 2) {
+    suggestions.push(`Your tallest stack is ${tallestCluster.maxY.toFixed(1)} high near (${tallestCluster.center.x.toFixed(0)}, ${tallestCluster.center.z.toFixed(0)}). Add a roof with a flat box at y=${(tallestCluster.maxY + 0.1).toFixed(1)} or extend higher.`);
+  }
+  if (primitives.length >= 3 && maxY < 2) {
+    suggestions.push(`You have ${primitives.length} shapes but max height is only ${maxY.toFixed(1)}. Try stacking vertically to make a tower or pillar.`);
+  }
+  if (clusters.length >= 2) {
+    suggestions.push(`You have ${clusters.length} separate build clusters. Consider connecting them with a bridge or wall.`);
+  }
+  if (primitives.length < 3) {
+    suggestions.push(`You only have ${primitives.length} shape(s). Refer to BUILDING PATTERNS to start a pillar, wall, or tower.`);
+  }
+
+  return {
+    count: primitives.length,
+    boundingBox: { minX, maxX, minY, maxY, minZ, maxZ },
+    highestY: maxY,
+    centroid,
+    clusters,
+    suggestions,
+  };
+}
+
+function formatSpatialSummary(summary: SpatialSummary): string {
+  const bb = summary.boundingBox;
+  const lines = [
+    `### Your Build Analysis`,
+    `- **${summary.count} shapes** | Bounding box: X[${bb.minX.toFixed(1)}..${bb.maxX.toFixed(1)}] Y[${bb.minY.toFixed(1)}..${bb.maxY.toFixed(1)}] Z[${bb.minZ.toFixed(1)}..${bb.maxZ.toFixed(1)}]`,
+    `- Highest point: y=${summary.highestY.toFixed(1)} | Center: (${summary.centroid.x.toFixed(1)}, ${summary.centroid.z.toFixed(1)})`,
+  ];
+  if (summary.clusters.length > 1) {
+    lines.push(`- ${summary.clusters.length} build clusters: ${summary.clusters.map(c => `${c.count} shapes near (${c.center.x.toFixed(0)}, ${c.center.z.toFixed(0)}) height ${c.maxY.toFixed(1)}`).join('; ')}`);
+  }
+  if (summary.suggestions.length > 0) {
+    lines.push(`- **Next steps:** ${summary.suggestions[0]}`);
+    for (let i = 1; i < summary.suggestions.length; i++) {
+      lines.push(`  - ${summary.suggestions[i]}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function formatOtherBuildsCompact(
+  otherPrimitives: PrimitiveData[],
+  agentNameMap: Map<string, string>,
+  ownerIds: string[]
+): string {
+  // Group by owner
+  const byOwner = new Map<string, PrimitiveData[]>();
+  for (let i = 0; i < otherPrimitives.length; i++) {
+    const ownerId = ownerIds[i];
+    if (!byOwner.has(ownerId)) byOwner.set(ownerId, []);
+    byOwner.get(ownerId)!.push(otherPrimitives[i]);
+  }
+
+  const lines: string[] = [];
+  for (const [ownerId, prims] of byOwner) {
+    const name = agentNameMap.get(ownerId) || ownerId;
+    const summary = computeSpatialSummary(prims);
+    if (summary) {
+      lines.push(`- **${name}**: ${summary.count} shapes, center (${summary.centroid.x.toFixed(0)}, ${summary.centroid.z.toFixed(0)}), height ${summary.highestY.toFixed(1)}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 // --- LLM Calls ---
 
 async function callGemini(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<string> {
@@ -218,6 +354,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
   // Load static files
   const primeDirective = readMd(join(sharedDir, 'PRIME_DIRECTIVE.md'));
+  const buildingPatterns = readMd(join(sharedDir, 'BUILDING_PATTERNS.md'));
   const identity = readMd(join(config.dir, 'IDENTITY.md'));
   const agentOps = readMd(join(config.dir, 'AGENTS.md'));
   const tools = readMd(join(config.dir, 'TOOLS.md'));
@@ -230,6 +367,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   // Build system prompt (loaded once, doesn't change per tick)
   const systemPrompt = [
     primeDirective,
+    '\n---\n',
+    buildingPatterns,
     '\n---\n',
     '# YOUR IDENTITY\n',
     identity,
@@ -416,12 +555,22 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '',
         `## Your Builds (${myPrimitives.length})`,
         myPrimitives.length > 0
-          ? myPrimitives.map(o => `- ${o.shape} at (${o.position.x.toFixed(1)}, ${o.position.y.toFixed(1)}, ${o.position.z.toFixed(1)}) [${o.color}]`).join('\n')
+          ? [
+              myPrimitives.map(o => `- ${o.shape} at (${o.position.x.toFixed(1)}, ${o.position.y.toFixed(1)}, ${o.position.z.toFixed(1)}) scale(${(o as any).scale?.x?.toFixed(1) || '1'}, ${(o as any).scale?.y?.toFixed(1) || '1'}, ${(o as any).scale?.z?.toFixed(1) || '1'}) [${o.color}]`).join('\n'),
+              (() => {
+                const summary = computeSpatialSummary(myPrimitives as any);
+                return summary ? '\n' + formatSpatialSummary(summary) : '';
+              })(),
+            ].join('')
           : '_You have not built anything yet._',
         '',
         `## Other Builds (${otherPrimitives.length})`,
         otherPrimitives.length > 0
-          ? otherPrimitives.slice(0, 10).map(o => `- ${o.shape} at (${o.position.x.toFixed(1)}, ${o.position.y.toFixed(1)}, ${o.position.z.toFixed(1)}) by ${agentNameMap.get(o.ownerAgentId) || o.ownerAgentId} [${o.color}]`).join('\n')
+          ? formatOtherBuildsCompact(
+              otherPrimitives as any,
+              agentNameMap,
+              otherPrimitives.map(o => o.ownerAgentId)
+            )
           : '_No other builds yet._',
         '',
         '## YOUR WORKING MEMORY',
@@ -481,7 +630,10 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       // 6. Execute action
       console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
-      await executeAction(api, agentName, decision);
+      const buildError = await executeAction(api, agentName, decision);
+      if (buildError) {
+        console.warn(`[${agentName}] Action error: ${buildError}`);
+      }
 
       // 7. Update working memory (DO NOT include agent names — prevents hallucination from stale memory)
       // Track consecutive same-action count for loop detection
@@ -526,6 +678,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         `Last seen message id: ${latestMsgId}`,
         votedOn ? `Voted on: ${votedOn}` : '',
         submittedDirectives ? `Submitted directives: ${submittedDirectives}` : '',
+        buildError ? `Last build error: ${buildError}` : '',
       ].filter(Boolean).join('\n');
       writeMd(join(memoryDir, 'WORKING.md'), newWorking);
 
@@ -556,6 +709,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
 
   // Load identity files
   const primeDirective = readMd(join(sharedDir, 'PRIME_DIRECTIVE.md'));
+  const buildingPatterns = readMd(join(sharedDir, 'BUILDING_PATTERNS.md'));
   const identity = readMd(join(config.dir, 'IDENTITY.md'));
   const agentOps = readMd(join(config.dir, 'AGENTS.md'));
   const tools = readMd(join(config.dir, 'TOOLS.md'));
@@ -567,6 +721,8 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
 
   const systemPrompt = [
     primeDirective,
+    '\n---\n',
+    buildingPatterns,
     '\n---\n',
     '# YOUR IDENTITY\n',
     identity,
@@ -785,6 +941,8 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
       const fullSystemPrompt = [
         primeDirective,
         '\n---\n',
+        buildingPatterns,
+        '\n---\n',
         '# YOUR IDENTITY\n',
         identity,
         '\n---\n',
@@ -864,12 +1022,22 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             '',
             `## Your Builds (${myPrimitives.length})`,
             myPrimitives.length > 0
-              ? myPrimitives.map(o => `- ${o.shape} at (${o.position.x.toFixed(1)}, ${o.position.y.toFixed(1)}, ${o.position.z.toFixed(1)}) [${o.color}]`).join('\n')
+              ? [
+                  myPrimitives.map(o => `- ${o.shape} at (${o.position.x.toFixed(1)}, ${o.position.y.toFixed(1)}, ${o.position.z.toFixed(1)}) scale(${(o as any).scale?.x?.toFixed(1) || '1'}, ${(o as any).scale?.y?.toFixed(1) || '1'}, ${(o as any).scale?.z?.toFixed(1) || '1'}) [${o.color}]`).join('\n'),
+                  (() => {
+                    const summary = computeSpatialSummary(myPrimitives as any);
+                    return summary ? '\n' + formatSpatialSummary(summary) : '';
+                  })(),
+                ].join('')
               : '_You have not built anything yet._',
             '',
             `## Other Builds (${otherPrimitives.length})`,
             otherPrimitives.length > 0
-              ? otherPrimitives.slice(0, 10).map(o => `- ${o.shape} at (${o.position.x.toFixed(1)}, ${o.position.y.toFixed(1)}, ${o.position.z.toFixed(1)}) by ${agentNameMap.get(o.ownerAgentId) || o.ownerAgentId} [${o.color}]`).join('\n')
+              ? formatOtherBuildsCompact(
+                  otherPrimitives as any,
+                  agentNameMap,
+                  otherPrimitives.map(o => o.ownerAgentId)
+                )
               : '_No other builds yet._',
             '',
             '## YOUR WORKING MEMORY',
@@ -924,7 +1092,10 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           }
 
           console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
-          await executeAction(api, agentName, decision);
+          const bsBuildError = await executeAction(api, agentName, decision);
+          if (bsBuildError) {
+            console.warn(`[${agentName}] Action error: ${bsBuildError}`);
+          }
 
           // Store only factual state — NOT the LLM's thought (prevents feedback loops)
           const bootActionSummary = decision.action === 'CHAT' ? `CHAT: "${(decision.payload as any)?.message?.slice(0, 80) || ''}"`
@@ -943,7 +1114,8 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             `Position: (${self?.position.x.toFixed(1)}, ${self?.position.z.toFixed(1)})`,
             `Credits: ${credits}`,
             `Last seen message id: ${bsLatestMsgId}`,
-          ].join('\n');
+            bsBuildError ? `Last build error: ${bsBuildError}` : '',
+          ].filter(Boolean).join('\n');
           writeMd(join(memoryDir, 'WORKING.md'), newWorking);
           appendLog(dailyLogPath, `[${timestamp()}] ${decision.action}: ${decision.thought}`);
         } catch (err) {
@@ -984,7 +1156,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
 
 // --- Action Executor ---
 
-async function executeAction(api: GridAPIClient, name: string, decision: AgentDecision): Promise<void> {
+async function executeAction(api: GridAPIClient, name: string, decision: AgentDecision): Promise<string | null> {
   const p = decision.payload || {};
 
   try {
@@ -1017,6 +1189,7 @@ async function executeAction(api: GridAPIClient, name: string, decision: AgentDe
         const maxBatch = 5;
         const batch = primitives.slice(0, maxBatch);
         console.log(`[${name}] BUILD_MULTI: placing ${batch.length} primitives (requested ${primitives.length})`);
+        const buildErrors: string[] = [];
         for (const prim of batch) {
           try {
             await api.buildPrimitive(
@@ -1026,9 +1199,14 @@ async function executeAction(api: GridAPIClient, name: string, decision: AgentDe
               { x: prim.scaleX as number || 1, y: prim.scaleY as number || 1, z: prim.scaleZ as number || 1 },
               prim.color as string || '#3b82f6'
             );
-          } catch (err) {
-            console.error(`[${name}] BUILD_MULTI: primitive failed:`, err);
+          } catch (err: any) {
+            const errMsg = err?.message || String(err);
+            console.error(`[${name}] BUILD_MULTI: primitive failed:`, errMsg);
+            buildErrors.push(errMsg);
           }
+        }
+        if (buildErrors.length > 0) {
+          return `BUILD_MULTI: ${buildErrors.length}/${batch.length} shapes failed. ${buildErrors[0]}`;
         }
         break;
       }
@@ -1065,7 +1243,10 @@ async function executeAction(api: GridAPIClient, name: string, decision: AgentDe
       default:
         console.warn(`[${name}] Unknown action: ${decision.action}`);
     }
-  } catch (err) {
-    console.error(`[${name}] Action ${decision.action} failed:`, err);
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    console.error(`[${name}] Action ${decision.action} failed:`, errMsg);
+    return errMsg;
   }
+  return null;
 }

@@ -28,10 +28,31 @@ The "Nearby Agents" list you receive each tick is the **ONLY** source of truth f
 
 - You can **BUILD_PRIMITIVE or BUILD_MULTI any time you have credits**. You do NOT need permission, proposals, or directives to build.
 - **Prefer BUILD_MULTI** to place up to 5 shapes per tick for efficiency. Only use BUILD_PRIMITIVE for single shapes.
-- Just pick a location, pick a shape, and build. Be creative.
-- **Build VERTICALLY** — stack shapes using the Y axis. Shapes are centered on their position. A box with scaleY=1 sits on the ground at y=0.5. Stack the next one at y=1.5. Formula: next_y = previous_y + scaleY.
-- **EXCLUSION ZONE**: The origin (0, 0) is the System Terminal. **Never build within 100 units of (0, 0).** Start building at coordinates like (100, 100) or further out.
+
+### How to Build Well
+
+- **You have 14 shape types.** Use them: box, sphere, cone, cylinder, plane, torus, circle, dodecahedron, icosahedron, octahedron, ring, tetrahedron, torusKnot, capsule. Do NOT just use boxes. Pick shapes that fit what you're making — cones for roofs, cylinders for pillars, torus for arches, spheres for decorations, planes for signs/platforms.
+- **Build STRUCTURES, not stacks.** A good build spreads across X and Z, not just Y. A house has walls (spread on X/Z), a floor (flat on XZ), and a roof — not 10 boxes on top of each other. Think about what the structure IS and build its shape.
+- **Use the BUILDING PATTERNS document** — it contains composable templates: PILLAR, WALL, FLOOR, ARCH, TOWER, ENCLOSURE, BRIDGE. **Combine patterns** to create real structures:
+  - FLOOR + 4 WALLs = room
+  - TOWER at corners + WALL between = fort
+  - ARCH between PILLARs = gateway
+  - BRIDGE between platforms = connected base
+  - FLOOR on top of ENCLOSURE walls = second story
+- **Use scale creatively.** A box at scale(4, 0.2, 4) is a flat platform. A box at scale(0.5, 3, 0.5) is a thin tall pillar. A box at scale(6, 1, 0.3) is a long wall. Scale defines what a shape becomes.
+- **Use color to distinguish parts.** Walls one color, roof another, decorations a third. Pick a personal color theme so others recognize your style.
+
+### Physics Rules
+
+- **Stacking formula**: Shapes are centered on their Y position. A box with scaleY=1 sits on the ground at y=0.5. Stack the next at y=1.5. Formula: `next_y = previous_y + scaleY`.
+- **Shapes must rest on the ground (y=0) or on top of other shapes.** Floating shapes get rejected. Start at y=0.5 for ground-level, or stack on existing builds.
+- **plane** and **circle** are exempt from physics (can float) — use them for signs, canopies, decorative overhangs.
+
+### Build Rules
+
+- **EXCLUSION ZONE**: The origin (0, 0) is the System Terminal. **Never build within 50 units of (0, 0).** Start building at coordinates like (100, 100) or further out.
 - **Directives (SUBMIT_DIRECTIVE)** are only for organizing **group projects** that need multiple agents to coordinate. Solo building does not require a directive.
+- **DO NOT just stack boxes vertically.** If your last several builds were all at the same X,Z just increasing Y, STOP. Spread out. Build walls, floors, rooms, arches. Look at the BUILDING PATTERNS document for ideas.
 
 ## IV. DECISION BEHAVIOR
 
