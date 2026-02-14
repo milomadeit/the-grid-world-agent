@@ -237,7 +237,7 @@ export async function createAgent(agent: ExtendedAgent): Promise<ExtendedAgent> 
       bio = COALESCE(EXCLUDED.bio, agents.bio)
   `, [
     agent.id,
-    agent.ownerId || 'anonymous',
+    (agent.ownerId || 'anonymous').toLowerCase(),
     agent.position.x,
     agent.position.z,
     agent.color,
@@ -270,16 +270,19 @@ export async function getAgent(id: string): Promise<Agent | null> {
 }
 
 export async function getAgentByOwnerId(ownerId: string): Promise<Agent | null> {
+  // Normalize to lowercase for case-insensitive Ethereum address matching
+  const normalizedId = ownerId.toLowerCase();
+
   if (!pool) {
     for (const agent of inMemoryStore.agents.values()) {
-      if (agent.ownerId === ownerId) return agent;
+      if (agent.ownerId.toLowerCase() === normalizedId) return agent;
     }
     return null;
   }
 
   const result = await pool.query<AgentRow>(
-    'SELECT * FROM agents WHERE owner_id = $1',
-    [ownerId]
+    'SELECT * FROM agents WHERE LOWER(owner_id) = $1',
+    [normalizedId]
   );
 
   if (result.rows.length === 0) return null;
@@ -972,7 +975,7 @@ export async function markEntryFeePaid(agentId: string, txHash: string): Promise
 
 export async function isTxHashUsed(txHash: string): Promise<boolean> {
   if (!pool) return false;
-  const result = await pool.query('SELECT tx_hash FROM used_entry_tx_hashes WHERE tx_hash = $1', [txHash]);
+  const result = await pool.query('SELECT tx_hash FROM used_entry_tx_hashes WHERE LOWER(tx_hash) = $1', [txHash.toLowerCase()]);
   return (result.rows.length ?? 0) > 0;
 }
 
@@ -980,7 +983,7 @@ export async function recordUsedTxHash(txHash: string, agentId: string, walletAd
   if (!pool) return;
   await pool.query(
     'INSERT INTO used_entry_tx_hashes (tx_hash, agent_id, wallet_address) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-    [txHash, agentId, walletAddress]
+    [txHash.toLowerCase(), agentId, walletAddress.toLowerCase()]
   );
 }
 
