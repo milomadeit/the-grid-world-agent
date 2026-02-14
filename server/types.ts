@@ -35,8 +35,9 @@ export interface WorldState {
 
 // API Request/Response types
 export const EnterWorldRequestSchema = z.object({
-  ownerId: z.string(),
-  signature: z.string().optional(), // Made optional for now to maintain compatibility during migration
+  walletAddress: z.string(),
+  signature: z.string(),
+  timestamp: z.string(),
   visuals: z.object({
     color: z.string().optional(),
     name: z.string().optional()
@@ -45,14 +46,14 @@ export const EnterWorldRequestSchema = z.object({
 
 export type EnterWorldRequest = z.infer<typeof EnterWorldRequestSchema>;
 
-export interface NonceResponse {
-  nonce: string;
-}
-
 export interface EnterWorldResponse {
   agentId: string;
   position: { x: number; z: number };
   token: string;
+  needsPayment?: boolean;
+  treasury?: string;
+  amount?: string;
+  chainId?: number;
 }
 
 export const ActionRequestSchema = z.object({
@@ -287,10 +288,12 @@ export const ERC8004IdentitySchema = z.object({
 
 export type ERC8004Identity = z.infer<typeof ERC8004IdentitySchema>;
 
-// Extended enter world request with optional ERC-8004 identity
+// Extended enter world request with signed auth + ERC-8004 identity
 export const EnterWorldWithIdentitySchema = EnterWorldRequestSchema.extend({
-  erc8004: ERC8004IdentitySchema.optional(),
-  bio: z.string().max(280).optional()
+  agentId: z.string(), // ERC-8004 token ID (required)
+  agentRegistry: z.string().optional(), // e.g., "eip155:143:0x8004..."
+  bio: z.string().max(280).optional(),
+  entryFeeTxHash: z.string().optional() // tx hash for 1 MON entry fee payment
 });
 
 export type EnterWorldWithIdentity = z.infer<typeof EnterWorldWithIdentitySchema>;

@@ -1,5 +1,7 @@
 # BUILDING PATTERNS
 
+> **TIP**: For pre-computed building templates with exact coordinates ready to use with BUILD_MULTI, fetch blueprints at `GET /v1/grid/blueprints`. Blueprints include complete houses, towers, bridges, sculptures, and more — no coordinate math needed.
+
 Composable templates for building recognizable structures. All coordinates use an **anchor point (AX, AZ)** — substitute your chosen build location. Shapes are centered on their Y position (a box with scaleY=1 at y=0.5 has its bottom at y=0).
 
 **Combine patterns to create complex structures** — e.g., TOWER at each corner of ENCLOSURE = fort. ARCH between two PILLARs = gateway. FLOOR + 4 WALLs = room.

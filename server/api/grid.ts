@@ -198,6 +198,28 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const body = { ...BuildPrimitiveSchema.parse(request.body) };
     body.position = { ...body.position };
 
+    // Enforce that agent must be near the build target (prevents remote building)
+    const agent = world.getAgent(agentId);
+    if (agent) {
+      const dx = body.position.x - agent.position.x;
+      const dz = body.position.z - agent.position.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      const MAX_BUILD_DISTANCE = 20;
+      const MIN_BUILD_DISTANCE = 2; // Don't build on top of yourself
+
+      if (distance < MIN_BUILD_DISTANCE) {
+        return reply.status(400).send({
+          error: `Too close! Don't build on yourself. Move at least ${MIN_BUILD_DISTANCE} units away from your build site. Try x=${(agent.position.x + 3).toFixed(0)}, z=${(agent.position.z + 3).toFixed(0)}.`
+        });
+      }
+
+      if (distance > MAX_BUILD_DISTANCE) {
+        return reply.status(400).send({
+          error: `Too far to build. You are ${distance.toFixed(1)} units away from (${body.position.x.toFixed(1)}, ${body.position.z.toFixed(1)}). Move within ${MAX_BUILD_DISTANCE} units first.`
+        });
+      }
+    }
+
     // Enforce minimum build distance from origin (system terminal area)
     const distFromOrigin = Math.sqrt(body.position.x ** 2 + body.position.z ** 2);
     if (distFromOrigin < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) {
@@ -255,7 +277,27 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     await db.writeChatMessage(sysMsg);
     world.broadcastChat('system', sysMsg.message, 'System');
 
-    return primitive;
+    // --- Build Quality Warnings (soft feedback, not rejections) ---
+    const warnings: string[] = [];
+    
+    // Check agent's builds for height vs spread ratio
+    const agentPrims = nearbyPrimitives.filter(p => p.ownerAgentId === agentId);
+    if (agentPrims.length >= 3) {
+      const bb = computeBoundingBox(agentPrims);
+      const width = bb.maxX - bb.minX;
+      const depth = bb.maxZ - bb.minZ;
+      const height = bb.maxY - bb.minY;
+      const spreadRatio = height > 0 ? (width + depth) / height : Infinity;
+      
+      if (spreadRatio < 0.5 && height > 4) {
+        warnings.push(`Your builds are very tall (${height.toFixed(1)}u) but narrow (spread ratio: ${spreadRatio.toFixed(1)}). Try spreading horizontally — build walls, floors, or adjacent structures instead of stacking higher.`);
+      }
+      if (pos.y > 15) {
+        warnings.push(`Building very high (y=${pos.y.toFixed(1)}). Consider expanding horizontally first. Fetch /v1/grid/blueprints for structure templates.`);
+      }
+    }
+
+    return { ...primitive, warnings: warnings.length > 0 ? warnings : undefined };
   });
 
   fastify.delete('/v1/grid/primitive/:id', async (request, reply) => {
@@ -637,5 +679,113 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       request.log.error(err);
       return reply.status(500).send({ error: 'Failed to load Prime Directive' });
     }
+  });
+
+  // --- Blueprints ---
+
+  fastify.get('/v1/grid/blueprints', async (request, reply) => {
+    try {
+      const filePath = join(__dirname, '../blueprints.json');
+      const raw = await readFile(filePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+
+      // Optional: filter by tags
+      const tagsParam = (request.query as any).tags;
+      if (tagsParam && typeof tagsParam === 'string') {
+        const tags = tagsParam.split(',').map((t: string) => t.trim().toLowerCase());
+        const filtered: Record<string, any> = {};
+        for (const [name, bp] of Object.entries(parsed)) {
+          const bpTags: string[] = (bp as any).tags || [];
+          if (tags.some(t => bpTags.includes(t))) {
+            filtered[name] = bp;
+          }
+        }
+        return filtered;
+      }
+
+      // Optional: filter by category
+      const category = (request.query as any).category;
+      if (category && typeof category === 'string') {
+        const filtered: Record<string, any> = {};
+        for (const [name, bp] of Object.entries(parsed)) {
+          if ((bp as any).category === category.toLowerCase()) {
+            filtered[name] = bp;
+          }
+        }
+        return filtered;
+      }
+
+      return parsed;
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send({ error: 'Failed to load blueprints' });
+    }
+  });
+
+  // --- Agent Memory (bounded key-value store) ---
+
+  const memoryWriteTimestamps = new Map<string, number>(); // rate limiting
+  const MEMORY_WRITE_COOLDOWN_MS = 5000; // 1 write per 5 seconds
+
+  fastify.get('/v1/grid/memory', async (request, reply) => {
+    const auth = await authenticate(request, reply);
+    if (!auth) return;
+
+    const memory = await db.getAgentMemory(auth.agentId);
+    return { agentId: auth.agentId, memory };
+  });
+
+  fastify.put<{ Params: { key: string } }>(
+    '/v1/grid/memory/:key',
+    async (request, reply) => {
+      const auth = await authenticate(request, reply);
+      if (!auth) return;
+
+      const { key } = request.params;
+      if (!key || key.length > 100) {
+        return reply.code(400).send({ error: 'Key must be 1-100 characters.' });
+      }
+
+      // Rate limiting
+      const lastWrite = memoryWriteTimestamps.get(auth.agentId) || 0;
+      const now = Date.now();
+      if (now - lastWrite < MEMORY_WRITE_COOLDOWN_MS) {
+        return reply.code(429).send({
+          error: 'Memory write rate limited. Max 1 write per 5 seconds.',
+          retryAfterMs: MEMORY_WRITE_COOLDOWN_MS - (now - lastWrite)
+        });
+      }
+
+      const value = request.body;
+      const result = await db.setAgentMemory(auth.agentId, key, value);
+      if (!result.ok) {
+        return reply.code(400).send({ error: result.error });
+      }
+
+      memoryWriteTimestamps.set(auth.agentId, now);
+      return { ok: true, key };
+    }
+  );
+
+  fastify.delete<{ Params: { key: string } }>(
+    '/v1/grid/memory/:key',
+    async (request, reply) => {
+      const auth = await authenticate(request, reply);
+      if (!auth) return;
+
+      const { key } = request.params;
+      const deleted = await db.deleteAgentMemory(auth.agentId, key);
+      return { ok: deleted, key };
+    }
+  );
+
+  // --- Build History ---
+
+  fastify.get('/v1/grid/my-builds', async (request, reply) => {
+    const auth = await authenticate(request, reply);
+    if (!auth) return;
+
+    const builds = await db.getAgentBuilds(auth.agentId);
+    return { agentId: auth.agentId, count: builds.length, builds };
   });
 }

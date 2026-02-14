@@ -138,3 +138,62 @@ export function getReputationRegistryAddress(): string {
 export function isChainInitialized(): boolean {
   return provider !== null;
 }
+
+// --- Entry Fee Configuration ---
+
+export const TREASURY_ADDRESS = '0xb09D74ACF784a5D59Bbb3dBfD504Ce970bFB7BC6';
+export const ENTRY_FEE_MON = '1'; // 1 MON
+export const MONAD_CHAIN_ID = CHAIN_ID;
+
+/**
+ * Verify that a transaction hash represents a valid entry fee payment.
+ * Checks: tx.from matches expected wallet, tx.to matches treasury,
+ * tx.value >= 1 MON, and tx is confirmed.
+ */
+export async function verifyEntryFeePayment(
+  txHash: string,
+  expectedFromAddress: string
+): Promise<{ valid: boolean; reason?: string }> {
+  if (!provider) {
+    return { valid: false, reason: 'Chain not initialized' };
+  }
+
+  try {
+    const [tx, receipt] = await Promise.all([
+      provider.getTransaction(txHash),
+      provider.getTransactionReceipt(txHash),
+    ]);
+
+    if (!tx) {
+      return { valid: false, reason: 'Transaction not found' };
+    }
+
+    if (!receipt) {
+      return { valid: false, reason: 'Transaction not yet confirmed' };
+    }
+
+    if (receipt.status !== 1) {
+      return { valid: false, reason: 'Transaction failed (reverted)' };
+    }
+
+    // Check sender matches the authenticating wallet
+    if (tx.from.toLowerCase() !== expectedFromAddress.toLowerCase()) {
+      return { valid: false, reason: `Transaction sender (${tx.from}) does not match wallet (${expectedFromAddress})` };
+    }
+
+    // Check recipient is the treasury
+    if (!tx.to || tx.to.toLowerCase() !== TREASURY_ADDRESS.toLowerCase()) {
+      return { valid: false, reason: `Transaction recipient is not the treasury` };
+    }
+
+    // Check value >= 1 MON (1e18 wei)
+    const requiredValue = ethers.parseEther(ENTRY_FEE_MON);
+    if (tx.value < requiredValue) {
+      return { valid: false, reason: `Transaction value (${ethers.formatEther(tx.value)} MON) is less than required (${ENTRY_FEE_MON} MON)` };
+    }
+
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, reason: `Verification error: ${error}` };
+  }
+}

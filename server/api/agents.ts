@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'crypto';
-import { authenticate, generateToken } from '../auth.js';
+import { authenticate, generateToken, recoverWallet, isTimestampValid } from '../auth.js';
 import {
   EnterWorldWithIdentitySchema,
   ActionRequestSchema,
@@ -10,13 +10,13 @@ import {
 } from '../types.js';
 import * as db from '../db.js';
 import { getWorldManager } from '../world.js';
-import { verifyAgentOwnership, isChainInitialized } from '../chain.js';
+import { verifyAgentOwnership, isChainInitialized, verifyEntryFeePayment, TREASURY_ADDRESS, ENTRY_FEE_MON, MONAD_CHAIN_ID } from '../chain.js';
 import { lookupAgent, getAgentReputation, isAgent0Ready } from '../agent0.js';
 
 
 
 export async function registerAgentRoutes(fastify: FastifyInstance): Promise<void> {
-  // POST /v1/agents/enter - Register/Enter World (with optional ERC-8004 identity)
+  // POST /v1/agents/enter - Signed Auth + Entry Fee
   fastify.post<{ Body: EnterWorldWithIdentity }>(
     '/v1/agents/enter',
     async (request, reply) => {
@@ -28,152 +28,234 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
         });
       }
 
-      const { ownerId, visuals, erc8004, bio } = parsed.data;
+      const { walletAddress, signature, timestamp, agentId: erc8004AgentId, agentRegistry, visuals, bio, entryFeeTxHash } = parsed.data;
 
-      // ERC-8004 identity is required — no exceptions
-      if (!erc8004) {
+      // --- Step 1: Validate timestamp (replay protection) ---
+      if (!isTimestampValid(timestamp)) {
         return reply.code(400).send({
-          error: 'ERC-8004 agent identity required to enter The Grid. Register at https://www.8004.org',
-          skillUrl: '/v1/skill'
+          error: 'Timestamp expired or invalid. Must be within 5 minutes.',
+          hint: 'Generate a fresh ISO timestamp and re-sign.'
         });
       }
 
-      // Verify ERC-8004 identity on-chain if provided
-      let erc8004Verified = false;
-      if (erc8004 && isChainInitialized()) {
-        try {
-          const { verified, owner, agentWallet } = await verifyAgentOwnership(
-            erc8004.agentId,
-            ownerId
-          );
-          if (!verified) {
-            return reply.code(403).send({
-              error: 'Your wallet does not own or control this agent identity.',
-              details: { tokenOwner: owner, agentWallet, yourWallet: ownerId }
-            });
-          }
-          erc8004Verified = true;
-          console.log(`[ERC-8004] Verified agent #${erc8004.agentId} for wallet ${ownerId}`);
-        } catch (error: any) {
-          // Token doesn't exist or contract call failed
-          const message = error?.message || 'Unknown error';
-          if (message.includes('ERC721NonexistentToken') || message.includes('nonexistent')) {
-            return reply.code(400).send({
-              error: `Agent ID ${erc8004.agentId} not found on-chain.`
-            });
-          }
-          console.error(`[ERC-8004] Verification error:`, error);
-          return reply.code(400).send({
-            error: 'Failed to verify agent identity on-chain.',
-            details: message
-          });
-        }
+      // --- Step 2: Recover wallet from signature ---
+      const recoveredAddress = recoverWallet(signature, timestamp);
+      if (!recoveredAddress) {
+        return reply.code(400).send({
+          error: 'Invalid signature. Could not recover wallet address.'
+        });
       }
 
-      // Enrich with on-chain metadata from Agent0 subgraph
+      // Verify recovered address matches claimed wallet
+      if (recoveredAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+        return reply.code(403).send({
+          error: 'Signature does not match wallet address.',
+          details: { claimed: walletAddress, recovered: recoveredAddress }
+        });
+      }
+
+      console.log(`[Auth] Wallet verified: ${recoveredAddress}`);
+
+      // --- Step 3: Verify on-chain agent ownership ---
+      if (!isChainInitialized()) {
+        return reply.code(503).send({
+          error: 'Chain not initialized. Try again shortly.'
+        });
+      }
+
+      try {
+        const { verified, owner, agentWallet } = await verifyAgentOwnership(
+          erc8004AgentId,
+          recoveredAddress
+        );
+        if (!verified) {
+          return reply.code(403).send({
+            error: 'Your wallet does not own or control this agent identity.',
+            details: { tokenOwner: owner, agentWallet, yourWallet: recoveredAddress }
+          });
+        }
+        console.log(`[Auth] Agent #${erc8004AgentId} ownership verified for ${recoveredAddress}`);
+      } catch (error: any) {
+        const message = error?.message || 'Unknown error';
+        if (message.includes('ERC721NonexistentToken') || message.includes('nonexistent')) {
+          return reply.code(400).send({
+            error: `Agent ID ${erc8004AgentId} not found on-chain. Register at https://www.8004.org`
+          });
+        }
+        console.error(`[Auth] On-chain verification error:`, error);
+        return reply.code(400).send({
+          error: 'Failed to verify agent identity on-chain.',
+          details: message
+        });
+      }
+
+      // --- Step 4: Check/verify entry fee ---
+      // Use wallet-based lookup first, fall back to agent ID lookup
+      const existingAgent = await db.getAgentByOwnerId(recoveredAddress);
+      const isReturning = !!existingAgent;
+      const feePaid = existingAgent ? (existingAgent as any).entry_fee_paid === true : false;
+
+      if (!feePaid) {
+        if (!entryFeeTxHash) {
+          // No payment yet — tell the agent what to do
+          return reply.code(402).send({
+            error: 'Entry fee required',
+            needsPayment: true,
+            treasury: TREASURY_ADDRESS,
+            amount: ENTRY_FEE_MON,
+            chainId: MONAD_CHAIN_ID,
+            hint: `Send ${ENTRY_FEE_MON} MON to ${TREASURY_ADDRESS}, then re-call this endpoint with entryFeeTxHash.`
+          });
+        }
+
+        // Verify the tx hash hasn't been used by another agent
+        const txUsed = await db.isTxHashUsed(entryFeeTxHash);
+        if (txUsed) {
+          return reply.code(400).send({
+            error: 'This transaction hash has already been used for entry.',
+            hint: 'Send a new payment transaction.'
+          });
+        }
+
+        // Verify the actual transaction on-chain
+        const feeResult = await verifyEntryFeePayment(entryFeeTxHash, recoveredAddress);
+        if (!feeResult.valid) {
+          return reply.code(400).send({
+            error: 'Entry fee payment verification failed.',
+            reason: feeResult.reason,
+            hint: `Ensure you sent ${ENTRY_FEE_MON} MON from ${recoveredAddress} to ${TREASURY_ADDRESS}.`
+          });
+        }
+
+        console.log(`[Auth] Entry fee verified: tx ${entryFeeTxHash}`);
+      }
+
+      // --- Step 5: Enrich with on-chain metadata ---
       let onChainName: string | undefined;
       let onChainBio: string | undefined;
       let reputationScore = 0;
-      if (erc8004 && isAgent0Ready()) {
+      if (isAgent0Ready()) {
         try {
-          const agentMeta = await lookupAgent(erc8004.agentId);
+          const agentMeta = await lookupAgent(erc8004AgentId);
           if (agentMeta) {
             onChainName = agentMeta.name || undefined;
             onChainBio = agentMeta.description || undefined;
-            console.log(`[Agent0] Enriched agent #${erc8004.agentId}: name="${onChainName}"`);
           }
-          const rep = await getAgentReputation(erc8004.agentId);
+          const rep = await getAgentReputation(erc8004AgentId);
           reputationScore = rep.averageValue;
         } catch (err) {
           console.warn('[Agent0] Metadata enrichment failed (non-blocking):', err);
         }
       }
 
-      // Check if agent already exists for this owner
-      const existingAgent = await db.getAgentByOwnerId(ownerId);
+      // --- Step 6: Create or update agent ---
+      const useOwnerId = recoveredAddress; // wallet address is the owner
 
-      if (existingAgent) {
-        // Generate new token for existing session
+      if (isReturning && existingAgent) {
         const token = generateToken(existingAgent.id);
+        const world = getWorldManager();
+
+        // Check if agent's saved position is inside an object — if so, respawn near terminal
+        let safePosition = { x: existingAgent.position.x, z: existingAgent.position.z };
+        const primitives = world.getWorldPrimitives();
+        const isInsideObject = primitives.some(p => {
+          const dx = Math.abs(existingAgent.position.x - p.position.x);
+          const dz = Math.abs(existingAgent.position.z - p.position.z);
+          const halfX = (p.scale?.x || 1) / 2 + 0.5; // Add agent radius
+          const halfZ = (p.scale?.z || 1) / 2 + 0.5;
+          return dx < halfX && dz < halfZ && p.position.y < 3; // Only ground-level objects
+        });
+
+        if (isInsideObject) {
+          // Respawn near system terminal (safe zone)
+          safePosition = {
+            x: (Math.random() - 0.5) * 20,
+            z: (Math.random() - 0.5) * 20
+          };
+          console.log(`[Agent] ${existingAgent.name} was inside an object, respawning at terminal`);
+        }
+
+        // Update position if moved
+        existingAgent.position = { ...existingAgent.position, x: safePosition.x, z: safePosition.z };
+        existingAgent.targetPosition = { ...existingAgent.targetPosition, x: safePosition.x, z: safePosition.z };
 
         // Ensure agent is in world manager memory
-        const world = getWorldManager();
         if (!world.getAgent(existingAgent.id)) {
           world.addAgent(existingAgent);
         }
 
-        // Update existing agent with any new ERC-8004 or bio data
-        if (erc8004 || bio) {
-          await db.createAgent({
-            ...existingAgent,
-            erc8004AgentId: erc8004?.agentId,
-            erc8004Registry: erc8004?.agentRegistry,
-            bio: bio || existingAgent.bio,
-          });
+        // Update ERC-8004 / bio data
+        await db.createAgent({
+          ...existingAgent,
+          erc8004AgentId,
+          erc8004Registry: agentRegistry,
+          bio: bio || existingAgent.bio,
+        });
+
+        // Mark entry fee as paid if we just verified it
+        if (!feePaid && entryFeeTxHash) {
+          await db.markEntryFeePaid(existingAgent.id, entryFeeTxHash);
+          await db.recordUsedTxHash(entryFeeTxHash, existingAgent.id, recoveredAddress);
         }
 
-        const ext = existingAgent as any;
         return {
           agentId: existingAgent.id,
           position: { x: existingAgent.position.x, z: existingAgent.position.z },
           token,
-          skillUrl: `${request.protocol}://${request.hostname}/v1/skill`,
-          erc8004: erc8004 ? {
-            agentId: erc8004.agentId,
-            agentRegistry: erc8004.agentRegistry,
-            verified: erc8004Verified
-          } : ext.erc8004AgentId ? {
-            agentId: ext.erc8004AgentId,
-            agentRegistry: ext.erc8004Registry,
-            verified: true // previously verified
-          } : undefined
+          skillUrl: `${request.protocol}://${request.hostname}/skill.md`,
+          erc8004: {
+            agentId: erc8004AgentId,
+            agentRegistry: agentRegistry,
+            verified: true
+          }
         };
       }
 
-      // Generate unique agent ID
+      // New agent
       const agentId = `agent_${randomUUID().slice(0, 8)}`;
-
-      // Random spawn position (within a reasonable range)
       const spawnX = (Math.random() - 0.5) * 20;
       const spawnZ = (Math.random() - 0.5) * 20;
 
       const agent: Agent = {
         id: agentId,
-        name: onChainName || visuals?.name || ownerId,
+        name: onChainName || visuals?.name || recoveredAddress.slice(0, 10),
         color: visuals?.color || '#6b7280',
         position: { x: spawnX, y: 0, z: spawnZ },
         targetPosition: { x: spawnX, y: 0, z: spawnZ },
         status: 'idle',
         inventory: { wood: 0, stone: 0, gold: 0 },
-        ownerId,
+        ownerId: useOwnerId,
         bio: bio || onChainBio
       };
 
-      // Save to database (with optional ERC-8004 fields)
       await db.createAgent({
         ...agent,
-        erc8004AgentId: erc8004?.agentId,
-        erc8004Registry: erc8004?.agentRegistry,
+        erc8004AgentId,
+        erc8004Registry: agentRegistry,
         bio,
       });
 
-      // Add to world manager
+      // Mark entry fee as paid
+      if (entryFeeTxHash) {
+        await db.markEntryFeePaid(agentId, entryFeeTxHash);
+        await db.recordUsedTxHash(entryFeeTxHash, agentId, recoveredAddress);
+      }
+
       const world = getWorldManager();
       world.addAgent(agent);
 
-      // Generate auth token
       const token = generateToken(agentId);
 
-        return {
+      return {
         agentId,
         position: { x: spawnX, z: spawnZ },
         token,
-        skillUrl: `${request.protocol}://${request.hostname}/v1/skill`,
-        erc8004: erc8004 ? {
-          agentId: erc8004.agentId,
-          agentRegistry: erc8004.agentRegistry,
-          verified: erc8004Verified
-        } : undefined
+        skillUrl: `${request.protocol}://${request.hostname}/skill.md`,
+        erc8004: {
+          agentId: erc8004AgentId,
+          agentRegistry: agentRegistry,
+          verified: true
+        }
       };
     }
   );

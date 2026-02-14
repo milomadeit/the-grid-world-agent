@@ -1,9 +1,11 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { readFile } from 'fs/promises';
+import fastifyStatic from '@fastify/static';
+import { readFile, access } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { constants } from 'fs';
 import { initDatabase, closeDatabase } from './db.js';
 import { initWorldManager, getWorldManager } from './world.js';
 import { setupSocketServer } from './socket.js';
@@ -35,12 +37,17 @@ async function main() {
   });
 
   // Register CORS
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    process.env.FRONTEND_URL,
+    'https://thegrid.world',
+    'https://www.thegrid.world'
+  ].filter(Boolean) as string[];
+
   await fastify.register(cors, {
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://127.0.0.1:5173'
-    ],
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   });
@@ -74,6 +81,38 @@ async function main() {
   await registerReputationRoutes(fastify);
   await registerGridRoutes(fastify);
 
+  // Serve static frontend in production (built files in ../dist)
+  const distPath = join(__dirname, '..', 'dist');
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  try {
+    await access(distPath, constants.R_OK);
+
+    // Serve static assets
+    await fastify.register(fastifyStatic, {
+      root: distPath,
+      prefix: '/',
+      decorateReply: false
+    });
+
+    // SPA fallback: serve index.html for non-API routes
+    fastify.setNotFoundHandler(async (request, reply) => {
+      // Don't intercept API routes
+      if (request.url.startsWith('/v1/') || request.url.startsWith('/api/')) {
+        return reply.code(404).send({ error: 'Not found' });
+      }
+      // Serve index.html for SPA routing
+      const indexPath = join(distPath, 'index.html');
+      const html = await readFile(indexPath, 'utf-8');
+      return reply.type('text/html').send(html);
+    });
+
+    console.log('[Server] Serving static frontend from dist/');
+  } catch {
+    if (isProduction) {
+      console.warn('[Server] Warning: dist/ not found. Run `npm run build` first.');
+    }
+  }
 
   // Initialize database
   await initDatabase();

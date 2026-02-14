@@ -301,6 +301,13 @@ const App: React.FC = () => {
     setCameraLocked(true);
   }, [setFollowAgentId, setLastFollowAgentId, setCameraLocked]);
 
+  // Handle agent click from sidebar
+  const handleAgentClick = useCallback((agentId: string) => {
+    setFollowAgentId(agentId);
+    setLastFollowAgentId(agentId);
+    setCameraLocked(true);
+  }, [setFollowAgentId, setLastFollowAgentId]);
+
   /* 
   const handleOpenBio = useCallback((agentId: string) => {
      // Deprecated - handled locally in UI components now
@@ -354,6 +361,7 @@ const App: React.FC = () => {
           onToggleCameraLock={toggleCameraLock}
           onEnterWorld={() => setShowAccessModal(true)}
           onToggleDarkMode={toggleDarkMode}
+          onAgentClick={handleAgentClick}
         />
       )}
 

@@ -162,18 +162,31 @@ function computeSpatialSummary(primitives: PrimitiveData[]): SpatialSummary | nu
 
   // Generate suggestions
   const suggestions: string[] = [];
-  const tallestCluster = clusters.reduce((best, c) => c.maxY > best.maxY ? c : best, clusters[0]);
-  if (tallestCluster && tallestCluster.maxY >= 2) {
-    suggestions.push(`Your tallest stack is ${tallestCluster.maxY.toFixed(1)} high near (${tallestCluster.center.x.toFixed(0)}, ${tallestCluster.center.z.toFixed(0)}). Add a roof with a flat box at y=${(tallestCluster.maxY + 0.1).toFixed(1)} or extend higher.`);
+  
+  // Calculate spread ratio: how horizontally spread vs vertically tall
+  const width = maxX - minX;
+  const depth = maxZ - minZ;
+  const height = maxY - minY;
+  const spreadRatio = height > 0 ? (width + depth) / height : Infinity;
+  
+  if (spreadRatio < 0.5 && height > 4) {
+    suggestions.push(`WARNING: Your builds are very tall (${height.toFixed(1)}u) but narrow (spread ratio: ${spreadRatio.toFixed(1)}). Spread horizontally! Build walls on X/Z axis, add floors, or use a BRIDGE to connect locations. Fetch /v1/grid/blueprints for structure templates.`);
+  } else if (spreadRatio < 1.0 && height > 3) {
+    suggestions.push(`Your builds are taller than they are wide (spread ratio: ${spreadRatio.toFixed(1)}). Consider adding horizontal elements — walls, floors, or adjacent structures.`);
   }
-  if (primitives.length >= 3 && maxY < 2) {
-    suggestions.push(`You have ${primitives.length} shapes but max height is only ${maxY.toFixed(1)}. Try stacking vertically to make a tower or pillar.`);
+  
+  const tallestCluster = clusters.reduce((best, c) => c.maxY > best.maxY ? c : best, clusters[0]);
+  if (tallestCluster && tallestCluster.maxY >= 3 && tallestCluster.count > 5) {
+    suggestions.push(`Your tallest area is ${tallestCluster.maxY.toFixed(1)} high near (${tallestCluster.center.x.toFixed(0)}, ${tallestCluster.center.z.toFixed(0)}) with ${tallestCluster.count} shapes. Consider adding a roof (flat box) or expanding outward from this cluster.`);
   }
   if (clusters.length >= 2) {
-    suggestions.push(`You have ${clusters.length} separate build clusters. Consider connecting them with a bridge or wall.`);
+    suggestions.push(`You have ${clusters.length} separate build clusters. Consider connecting them with a BRIDGE or WALL_SECTION blueprint.`);
   }
   if (primitives.length < 3) {
-    suggestions.push(`You only have ${primitives.length} shape(s). Refer to BUILDING PATTERNS to start a pillar, wall, or tower.`);
+    suggestions.push(`You only have ${primitives.length} shape(s). Fetch a blueprint from /v1/grid/blueprints to build a complete structure — try SMALL_HOUSE, TREE, or FOUNTAIN.`);
+  }
+  if (primitives.length >= 5 && spreadRatio > 2.0) {
+    suggestions.push(`Good horizontal spread (ratio: ${spreadRatio.toFixed(1)}). Your builds are well-proportioned.`);
   }
 
   return {
@@ -388,14 +401,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   let enteredOk = false;
   try {
     const entry = await api.enter(
-      config.walletAddress,
+      config.privateKey,
+      config.erc8004AgentId,
       agentName,
       agentColor,
       agentBio,
-      {
-        agentId: config.erc8004AgentId,
-        agentRegistry: config.erc8004Registry,
-      }
+      config.erc8004Registry
     );
     console.log(`[${agentName}] Entered at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
     enteredOk = true;
@@ -414,14 +425,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           console.log(`[${agentName}] Update .env: set agent ID to ${newId}`);
           // Retry entry with new ID
           const entry = await api.enter(
-            chain.getAddress()!,
+            config.privateKey,
+            newId.toString(),
             agentName,
             agentColor,
             agentBio,
-            {
-              agentId: newId.toString(),
-              agentRegistry: config.erc8004Registry,
-            }
+            config.erc8004Registry
           );
           console.log(`[${agentName}] Entered at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
           enteredOk = true;
@@ -484,6 +493,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const world = await api.getWorldState();
       const directives = await api.getDirectives();
       const credits = await api.getCredits();
+
+      // Fetch blueprints (cached, agents should use these!)
+      let blueprints: Record<string, any> = {};
+      try {
+        blueprints = await api.getBlueprints();
+      } catch (e) {
+        console.warn(`[${agentName}] Could not fetch blueprints`);
+      }
 
       // Debug: log what agents actually receive
       console.log(`[${agentName}] State: ${world.agents.length} agents, ${(world.chatMessages||[]).length} chat msgs, ${(world.messages||[]).length} terminal msgs, ${directives.length} directives`);
@@ -596,10 +613,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         'Payload formats:',
         '  MOVE: {"x": 5, "z": 3}',
         '  CHAT: {"message": "Hello!"}',
-        '  BUILD_PRIMITIVE: {"shape": "box", "x": 100, "y": 0.5, "z": 100, "scaleX": 1, "scaleY": 1, "scaleZ": 1, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
-        '  BUILD_MULTI: {"primitives": [{"shape":"box","x":100,"y":0.5,"z":100,"scaleX":1,"scaleY":1,"scaleZ":1,"rotX":0,"rotY":0,"rotZ":0,"color":"#3b82f6"}, ...]}  ← up to 5 primitives per tick',
-        '    Available shapes: box, sphere, cone, cylinder, plane, torus, circle, dodecahedron, icosahedron, octahedron, ring, tetrahedron, torusKnot, capsule',
-        '    **STACKING GUIDE:** Shapes are centered on their position. A box with scaleY=1 is 1 unit tall. To sit ON the ground, use y=0.5 (bottom edge at y=0). To stack a second box on top, use y=1.5. Formula: next_y = previous_y + scaleY. For scaleY=2 boxes: y=1, y=3, y=5.',
+        '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
+        '  BUILD_MULTI: {"primitives": [{"shape":"cylinder","x":100,"y":1,"z":100,"scaleX":1,"scaleY":2,"scaleZ":1,"color":"#3b82f6"},{"shape":"cone","x":100,"y":3,"z":100,"scaleX":2,"scaleY":2,"scaleZ":2,"color":"#f59e0b"}]}  ← up to 5 per tick',
+        '    Available shapes: box, sphere, cone, cylinder, plane, torus, dodecahedron, icosahedron, octahedron, torusKnot, capsule',
+        '    **USE VARIETY:** Do NOT just build boxes. Use cylinders for pillars, cones for roofs, spheres for decorations, torus for rings/arches.',
+        '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 → y=0.5, scaleY=0.2 → y=0.1, scaleY=2 → y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
         '  TERMINAL: {"message": "Status update..."}',
         '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}  ← directiveId MUST start with "dir_"',
         '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
@@ -609,6 +627,31 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         'IMPORTANT: You can build on your own any time you have credits. You do NOT need a directive or permission to build. Directives are ONLY for organizing group projects with other agents.',
         'If you already voted on a directive, do NOT vote again. If you already submitted a directive with a similar description, do NOT submit another.',
         '**BUILD ZONE RULE:** You MUST NOT build within 50 units of the origin (0,0). The area around origin is reserved for the system terminal. All builds must be at least 50 units away (e.g., x=60, z=70). Builds closer than 50 units will be REJECTED by the server.',
+        '**BUILD DISTANCE RULE:** You must be within 20 units (XZ plane) of the target coordinates to build there. If you are too far away, the server will reject your build with an error. MOVE to the location first, THEN build.',
+        '',
+        '## BLUEPRINTS — USE THESE TO BUILD STRUCTURES',
+        '**HOW TO USE:** 1) Pick a blueprint. 2) Choose YOUR anchor coords (where you are, at least 50 units from origin). 3) Add YOUR anchor to each x/z.',
+        '',
+        // Show blueprints with RELATIVE coords (0,0) so agents understand to add their own
+        ...(() => {
+          const blueprintNames = ['TREE', 'LAMP_POST', 'ARCHWAY'];
+          const examples: string[] = [];
+          for (const name of blueprintNames) {
+            const bp = blueprints[name];
+            if (!bp?.phases?.[0]?.primitives) continue;
+            const prims = bp.phases.flatMap((p: any) => p.primitives || []).slice(0, 5);
+            examples.push(`**${name}** — ${bp.description}`);
+            examples.push('Base primitives (x/z are RELATIVE to your anchor):');
+            prims.forEach((p: any) => {
+              examples.push(`  ${p.shape} at (+${p.x || 0}, y=${p.y}, +${p.z || 0}) scale(${p.scaleX||1},${p.scaleY||1},${p.scaleZ||1}) ${p.color}`);
+            });
+            examples.push(`To build at YOUR position (e.g., x=80, z=120): add 80 to all x, add 120 to all z.`);
+            examples.push('');
+          }
+          return examples.length > 0 ? examples : ['_No blueprints loaded_'];
+        })(),
+        `**YOUR POSITION is (${self?.position?.x?.toFixed(0) || '?'}, ${self?.position?.z?.toFixed(0) || '?'}).** Build near here. Pick a blueprint, add your coords to each primitive.`,
+        'Other blueprints: ' + Object.keys(blueprints).filter(n => !['TREE', 'LAMP_POST', 'ARCHWAY'].includes(n)).slice(0, 8).join(', '),
       ].join('\n');
 
       // 5. Capture View & Call LLM
@@ -667,6 +710,24 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         if (!submittedDirectives.includes(desc)) submittedDirectives = submittedDirectives ? `${submittedDirectives}, ${desc}` : desc;
       }
 
+      // Track build plan across ticks
+      const prevBuildPlan = workingMemory?.match(/Current build plan: (.+)/)?.[1] || '';
+      let currentBuildPlan = prevBuildPlan;
+      
+      // If agent used BUILD_MULTI, try to detect blueprint usage from consecutive building
+      if (decision.action === 'BUILD_MULTI' || decision.action === 'BUILD_PRIMITIVE') {
+        // Keep existing plan if it exists, or note that agent is building
+        if (!currentBuildPlan) {
+          currentBuildPlan = 'Building (no blueprint specified)';
+        }
+      }
+      // If agent mentioned a blueprint name in their thought, capture it
+      const blueprintMention = decision.thought?.match(/blueprint[:\s]+(\w+)/i)?.[1] ||
+                                decision.thought?.match(/(SMALL_HOUSE|WATCHTOWER|SHOP|BRIDGE|ARCHWAY|PLAZA|SERVER_RACK|ANTENNA_TOWER|SCULPTURE_SPIRAL|FOUNTAIN|MONUMENT|TREE|ROCK_FORMATION|GARDEN|DATACENTER|MANSION|WALL_SECTION|LAMP_POST|WAREHOUSE)/i)?.[1];
+      if (blueprintMention) {
+        currentBuildPlan = `Blueprint: ${blueprintMention.toUpperCase()}`;
+      }
+
       const newWorking = [
         `# Working Memory`,
         `Last updated: ${timestamp()}`,
@@ -676,6 +737,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         `Position: (${self?.position.x.toFixed(1)}, ${self?.position.z.toFixed(1)})`,
         `Credits: ${credits}`,
         `Last seen message id: ${latestMsgId}`,
+        currentBuildPlan ? `Current build plan: ${currentBuildPlan}` : '',
         votedOn ? `Voted on: ${votedOn}` : '',
         submittedDirectives ? `Submitted directives: ${submittedDirectives}` : '',
         buildError ? `Last build error: ${buildError}` : '',
@@ -881,15 +943,13 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
     const api = new GridAPIClient();
     try {
       const entry = await api.enter(
-        walletAddr,
-        agentName,
-        agentColor,
-        agentBio,
-        {
-          agentId: newAgentId.toString(),
-          agentRegistry: config.erc8004Registry,
-        }
-      );
+            config.privateKey,
+            newAgentId.toString(),
+            agentName,
+            agentColor,
+            agentBio,
+            config.erc8004Registry
+          );
       log(`ENTERED The Grid at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
 
       // Write registration success to memory
@@ -1066,7 +1126,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             '  BUILD_PRIMITIVE: {"shape": "box", "x": 100, "y": 0.5, "z": 100, "scaleX": 1, "scaleY": 1, "scaleZ": 1, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
             '  BUILD_MULTI: {"primitives": [{"shape":"box","x":100,"y":0.5,"z":100,"scaleX":1,"scaleY":1,"scaleZ":1,"rotX":0,"rotY":0,"rotZ":0,"color":"#3b82f6"}, ...]}  ← up to 5 primitives per tick',
             '    Available shapes: box, sphere, cone, cylinder, plane, torus, circle, dodecahedron, icosahedron, octahedron, ring, tetrahedron, torusKnot, capsule',
-            '    **STACKING GUIDE:** Shapes are centered on their position. A box with scaleY=1 is 1 unit tall. To sit ON the ground, use y=0.5 (bottom edge at y=0). To stack a second box on top, use y=1.5. Formula: next_y = previous_y + scaleY. For scaleY=2 boxes: y=1, y=3, y=5.',
+            '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 → y=0.5, scaleY=0.2 → y=0.1, scaleY=2 → y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
             '  TERMINAL: {"message": "Status update..."}',
             '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}  ← directiveId MUST start with "dir_"',
             '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
@@ -1076,6 +1136,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             'IMPORTANT: You can build on your own any time you have credits. You do NOT need a directive or permission to build.',
             'If you already voted on a directive, do NOT vote again. If you already submitted a directive with a similar description, do NOT submit another.',
             '**BUILD ZONE RULE:** You MUST NOT build within 50 units of the origin (0,0). All builds must be at least 50 units away.',
+            '**BUILD DISTANCE RULE:** You must be within 20 units (XZ plane) of the target coordinates to build there. If you are too far away, the server will reject your build. MOVE to the location first, THEN build.',
           ].join('\n');
 
           const imageBase64 = await captureWorldView(api.getAgentId() || newAgentId.toString());

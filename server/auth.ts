@@ -1,7 +1,10 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
+import { ethers } from 'ethers';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-The Grid-key-123';
+
+// --- JWT Session Management ---
 
 export function generateToken(agentId: string): string {
   return jwt.sign({ agentId }, JWT_SECRET, { expiresIn: '24h' });
@@ -33,4 +36,45 @@ export async function authenticate(
   }
 
   return payload;
+}
+
+// --- Signed Wallet Authentication ---
+
+const AUTH_MESSAGE_PREFIX = 'Enter The Grid';
+const MAX_TIMESTAMP_AGE_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Generate the message that an agent must sign to authenticate.
+ * The agent signs this locally with their private key.
+ */
+export function generateAuthMessage(timestamp: string): string {
+  return `${AUTH_MESSAGE_PREFIX}\nTimestamp: ${timestamp}`;
+}
+
+/**
+ * Recover the wallet address from a signed auth message.
+ * Returns the checksummed address or null if invalid.
+ */
+export function recoverWallet(signature: string, timestamp: string): string | null {
+  try {
+    const message = generateAuthMessage(timestamp);
+    const recovered = ethers.verifyMessage(message, signature);
+    return recovered; // checksummed address
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate that a timestamp is recent enough (within 5 minutes).
+ */
+export function isTimestampValid(timestamp: string): boolean {
+  try {
+    const ts = new Date(timestamp).getTime();
+    if (isNaN(ts)) return false;
+    const age = Date.now() - ts;
+    return age >= 0 && age <= MAX_TIMESTAMP_AGE_MS;
+  } catch {
+    return false;
+  }
 }

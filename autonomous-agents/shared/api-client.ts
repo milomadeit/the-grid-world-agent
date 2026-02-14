@@ -3,12 +3,19 @@
  * Agents use this to interact with the world like any external client would.
  */
 
+import { ethers } from 'ethers';
+
 const BASE_URL = process.env.GRID_API_URL || 'http://localhost:3001';
+const MONAD_RPC = process.env.MONAD_RPC || 'https://rpc.monad.xyz';
 
 interface EnterResponse {
   agentId: string;
   token: string;
   position: { x: number; z: number };
+  needsPayment?: boolean;
+  treasury?: string;
+  amount?: string;
+  chainId?: number;
 }
 
 interface WorldState {
@@ -102,23 +109,110 @@ export class GridAPIClient {
     return res.json() as Promise<T>;
   }
 
-  /** Enter the world with ERC-8004 identity. No identity = no entry. */
+  /**
+   * Enter The Grid with signed wallet authentication.
+   * Handles the full flow: sign message → submit → auto-pay entry fee if needed → get JWT.
+   */
   async enter(
-    ownerId: string,
+    privateKey: string,
+    erc8004AgentId: string,
     name: string,
     color: string,
     bio: string,
-    erc8004: { agentId: string; agentRegistry: string }
+    agentRegistry?: string
   ): Promise<EnterResponse> {
-    const resp = await this.request<EnterResponse>('POST', '/v1/agents/enter', {
-      ownerId,
-      visuals: { name, color },
-      bio,
-      erc8004,
+    const wallet = new ethers.Wallet(privateKey);
+    const walletAddress = wallet.address;
+
+    // Sign auth message
+    const timestamp = new Date().toISOString();
+    const message = `Enter The Grid\nTimestamp: ${timestamp}`;
+    const signature = await wallet.signMessage(message);
+
+    console.log(`[API] Entering with wallet ${walletAddress}, agent #${erc8004AgentId}`);
+
+    // First attempt
+    const firstResult = await this.requestRaw<EnterResponse & { needsPayment?: boolean; treasury?: string; amount?: string; chainId?: number }>(
+      'POST', '/v1/agents/enter',
+      {
+        walletAddress,
+        signature,
+        timestamp,
+        agentId: erc8004AgentId,
+        agentRegistry,
+        visuals: { name, color },
+        bio,
+      }
+    );
+
+    // If entry fee needed, handle payment automatically
+    if (firstResult.needsPayment && firstResult.treasury && firstResult.amount) {
+      console.log(`[API] Entry fee required: ${firstResult.amount} MON to ${firstResult.treasury}`);
+      console.log(`[API] Sending payment from ${walletAddress}...`);
+
+      const provider = new ethers.JsonRpcProvider(MONAD_RPC);
+      const signer = wallet.connect(provider);
+
+      const tx = await signer.sendTransaction({
+        to: firstResult.treasury,
+        value: ethers.parseEther(firstResult.amount),
+      });
+      console.log(`[API] Payment tx sent: ${tx.hash}`);
+      console.log(`[API] Waiting for confirmation...`);
+      await tx.wait();
+      console.log(`[API] Payment confirmed!`);
+
+      // Re-sign with fresh timestamp
+      const newTimestamp = new Date().toISOString();
+      const newMessage = `Enter The Grid\nTimestamp: ${newTimestamp}`;
+      const newSignature = await wallet.signMessage(newMessage);
+
+      // Re-enter with tx hash
+      const secondResult = await this.request<EnterResponse>('POST', '/v1/agents/enter', {
+        walletAddress,
+        signature: newSignature,
+        timestamp: newTimestamp,
+        agentId: erc8004AgentId,
+        agentRegistry,
+        visuals: { name, color },
+        bio,
+        entryFeeTxHash: tx.hash,
+      });
+
+      this.token = secondResult.token;
+      this.agentId = secondResult.agentId;
+      return secondResult;
+    }
+
+    // Already paid or first-time with embedded tx hash
+    this.token = firstResult.token;
+    this.agentId = firstResult.agentId;
+    return firstResult;
+  }
+
+  /**
+   * Raw request that handles non-2xx responses by returning parsed JSON
+   * (used for the 402 needsPayment flow).
+   */
+  private async requestRaw<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method,
+      headers: this.headers(),
+      body: body ? JSON.stringify(body) : undefined,
     });
-    this.token = resp.token;
-    this.agentId = resp.agentId;
-    return resp;
+
+    const json = await res.json() as T;
+
+    // 402 = payment required, return the response body for handling
+    if (res.status === 402) {
+      return json;
+    }
+
+    if (!res.ok) {
+      throw new Error(`API ${method} ${path} failed (${res.status}): ${JSON.stringify(json)}`);
+    }
+
+    return json;
   }
 
   /** Get full world state snapshot. */
@@ -178,6 +272,61 @@ export class GridAPIClient {
       return resp.credits ?? 500;
     } catch {
       return 500;
+    }
+  }
+
+  /** Get building blueprints. Optional tag filter. */
+  async getBlueprints(tags?: string[]): Promise<Record<string, any>> {
+    try {
+      const query = tags && tags.length > 0 ? `?tags=${tags.join(',')}` : '';
+      return await this.request<Record<string, any>>('GET', `/v1/grid/blueprints${query}`);
+    } catch {
+      return {};
+    }
+  }
+
+  // --- Agent Memory ---
+
+  /** Get all saved memory keys for this agent. */
+  async getMemory(): Promise<Record<string, unknown>> {
+    try {
+      const resp = await this.request<{ memory: Record<string, unknown> }>('GET', '/v1/grid/memory');
+      return resp.memory || {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Save a value to server-side memory (max 10 keys, 10KB each). */
+  async setMemory(key: string, value: unknown): Promise<boolean> {
+    try {
+      await this.request('PUT', `/v1/grid/memory/${encodeURIComponent(key)}`, value);
+      return true;
+    } catch (err) {
+      console.warn(`[API] Failed to set memory key "${key}":`, err);
+      return false;
+    }
+  }
+
+  /** Delete a memory key. */
+  async deleteMemory(key: string): Promise<boolean> {
+    try {
+      await this.request('DELETE', `/v1/grid/memory/${encodeURIComponent(key)}`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // --- Build History ---
+
+  /** Get all primitives this agent has built. */
+  async getMyBuilds(): Promise<unknown[]> {
+    try {
+      const resp = await this.request<{ builds: unknown[] }>('GET', '/v1/grid/my-builds');
+      return resp.builds || [];
+    } catch {
+      return [];
     }
   }
 }

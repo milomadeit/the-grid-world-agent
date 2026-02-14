@@ -2,7 +2,11 @@ import { io, Socket } from 'socket.io-client';
 import { useWorldStore } from '../store';
 import type { Agent, WorldPrimitive, TerminalMessage } from '../types';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+// In production, use same origin (server serves frontend). In dev, use localhost:3001.
+const SERVER_URL = import.meta.env.VITE_SERVER_URL ||
+  (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
+    ? window.location.origin
+    : 'http://localhost:3001');
 
 interface WorldSnapshot {
   tick: number;

@@ -45,7 +45,9 @@ const AgentBlob: React.FC<AgentBlobProps> = ({ agent, isPlayer, isDarkMode, onDo
       const bobAmp = isMoving ? 0.06 : 0.01;
       const bob = Math.abs(Math.sin(state.clock.elapsedTime * bobFreq)) * bobAmp;
 
-      meshRef.current.position.y = 0.4 + bob;
+      // Agent Y from server (stands on objects) or default to ground level
+      const baseY = agent.position?.y ?? 0;
+      meshRef.current.position.y = baseY + 0.4 + bob;
 
       // Squash & Stretch
       const stretch = 1 + (isMoving ? bob * 1.5 : bob * 0.5);

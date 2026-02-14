@@ -12,6 +12,7 @@ interface SpectatorHUDProps {
   onToggleCameraLock: () => void;
   onEnterWorld: () => void;
   onToggleDarkMode: () => void;
+  onAgentClick: (agentId: string) => void;
 }
 
 const SpectatorHUD: React.FC<SpectatorHUDProps> = ({ 
@@ -20,7 +21,8 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
   cameraLocked, 
   onToggleCameraLock,
   onEnterWorld,
-  onToggleDarkMode
+  onToggleDarkMode,
+  onAgentClick
 }) => {
   const [isFullView, setIsFullView] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -112,7 +114,8 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
               {worldState.agents.map(agent => (
                 <div
                   key={agent.id}
-                  className={`flex items-center gap-3 py-2 px-3 rounded-lg group transition-all
+                  onClick={() => onAgentClick(agent.id)}
+                  className={`flex items-center gap-3 py-2 px-3 rounded-lg group transition-all cursor-pointer
                     ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-black/5'}
                     ${followAgentId === agent.id ? 'bg-violet-500/10 ring-1 ring-violet-500/30' : ''}`}
                 >

@@ -1,14 +1,19 @@
 {
-  "name": "The Grid---world-model-agent",
+  "name": "the-grid-world-model-agent",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "server": "cd server && npm run dev",
-    "server:install": "cd server && npm install"
+    "server:install": "cd server && npm install",
+    "build:all": "npm install && npm run build && cd server && npm install",
+    "start:prod": "cd server && NODE_ENV=production npm run start"
   },
   "dependencies": {
     "@privy-io/react-auth": "^3.13.1",

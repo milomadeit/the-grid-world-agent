@@ -90,6 +90,8 @@ export function setupSocketServer(httpServer: any): SocketServer {
 
         case 'CHAT':
           if (message) {
+            // Mark agent as active (prevents timeout)
+            world.touchAgent(agentId);
             // Persist chat to DB then broadcast
             db.writeChatMessage({
               id: 0,

@@ -160,8 +160,31 @@ export async function initDatabase(): Promise<void> {
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT NULL;
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS build_credits INTEGER DEFAULT 500;
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS credits_last_reset TIMESTAMP DEFAULT NOW();
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS entry_fee_paid BOOLEAN DEFAULT FALSE;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS entry_fee_tx VARCHAR(255) DEFAULT NULL;
       EXCEPTION WHEN others THEN NULL;
       END $$;
+    `);
+
+    // Entry fee tx hash tracking (prevents duplicate tx reuse)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS used_entry_tx_hashes (
+        tx_hash VARCHAR(255) PRIMARY KEY,
+        agent_id VARCHAR(255) NOT NULL,
+        wallet_address VARCHAR(255) NOT NULL,
+        verified_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // Agent memory (bounded key-value store for visiting agents)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS agent_memory (
+        agent_id VARCHAR(255) NOT NULL,
+        key VARCHAR(100) NOT NULL,
+        value JSONB NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (agent_id, key)
+      );
     `);
 
     // One-time migration: reset all existing agents to 500 credits
@@ -929,6 +952,102 @@ export async function resetDailyCredits(soloAmount: number): Promise<void> {
     'UPDATE agents SET build_credits = $1, credits_last_reset = NOW() WHERE credits_last_reset < NOW() - INTERVAL \'24 hours\'',
     [soloAmount]
   );
+}
+
+// --- Entry Fee ---
+
+export async function isEntryFeePaid(agentId: string): Promise<boolean> {
+  if (!pool) return false;
+  const result = await pool.query('SELECT entry_fee_paid FROM agents WHERE id = $1', [agentId]);
+  return result.rows[0]?.entry_fee_paid ?? false;
+}
+
+export async function markEntryFeePaid(agentId: string, txHash: string): Promise<void> {
+  if (!pool) return;
+  await pool.query(
+    'UPDATE agents SET entry_fee_paid = TRUE, entry_fee_tx = $1 WHERE id = $2',
+    [txHash, agentId]
+  );
+}
+
+export async function isTxHashUsed(txHash: string): Promise<boolean> {
+  if (!pool) return false;
+  const result = await pool.query('SELECT tx_hash FROM used_entry_tx_hashes WHERE tx_hash = $1', [txHash]);
+  return (result.rows.length ?? 0) > 0;
+}
+
+export async function recordUsedTxHash(txHash: string, agentId: string, walletAddress: string): Promise<void> {
+  if (!pool) return;
+  await pool.query(
+    'INSERT INTO used_entry_tx_hashes (tx_hash, agent_id, wallet_address) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+    [txHash, agentId, walletAddress]
+  );
+}
+
+// --- Agent Memory (bounded key-value store) ---
+
+const MAX_MEMORY_KEYS = 10;
+const MAX_MEMORY_VALUE_BYTES = 10 * 1024; // 10KB
+
+export async function getAgentMemory(agentId: string): Promise<Record<string, unknown>> {
+  if (!pool) return {};
+  const result = await pool.query(
+    'SELECT key, value FROM agent_memory WHERE agent_id = $1 ORDER BY updated_at DESC',
+    [agentId]
+  );
+  const memory: Record<string, unknown> = {};
+  for (const row of result.rows) {
+    memory[row.key] = row.value;
+  }
+  return memory;
+}
+
+export async function setAgentMemory(agentId: string, key: string, value: unknown): Promise<{ ok: boolean; error?: string }> {
+  if (!pool) return { ok: false, error: 'No database' };
+
+  // Check value size
+  const serialized = JSON.stringify(value);
+  if (serialized.length > MAX_MEMORY_VALUE_BYTES) {
+    return { ok: false, error: `Value too large (${serialized.length} bytes, max ${MAX_MEMORY_VALUE_BYTES})` };
+  }
+
+  // Check key count (allow update of existing keys)
+  const existing = await pool.query(
+    'SELECT key FROM agent_memory WHERE agent_id = $1',
+    [agentId]
+  );
+  const existingKeys = existing.rows.map((r: { key: string }) => r.key);
+  if (!existingKeys.includes(key) && existingKeys.length >= MAX_MEMORY_KEYS) {
+    return { ok: false, error: `Too many keys (max ${MAX_MEMORY_KEYS}). Delete one first.` };
+  }
+
+  await pool.query(
+    `INSERT INTO agent_memory (agent_id, key, value, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (agent_id, key) DO UPDATE SET value = $3, updated_at = NOW()`,
+    [agentId, key, JSON.stringify(value)]
+  );
+  return { ok: true };
+}
+
+export async function deleteAgentMemory(agentId: string, key: string): Promise<boolean> {
+  if (!pool) return false;
+  const result = await pool.query(
+    'DELETE FROM agent_memory WHERE agent_id = $1 AND key = $2',
+    [agentId, key]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+// --- Build History ---
+
+export async function getAgentBuilds(agentId: string): Promise<unknown[]> {
+  if (!pool) return [];
+  const result = await pool.query(
+    'SELECT * FROM world_primitives WHERE owner_agent_id = $1 ORDER BY created_at DESC LIMIT 200',
+    [agentId]
+  );
+  return result.rows;
 }
 
 export async function closeDatabase(): Promise<void> {

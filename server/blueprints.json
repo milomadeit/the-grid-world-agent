@@ -1,0 +1,1989 @@
+{
+	"SMALL_HOUSE": {
+		"description": "Simple 4x4 house with walls, floor, and peaked roof",
+		"category": "architecture",
+		"tags": [
+			"residential",
+			"starter",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 14,
+		"customization": "Try wooden (#8B4513), stone (#708090), or brick (#A0522D) colors. Scale 0.5x-2x for size variation.",
+		"phases": [
+			{
+				"name": "Floor + Front Wall Start",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.1,
+						"z": 0,
+						"scaleX": 5,
+						"scaleY": 0.2,
+						"scaleZ": 5,
+						"color": "#8B7355"
+					},
+					{
+						"shape": "box",
+						"x": -2,
+						"y": 1,
+						"z": -2.5,
+						"scaleX": 1,
+						"scaleY": 2,
+						"scaleZ": 0.3,
+						"color": "#A0522D"
+					},
+					{
+						"shape": "box",
+						"x": -1,
+						"y": 1,
+						"z": -2.5,
+						"scaleX": 1,
+						"scaleY": 2,
+						"scaleZ": 0.3,
+						"color": "#A0522D"
+					},
+					{
+						"shape": "box",
+						"x": 1,
+						"y": 1,
+						"z": -2.5,
+						"scaleX": 1,
+						"scaleY": 2,
+						"scaleZ": 0.3,
+						"color": "#A0522D"
+					},
+					{
+						"shape": "box",
+						"x": 2,
+						"y": 1,
+						"z": -2.5,
+						"scaleX": 1,
+						"scaleY": 2,
+						"scaleZ": 0.3,
+						"color": "#A0522D"
+					}
+				]
+			},
+			{
+				"name": "Back + Side Walls",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1,
+						"z": 2.5,
+						"scaleX": 5,
+						"scaleY": 2,
+						"scaleZ": 0.3,
+						"color": "#A0522D"
+					},
+					{
+						"shape": "box",
+						"x": -2.5,
+						"y": 1,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 2,
+						"scaleZ": 5,
+						"color": "#8B6914"
+					},
+					{
+						"shape": "box",
+						"x": 2.5,
+						"y": 1,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 2,
+						"scaleZ": 5,
+						"color": "#8B6914"
+					}
+				]
+			},
+			{
+				"name": "Roof",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -1.25,
+						"y": 2.3,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 0.2,
+						"scaleZ": 6,
+						"rotX": 0,
+						"rotY": 0,
+						"rotZ": 0.3,
+						"color": "#CD853F"
+					},
+					{
+						"shape": "box",
+						"x": 1.25,
+						"y": 2.3,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 0.2,
+						"scaleZ": 6,
+						"rotX": 0,
+						"rotY": 0,
+						"rotZ": -0.3,
+						"color": "#CD853F"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 0.8,
+						"z": -2.7,
+						"scaleX": 0.5,
+						"scaleY": 0.5,
+						"scaleZ": 0.5,
+						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"WATCHTOWER": {
+		"description": "Tall hexagonal watchtower with tapered levels and observation deck",
+		"category": "architecture",
+		"tags": [
+			"military",
+			"tall",
+			"defensive",
+			"solo"
+		],
+		"difficulty": "medium",
+		"totalPrimitives": 9,
+		"customization": "Use dark stone (#4A4A4A) for fortress feel, or light (#E8E8E8) for beacon tower. Add a sphere on top as a lantern.",
+		"phases": [
+			{
+				"name": "Base + Lower Levels",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 1,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 2,
+						"scaleZ": 4,
+						"color": "#696969"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 3,
+						"z": 0,
+						"scaleX": 3.5,
+						"scaleY": 2,
+						"scaleZ": 3.5,
+						"color": "#808080"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 5,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 2,
+						"scaleZ": 3,
+						"color": "#909090"
+					}
+				]
+			},
+			{
+				"name": "Upper Level + Observation Deck",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 7,
+						"z": 0,
+						"scaleX": 2.5,
+						"scaleY": 2,
+						"scaleZ": 2.5,
+						"color": "#A0A0A0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 8.2,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 0.3,
+						"scaleZ": 4,
+						"color": "#B0B0B0"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 8.5,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 0.5,
+						"scaleZ": 4,
+						"color": "#707070"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 9.5,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2,
+						"scaleZ": 2,
+						"color": "#8B0000"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 10.8,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 0.8,
+						"scaleZ": 0.8,
+						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"SHOP": {
+		"description": "Small market shop with counter, awning, and shelves",
+		"category": "architecture",
+		"tags": [
+			"commercial",
+			"market",
+			"starter",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 10,
+		"customization": "Change awning color to match your agent theme. Use warm colors (#F4A460, #DEB887) for bakery, cool (#4682B4) for tech shop.",
+		"phases": [
+			{
+				"name": "Structure + Counter",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.1,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 0.2,
+						"scaleZ": 3,
+						"color": "#DEB887"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.5,
+						"z": 1.5,
+						"scaleX": 4,
+						"scaleY": 3,
+						"scaleZ": 0.3,
+						"color": "#8B7355"
+					},
+					{
+						"shape": "box",
+						"x": -2,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 3,
+						"scaleZ": 3,
+						"color": "#8B7355"
+					},
+					{
+						"shape": "box",
+						"x": 2,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 3,
+						"scaleZ": 3,
+						"color": "#8B7355"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.5,
+						"z": -0.8,
+						"scaleX": 3.5,
+						"scaleY": 1,
+						"scaleZ": 0.5,
+						"color": "#A0522D"
+					}
+				]
+			},
+			{
+				"name": "Awning + Shelves",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 3.1,
+						"z": -0.5,
+						"scaleX": 4.5,
+						"scaleY": 0.15,
+						"scaleZ": 4,
+						"color": "#E74C3C"
+					},
+					{
+						"shape": "box",
+						"x": -1.5,
+						"y": 1.5,
+						"z": 1.2,
+						"scaleX": 0.8,
+						"scaleY": 0.1,
+						"scaleZ": 0.5,
+						"color": "#8B4513"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.5,
+						"z": 1.2,
+						"scaleX": 0.8,
+						"scaleY": 0.1,
+						"scaleZ": 0.5,
+						"color": "#8B4513"
+					},
+					{
+						"shape": "box",
+						"x": 1.5,
+						"y": 1.5,
+						"z": 1.2,
+						"scaleX": 0.8,
+						"scaleY": 0.1,
+						"scaleZ": 0.5,
+						"color": "#8B4513"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 1.2,
+						"z": -1,
+						"scaleX": 0.4,
+						"scaleY": 0.4,
+						"scaleZ": 0.4,
+						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"BRIDGE": {
+		"description": "Arched bridge with support pillars and railings",
+		"category": "infrastructure",
+		"tags": [
+			"infrastructure",
+			"collaborative",
+			"connector"
+		],
+		"difficulty": "medium",
+		"totalPrimitives": 11,
+		"customization": "Stone (#808080), wood (#8B4513), or metal (#C0C0C0). Extend by repeating the middle section.",
+		"phases": [
+			{
+				"name": "Pillars + Deck",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": -4,
+						"y": 1,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 2,
+						"scaleZ": 1.2,
+						"color": "#696969"
+					},
+					{
+						"shape": "cylinder",
+						"x": 4,
+						"y": 1,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 2,
+						"scaleZ": 1.2,
+						"color": "#696969"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2.1,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 0.3,
+						"scaleZ": 3,
+						"color": "#808080"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 5,
+						"scaleY": 2,
+						"scaleZ": 1.5,
+						"rotX": 1.57,
+						"color": "#A0A0A0"
+					}
+				]
+			},
+			{
+				"name": "Railings",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -4,
+						"y": 2.8,
+						"z": -1.3,
+						"scaleX": 0.2,
+						"scaleY": 1,
+						"scaleZ": 0.2,
+						"color": "#505050"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2.8,
+						"z": -1.3,
+						"scaleX": 0.2,
+						"scaleY": 1,
+						"scaleZ": 0.2,
+						"color": "#505050"
+					},
+					{
+						"shape": "box",
+						"x": 4,
+						"y": 2.8,
+						"z": -1.3,
+						"scaleX": 0.2,
+						"scaleY": 1,
+						"scaleZ": 0.2,
+						"color": "#505050"
+					},
+					{
+						"shape": "box",
+						"x": -4,
+						"y": 2.8,
+						"z": 1.3,
+						"scaleX": 0.2,
+						"scaleY": 1,
+						"scaleZ": 0.2,
+						"color": "#505050"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2.8,
+						"z": 1.3,
+						"scaleX": 0.2,
+						"scaleY": 1,
+						"scaleZ": 0.2,
+						"color": "#505050"
+					}
+				]
+			}
+		]
+	},
+	"ARCHWAY": {
+		"description": "Decorative arch portal that can mark entrances or borders",
+		"category": "infrastructure",
+		"tags": [
+			"decorative",
+			"entrance",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 5,
+		"customization": "Use as entrance to a district. Gold (#FFD700) for prestigious areas, stone (#808080) for rustic.",
+		"phases": [
+			{
+				"name": "Complete Arch",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -2,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 3,
+						"scaleZ": 1,
+						"color": "#808080"
+					},
+					{
+						"shape": "box",
+						"x": 2,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 3,
+						"scaleZ": 1,
+						"color": "#808080"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 3.5,
+						"z": 0,
+						"scaleX": 5,
+						"scaleY": 1,
+						"scaleZ": 1.2,
+						"color": "#909090"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 2.5,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2.5,
+						"scaleZ": 0.5,
+						"rotX": 0,
+						"color": "#A0A0A0"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 4.2,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 0.8,
+						"scaleZ": 0.8,
+						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"PLAZA": {
+		"description": "Open public plaza with decorative floor pattern and central fountain base",
+		"category": "infrastructure",
+		"tags": [
+			"public",
+			"social",
+			"collaborative",
+			"ground"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 9,
+		"customization": "Great foundation for community areas. Build other structures around the edges.",
+		"phases": [
+			{
+				"name": "Floor Tiles",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.05,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 0.1,
+						"scaleZ": 10,
+						"color": "#D4C5A9"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.12,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 0.05,
+						"scaleZ": 4,
+						"color": "#C4B08F"
+					},
+					{
+						"shape": "box",
+						"x": -4,
+						"y": 0.12,
+						"z": -4,
+						"scaleX": 2,
+						"scaleY": 0.05,
+						"scaleZ": 2,
+						"color": "#BDB76B"
+					},
+					{
+						"shape": "box",
+						"x": 4,
+						"y": 0.12,
+						"z": -4,
+						"scaleX": 2,
+						"scaleY": 0.05,
+						"scaleZ": 2,
+						"color": "#BDB76B"
+					},
+					{
+						"shape": "box",
+						"x": -4,
+						"y": 0.12,
+						"z": 4,
+						"scaleX": 2,
+						"scaleY": 0.05,
+						"scaleZ": 2,
+						"color": "#BDB76B"
+					}
+				]
+			},
+			{
+				"name": "Corner Posts + Center Piece",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 4,
+						"y": 0.12,
+						"z": 4,
+						"scaleX": 2,
+						"scaleY": 0.05,
+						"scaleZ": 2,
+						"color": "#BDB76B"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.5,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 0.8,
+						"scaleZ": 1.5,
+						"color": "#808080"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 1,
+						"z": 0,
+						"scaleX": 1.8,
+						"scaleY": 0.3,
+						"scaleZ": 1.8,
+						"color": "#696969"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 0.6,
+						"scaleY": 0.6,
+						"scaleZ": 0.6,
+						"color": "#4169E1"
+					}
+				]
+			}
+		]
+	},
+	"SERVER_RACK": {
+		"description": "Digital server rack with blinking indicator lights",
+		"category": "technology",
+		"tags": [
+			"tech",
+			"digital",
+			"datacenter",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 8,
+		"customization": "Change indicator colors for different server statuses. Green (#00FF00) = healthy, red (#FF0000) = alert.",
+		"phases": [
+			{
+				"name": "Rack Frame",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 3,
+						"scaleZ": 1,
+						"color": "#2C2C2C"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.4,
+						"z": -0.4,
+						"scaleX": 1.8,
+						"scaleY": 0.3,
+						"scaleZ": 0.15,
+						"color": "#404040"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.0,
+						"z": -0.4,
+						"scaleX": 1.8,
+						"scaleY": 0.3,
+						"scaleZ": 0.15,
+						"color": "#404040"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.6,
+						"z": -0.4,
+						"scaleX": 1.8,
+						"scaleY": 0.3,
+						"scaleZ": 0.15,
+						"color": "#404040"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2.2,
+						"z": -0.4,
+						"scaleX": 1.8,
+						"scaleY": 0.3,
+						"scaleZ": 0.15,
+						"color": "#404040"
+					}
+				]
+			},
+			{
+				"name": "Indicator Lights",
+				"primitives": [
+					{
+						"shape": "sphere",
+						"x": -0.7,
+						"y": 0.4,
+						"z": -0.55,
+						"scaleX": 0.1,
+						"scaleY": 0.1,
+						"scaleZ": 0.1,
+						"color": "#00FF00"
+					},
+					{
+						"shape": "sphere",
+						"x": -0.7,
+						"y": 1.0,
+						"z": -0.55,
+						"scaleX": 0.1,
+						"scaleY": 0.1,
+						"scaleZ": 0.1,
+						"color": "#00FF00"
+					},
+					{
+						"shape": "sphere",
+						"x": -0.7,
+						"y": 1.6,
+						"z": -0.55,
+						"scaleX": 0.1,
+						"scaleY": 0.1,
+						"scaleZ": 0.1,
+						"color": "#FFAA00"
+					}
+				]
+			}
+		]
+	},
+	"ANTENNA_TOWER": {
+		"description": "Tall communication antenna with lattice structure and dish",
+		"category": "technology",
+		"tags": [
+			"tech",
+			"communication",
+			"tall",
+			"solo"
+		],
+		"difficulty": "medium",
+		"totalPrimitives": 8,
+		"customization": "Add spheres at different heights as relay nodes. Use red (#FF0000) for warning lights.",
+		"phases": [
+			{
+				"name": "Tower Structure",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.5,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 1,
+						"scaleZ": 3,
+						"color": "#505050"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 3,
+						"z": 0,
+						"scaleX": 0.5,
+						"scaleY": 4,
+						"scaleZ": 0.5,
+						"color": "#707070"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 7,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 4,
+						"scaleZ": 0.3,
+						"color": "#909090"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 9.5,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1,
+						"scaleZ": 0.4,
+						"color": "#B0B0B0"
+					}
+				]
+			},
+			{
+				"name": "Dish + Lights",
+				"primitives": [
+					{
+						"shape": "circle",
+						"x": 1,
+						"y": 6,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 1.5,
+						"rotY": 1.57,
+						"color": "#C0C0C0"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 10.2,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 0.3,
+						"scaleZ": 0.3,
+						"color": "#FF0000"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 5,
+						"z": 0,
+						"scaleX": 0.2,
+						"scaleY": 0.2,
+						"scaleZ": 0.2,
+						"color": "#FF0000"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 0.2,
+						"scaleZ": 1,
+						"color": "#606060"
+					}
+				]
+			}
+		]
+	},
+	"SCULPTURE_SPIRAL": {
+		"description": "Spiral art sculpture using torusKnots and geometric shapes",
+		"category": "art",
+		"tags": [
+			"creative",
+			"decorative",
+			"art",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 5,
+		"customization": "Experiment with vibrant color palettes! Try complementary colors or a gradient. Rotate for unique angles.",
+		"phases": [
+			{
+				"name": "Complete Sculpture",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.25,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 0.5,
+						"scaleZ": 2,
+						"color": "#2C3E50"
+					},
+					{
+						"shape": "torusKnot",
+						"x": 0,
+						"y": 2,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 1.2,
+						"scaleZ": 1.2,
+						"color": "#E74C3C"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 3.5,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 0.8,
+						"scaleZ": 0.8,
+						"color": "#3498DB"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 1,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 0.3,
+						"scaleZ": 1.5,
+						"color": "#F39C12"
+					},
+					{
+						"shape": "dodecahedron",
+						"x": 0,
+						"y": 4.5,
+						"z": 0,
+						"scaleX": 0.5,
+						"scaleY": 0.5,
+						"scaleZ": 0.5,
+						"color": "#9B59B6"
+					}
+				]
+			}
+		]
+	},
+	"FOUNTAIN": {
+		"description": "Circular fountain with tiered basins and water sphere",
+		"category": "art",
+		"tags": [
+			"decorative",
+			"public",
+			"social",
+			"water"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 7,
+		"customization": "Place in a PLAZA center. Use blue tones (#1E90FF, #4169E1, #00CED1) for water effect.",
+		"phases": [
+			{
+				"name": "Basin + Tiers",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.25,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 0.5,
+						"scaleZ": 4,
+						"color": "#808080"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 0.5,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 0.3,
+						"scaleZ": 4,
+						"color": "#696969"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.7,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 0.2,
+						"scaleZ": 3,
+						"color": "#1E90FF"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 1.2,
+						"z": 0,
+						"scaleX": 0.6,
+						"scaleY": 1,
+						"scaleZ": 0.6,
+						"color": "#A0A0A0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 1.8,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 0.3,
+						"scaleZ": 2,
+						"color": "#B0B0B0"
+					}
+				]
+			},
+			{
+				"name": "Water Effect",
+				"primitives": [
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 2.3,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 1,
+						"scaleZ": 0.8,
+						"color": "#00CED1"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 1.9,
+						"z": 0,
+						"scaleX": 1.8,
+						"scaleY": 0.15,
+						"scaleZ": 1.8,
+						"color": "#4169E1"
+					}
+				]
+			}
+		]
+	},
+	"MONUMENT": {
+		"description": "Tall obelisk monument with decorative base and capstone",
+		"category": "art",
+		"tags": [
+			"memorial",
+			"landmark",
+			"tall",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 6,
+		"customization": "Marble (#F5F5F5), obsidian (#1C1C1C), or gold (#FFD700). Great for marking important locations.",
+		"phases": [
+			{
+				"name": "Complete Monument",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.25,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 0.5,
+						"scaleZ": 3,
+						"color": "#D4D4D4"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.75,
+						"z": 0,
+						"scaleX": 2.5,
+						"scaleY": 0.5,
+						"scaleZ": 2.5,
+						"color": "#C0C0C0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 3,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 4,
+						"scaleZ": 1.2,
+						"color": "#E8E8E8"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 5.5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#F0F0F0"
+					},
+					{
+						"shape": "tetrahedron",
+						"x": 0,
+						"y": 6.5,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 1,
+						"scaleZ": 0.8,
+						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"TREE": {
+		"description": "Simple tree with trunk and leaf canopy",
+		"category": "nature",
+		"tags": [
+			"nature",
+			"decorative",
+			"garden",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 4,
+		"customization": "Green (#228B22) for summer, orange (#FF8C00) for autumn, pink (#FFB6C1) for cherry blossom. Scale up for ancient tree.",
+		"phases": [
+			{
+				"name": "Complete Tree",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 1,
+						"z": 0,
+						"scaleX": 0.5,
+						"scaleY": 2,
+						"scaleZ": 0.5,
+						"color": "#8B4513"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 3,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 2.5,
+						"scaleZ": 3,
+						"color": "#228B22"
+					},
+					{
+						"shape": "sphere",
+						"x": -1,
+						"y": 2.5,
+						"z": 0.5,
+						"scaleX": 2,
+						"scaleY": 1.8,
+						"scaleZ": 2,
+						"color": "#2E8B57"
+					},
+					{
+						"shape": "sphere",
+						"x": 1,
+						"y": 2.8,
+						"z": -0.5,
+						"scaleX": 1.8,
+						"scaleY": 1.5,
+						"scaleZ": 1.8,
+						"color": "#3CB371"
+					}
+				]
+			}
+		]
+	},
+	"ROCK_FORMATION": {
+		"description": "Natural rock cluster using geometric shapes",
+		"category": "nature",
+		"tags": [
+			"nature",
+			"terrain",
+			"decorative",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 5,
+		"customization": "Grey (#808080) for granite, brown (#8B6914) for sandstone, dark (#3C3C3C) for volcanic rock.",
+		"phases": [
+			{
+				"name": "Complete Formation",
+				"primitives": [
+					{
+						"shape": "dodecahedron",
+						"x": 0,
+						"y": 0.8,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 1.5,
+						"color": "#808080"
+					},
+					{
+						"shape": "icosahedron",
+						"x": 1.5,
+						"y": 0.5,
+						"z": 0.5,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#696969"
+					},
+					{
+						"shape": "octahedron",
+						"x": -1,
+						"y": 0.6,
+						"z": 1,
+						"scaleX": 1.2,
+						"scaleY": 1.2,
+						"scaleZ": 1.2,
+						"color": "#707070"
+					},
+					{
+						"shape": "dodecahedron",
+						"x": 0.5,
+						"y": 0.4,
+						"z": -1,
+						"scaleX": 0.8,
+						"scaleY": 0.8,
+						"scaleZ": 0.8,
+						"color": "#909090"
+					},
+					{
+						"shape": "sphere",
+						"x": -0.5,
+						"y": 1.8,
+						"z": -0.3,
+						"scaleX": 0.6,
+						"scaleY": 0.5,
+						"scaleZ": 0.6,
+						"color": "#7A7A7A"
+					}
+				]
+			}
+		]
+	},
+	"GARDEN": {
+		"description": "Small garden with flower beds, path, and bench",
+		"category": "nature",
+		"tags": [
+			"nature",
+			"public",
+			"social",
+			"decorative"
+		],
+		"difficulty": "medium",
+		"totalPrimitives": 12,
+		"customization": "Change flower colors for different seasons. Add TREE blueprints around the edges.",
+		"phases": [
+			{
+				"name": "Ground + Path",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.05,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 0.1,
+						"scaleZ": 6,
+						"color": "#567D46"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.08,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 0.05,
+						"scaleZ": 6,
+						"color": "#C4A882"
+					},
+					{
+						"shape": "box",
+						"x": -3,
+						"y": 0.15,
+						"z": -1.5,
+						"scaleX": 2,
+						"scaleY": 0.1,
+						"scaleZ": 2,
+						"color": "#3B5323"
+					},
+					{
+						"shape": "box",
+						"x": 3,
+						"y": 0.15,
+						"z": 1.5,
+						"scaleX": 2,
+						"scaleY": 0.1,
+						"scaleZ": 2,
+						"color": "#3B5323"
+					}
+				]
+			},
+			{
+				"name": "Flowers + Bench",
+				"primitives": [
+					{
+						"shape": "sphere",
+						"x": -3,
+						"y": 0.4,
+						"z": -1.5,
+						"scaleX": 0.3,
+						"scaleY": 0.3,
+						"scaleZ": 0.3,
+						"color": "#FF69B4"
+					},
+					{
+						"shape": "sphere",
+						"x": -2.5,
+						"y": 0.35,
+						"z": -1.2,
+						"scaleX": 0.25,
+						"scaleY": 0.25,
+						"scaleZ": 0.25,
+						"color": "#FFD700"
+					},
+					{
+						"shape": "sphere",
+						"x": -3.5,
+						"y": 0.35,
+						"z": -1.8,
+						"scaleX": 0.25,
+						"scaleY": 0.25,
+						"scaleZ": 0.25,
+						"color": "#FF4500"
+					},
+					{
+						"shape": "sphere",
+						"x": 3,
+						"y": 0.4,
+						"z": 1.5,
+						"scaleX": 0.3,
+						"scaleY": 0.3,
+						"scaleZ": 0.3,
+						"color": "#DA70D6"
+					},
+					{
+						"shape": "sphere",
+						"x": 3.5,
+						"y": 0.35,
+						"z": 1.2,
+						"scaleX": 0.25,
+						"scaleY": 0.25,
+						"scaleZ": 0.25,
+						"color": "#87CEEB"
+					}
+				]
+			},
+			{
+				"name": "Bench + Lantern",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 2,
+						"y": 0.3,
+						"z": -0.5,
+						"scaleX": 1.5,
+						"scaleY": 0.1,
+						"scaleZ": 0.5,
+						"color": "#8B4513"
+					},
+					{
+						"shape": "box",
+						"x": 1.4,
+						"y": 0.15,
+						"z": -0.5,
+						"scaleX": 0.15,
+						"scaleY": 0.3,
+						"scaleZ": 0.15,
+						"color": "#654321"
+					},
+					{
+						"shape": "box",
+						"x": 2.6,
+						"y": 0.15,
+						"z": -0.5,
+						"scaleX": 0.15,
+						"scaleY": 0.3,
+						"scaleZ": 0.15,
+						"color": "#654321"
+					}
+				]
+			}
+		]
+	},
+	"DATACENTER": {
+		"description": "Multi-rack server room with cooling unit and cable runs",
+		"category": "technology",
+		"tags": [
+			"tech",
+			"collaborative",
+			"large"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 14,
+		"customization": "Build multiple adjacent for a server farm. Use different indicator colors for different functions.",
+		"phases": [
+			{
+				"name": "Floor + Walls",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.05,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 0.1,
+						"scaleZ": 6,
+						"color": "#1C1C1C"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2,
+						"z": 3,
+						"scaleX": 8,
+						"scaleY": 4,
+						"scaleZ": 0.2,
+						"color": "#2C2C2C"
+					},
+					{
+						"shape": "box",
+						"x": -4,
+						"y": 2,
+						"z": 0,
+						"scaleX": 0.2,
+						"scaleY": 4,
+						"scaleZ": 6,
+						"color": "#2C2C2C"
+					},
+					{
+						"shape": "box",
+						"x": 4,
+						"y": 2,
+						"z": 0,
+						"scaleX": 0.2,
+						"scaleY": 4,
+						"scaleZ": 6,
+						"color": "#2C2C2C"
+					}
+				]
+			},
+			{
+				"name": "Server Racks",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -2,
+						"y": 1.5,
+						"z": 1,
+						"scaleX": 1.5,
+						"scaleY": 3,
+						"scaleZ": 0.8,
+						"color": "#333333"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.5,
+						"z": 1,
+						"scaleX": 1.5,
+						"scaleY": 3,
+						"scaleZ": 0.8,
+						"color": "#333333"
+					},
+					{
+						"shape": "box",
+						"x": 2,
+						"y": 1.5,
+						"z": 1,
+						"scaleX": 1.5,
+						"scaleY": 3,
+						"scaleZ": 0.8,
+						"color": "#333333"
+					},
+					{
+						"shape": "sphere",
+						"x": -2,
+						"y": 1,
+						"z": 0.5,
+						"scaleX": 0.1,
+						"scaleY": 0.1,
+						"scaleZ": 0.1,
+						"color": "#00FF00"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 1,
+						"z": 0.5,
+						"scaleX": 0.1,
+						"scaleY": 0.1,
+						"scaleZ": 0.1,
+						"color": "#00FF00"
+					}
+				]
+			},
+			{
+				"name": "Cooling + Roof",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 3,
+						"y": 1,
+						"z": -2,
+						"scaleX": 1.5,
+						"scaleY": 2,
+						"scaleZ": 1.5,
+						"color": "#4A4A4A"
+					},
+					{
+						"shape": "torus",
+						"x": 3,
+						"y": 2.2,
+						"z": -2,
+						"scaleX": 0.8,
+						"scaleY": 0.2,
+						"scaleZ": 0.8,
+						"color": "#00CED1"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 4.05,
+						"z": 0,
+						"scaleX": 8.4,
+						"scaleY": 0.1,
+						"scaleZ": 6.4,
+						"color": "#3C3C3C"
+					},
+					{
+						"shape": "sphere",
+						"x": 2,
+						"y": 1,
+						"z": 0.5,
+						"scaleX": 0.1,
+						"scaleY": 0.1,
+						"scaleZ": 0.1,
+						"color": "#FFAA00"
+					},
+					{
+						"shape": "sphere",
+						"x": -2,
+						"y": 2,
+						"z": 0.5,
+						"scaleX": 0.1,
+						"scaleY": 0.1,
+						"scaleZ": 0.1,
+						"color": "#00FF00"
+					}
+				]
+			}
+		]
+	},
+	"MANSION": {
+		"description": "Grand mansion with columns, balcony, and two-story facade",
+		"category": "architecture",
+		"tags": [
+			"residential",
+			"large",
+			"collaborative",
+			"prestigious"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 15,
+		"customization": "White (#FFFFFF) columns for classical style, dark (#2C2C2C) for gothic. Add GARDEN or FOUNTAIN in front.",
+		"phases": [
+			{
+				"name": "Foundation + Ground Floor",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.15,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 0.3,
+						"scaleZ": 7,
+						"color": "#D4D4D4"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.5,
+						"z": 3,
+						"scaleX": 10,
+						"scaleY": 3,
+						"scaleZ": 0.3,
+						"color": "#E8E0D0"
+					},
+					{
+						"shape": "box",
+						"x": -5,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 3,
+						"scaleZ": 7,
+						"color": "#E8E0D0"
+					},
+					{
+						"shape": "box",
+						"x": 5,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 3,
+						"scaleZ": 7,
+						"color": "#E8E0D0"
+					}
+				]
+			},
+			{
+				"name": "Columns + Second Floor",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": -3,
+						"y": 1.5,
+						"z": -3.2,
+						"scaleX": 0.4,
+						"scaleY": 3,
+						"scaleZ": 0.4,
+						"color": "#FFFFFF"
+					},
+					{
+						"shape": "cylinder",
+						"x": -1,
+						"y": 1.5,
+						"z": -3.2,
+						"scaleX": 0.4,
+						"scaleY": 3,
+						"scaleZ": 0.4,
+						"color": "#FFFFFF"
+					},
+					{
+						"shape": "cylinder",
+						"x": 1,
+						"y": 1.5,
+						"z": -3.2,
+						"scaleX": 0.4,
+						"scaleY": 3,
+						"scaleZ": 0.4,
+						"color": "#FFFFFF"
+					},
+					{
+						"shape": "cylinder",
+						"x": 3,
+						"y": 1.5,
+						"z": -3.2,
+						"scaleX": 0.4,
+						"scaleY": 3,
+						"scaleZ": 0.4,
+						"color": "#FFFFFF"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 3.1,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 0.2,
+						"scaleZ": 7,
+						"color": "#C8B8A0"
+					}
+				]
+			},
+			{
+				"name": "Roof + Balcony Railing",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 4.5,
+						"z": 1,
+						"scaleX": 10,
+						"scaleY": 2.5,
+						"scaleZ": 0.3,
+						"color": "#D8D0C0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 6,
+						"z": 0,
+						"scaleX": 10.5,
+						"scaleY": 0.2,
+						"scaleZ": 7.5,
+						"color": "#8B7355"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 3.3,
+						"z": -3.2,
+						"scaleX": 8,
+						"scaleY": 0.3,
+						"scaleZ": 0.1,
+						"color": "#D4D4D4"
+					},
+					{
+						"shape": "tetrahedron",
+						"x": -3,
+						"y": 6.5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 1.5,
+						"scaleZ": 1,
+						"color": "#8B7355"
+					},
+					{
+						"shape": "tetrahedron",
+						"x": 3,
+						"y": 6.5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 1.5,
+						"scaleZ": 1,
+						"color": "#8B7355"
+					}
+				]
+			}
+		]
+	},
+	"WALL_SECTION": {
+		"description": "Modular wall section that can be chained together for perimeters",
+		"category": "infrastructure",
+		"tags": [
+			"infrastructure",
+			"modular",
+			"defensive",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 4,
+		"customization": "Chain multiple sections: offset each by x+6. Add WATCHTOWER blueprints at corners.",
+		"phases": [
+			{
+				"name": "Complete Wall Section",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1,
+						"z": 0,
+						"scaleX": 6,
+						"scaleY": 2,
+						"scaleZ": 0.5,
+						"color": "#808080"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2.3,
+						"z": 0,
+						"scaleX": 6.5,
+						"scaleY": 0.3,
+						"scaleZ": 0.8,
+						"color": "#909090"
+					},
+					{
+						"shape": "box",
+						"x": -2.5,
+						"y": 2.8,
+						"z": 0,
+						"scaleX": 0.6,
+						"scaleY": 0.6,
+						"scaleZ": 0.6,
+						"color": "#707070"
+					},
+					{
+						"shape": "box",
+						"x": 2.5,
+						"y": 2.8,
+						"z": 0,
+						"scaleX": 0.6,
+						"scaleY": 0.6,
+						"scaleZ": 0.6,
+						"color": "#707070"
+					}
+				]
+			}
+		]
+	},
+	"LAMP_POST": {
+		"description": "Street lamp with decorative post and glowing orb",
+		"category": "infrastructure",
+		"tags": [
+			"decorative",
+			"infrastructure",
+			"light",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 4,
+		"customization": "Place along roads or around plazas. Change orb color for ambiance: warm (#FFD700), cool (#87CEEB), eerie (#9B59B6).",
+		"phases": [
+			{
+				"name": "Complete Lamp",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.15,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 0.3,
+						"scaleZ": 0.8,
+						"color": "#2C2C2C"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 0.15,
+						"scaleY": 2.5,
+						"scaleZ": 0.15,
+						"color": "#3C3C3C"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 3,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 0.4,
+						"scaleZ": 0.8,
+						"color": "#4A4A4A"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 2.7,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 0.5,
+						"scaleZ": 0.4,
+						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"WAREHOUSE": {
+		"description": "Large industrial warehouse with roll-up door and ventilation",
+		"category": "architecture",
+		"tags": [
+			"industrial",
+			"storage",
+			"large",
+			"solo"
+		],
+		"difficulty": "medium",
+		"totalPrimitives": 10,
+		"customization": "Rust (#B7410E) for abandoned look, clean (#A0A0A0) for active. Combine with SERVER_RACK inside.",
+		"phases": [
+			{
+				"name": "Walls + Floor",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.05,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 0.1,
+						"scaleZ": 6,
+						"color": "#909090"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2,
+						"z": 3,
+						"scaleX": 8,
+						"scaleY": 4,
+						"scaleZ": 0.2,
+						"color": "#A0A0A0"
+					},
+					{
+						"shape": "box",
+						"x": -4,
+						"y": 2,
+						"z": 0,
+						"scaleX": 0.2,
+						"scaleY": 4,
+						"scaleZ": 6,
+						"color": "#A0A0A0"
+					},
+					{
+						"shape": "box",
+						"x": 4,
+						"y": 2,
+						"z": 0,
+						"scaleX": 0.2,
+						"scaleY": 4,
+						"scaleZ": 6,
+						"color": "#A0A0A0"
+					}
+				]
+			},
+			{
+				"name": "Roof + Door + Ventilation",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -2,
+						"y": 4.1,
+						"z": 0,
+						"scaleX": 4.5,
+						"scaleY": 0.2,
+						"scaleZ": 6.5,
+						"rotZ": 0.15,
+						"color": "#B0B0B0"
+					},
+					{
+						"shape": "box",
+						"x": 2,
+						"y": 4.1,
+						"z": 0,
+						"scaleX": 4.5,
+						"scaleY": 0.2,
+						"scaleZ": 6.5,
+						"rotZ": -0.15,
+						"color": "#B0B0B0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.5,
+						"z": -3,
+						"scaleX": 3,
+						"scaleY": 3,
+						"scaleZ": 0.15,
+						"color": "#708090"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.5,
+						"z": -2.85,
+						"scaleX": 2.8,
+						"scaleY": 2.8,
+						"scaleZ": 0.1,
+						"color": "#4A4A4A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 2,
+						"y": 4.5,
+						"z": 1,
+						"scaleX": 0.6,
+						"scaleY": 0.8,
+						"scaleZ": 0.6,
+						"color": "#808080"
+					},
+					{
+						"shape": "torus",
+						"x": 2,
+						"y": 5,
+						"z": 1,
+						"scaleX": 0.5,
+						"scaleY": 0.15,
+						"scaleZ": 0.5,
+						"color": "#696969"
+					}
+				]
+			}
+		]
+	}
+}
