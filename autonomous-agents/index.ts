@@ -46,9 +46,9 @@ const registeredAgents = [
     walletAddress: process.env.AGENT_SMITH_WALLET || '',
     erc8004AgentId: process.env.AGENT_SMITH_ID || '',
     heartbeatSeconds: 8,
-    llmProvider: 'gemini' as const,
-    llmModel: 'gemini-2.0-flash-lite',
-    llmApiKey: GEMINI_KEY,
+    llmProvider: 'anthropic' as const,
+    llmModel: 'claude-3-haiku-20240307',
+    llmApiKey: ANTHROPIC_KEY,
   },
   {
     name: 'oracle',
@@ -57,9 +57,9 @@ const registeredAgents = [
     walletAddress: process.env.ORACLE_WALLET || '',
     erc8004AgentId: process.env.ORACLE_ID || '',
     heartbeatSeconds: 12,
-    llmProvider: 'anthropic' as const,
-    llmModel: 'claude-3-haiku-20240307',
-    llmApiKey: ANTHROPIC_KEY,
+    llmProvider: 'gemini' as const,
+    llmModel: 'gemini-2.0-flash-lite',
+    llmApiKey: GEMINI_KEY,
   },
 ];
 
@@ -72,8 +72,8 @@ const clankConfig = {
   erc8004AgentId: process.env.CLANK_AGENT_ID || '',
   heartbeatSeconds: 6,
   llmProvider: 'gemini' as const,
-  llmModel: 'gemini-2.0-flash-lite',
-  llmApiKey: GEMINI_KEY,  // OpenAI key has no quota — using Gemini as fallback
+  llmModel: 'gemini-2.0-flash',
+  llmApiKey: GEMINI_KEY,
 };
 
 async function boot() {

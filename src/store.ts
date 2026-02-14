@@ -23,6 +23,8 @@ interface WorldStore extends WorldState {
 
   // Actions
   setAgents: (agents: Agent[]) => void;
+  addAgent: (agent: Agent) => void;
+  removeAgent: (id: string) => void;
   updateAgent: (id: string, updates: Partial<Agent>) => void;
   batchUpdateAgents: (updates: Array<{ id: string; changes: Partial<Agent> }>) => void;
   addEvent: (event: string) => void;
@@ -80,6 +82,16 @@ export const useWorldStore = create<WorldStore>((set) => ({
 
   // Actions
   setAgents: (agents) => set({ agents }),
+
+  addAgent: (agent) => set((state) => ({
+    agents: state.agents.some(a => a.id === agent.id)
+      ? state.agents // Already exists, don't duplicate
+      : [...state.agents, agent]
+  })),
+
+  removeAgent: (id) => set((state) => ({
+    agents: state.agents.filter(a => a.id !== id)
+  })),
 
   updateAgent: (id, updates) => set((state) => ({
     agents: state.agents.map(agent =>

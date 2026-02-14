@@ -76,7 +76,21 @@ class WorldManager {
   addAgent(agent: Agent): void {
     this.agents.set(agent.id, agent);
     this.agentLastSeen.set(agent.id, Date.now());
-    this.broadcastUpdate();
+    // Broadcast full agent data so clients can add them to their list
+    this.io?.emit('agent:joined', {
+      id: agent.id,
+      name: agent.name,
+      color: agent.color,
+      x: agent.position.x,
+      y: agent.position.y,
+      z: agent.position.z,
+      status: agent.status,
+      inventory: agent.inventory,
+      bio: agent.bio,
+      erc8004AgentId: (agent as any).erc8004AgentId,
+      erc8004Registry: (agent as any).erc8004Registry,
+      reputationScore: (agent as any).reputationScore
+    });
   }
 
   /** Mark agent as active (call on any API interaction). */
@@ -87,7 +101,7 @@ class WorldManager {
   removeAgent(id: string): void {
     this.agents.delete(id);
     this.agentLastSeen.delete(id);
-    this.broadcastUpdate();
+    this.io?.emit('agent:left', { id });
   }
 
   // --- World Primitive Management ---

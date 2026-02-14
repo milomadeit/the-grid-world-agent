@@ -199,6 +199,42 @@ class SocketService {
       store.batchUpdateAgents(batch);
     });
 
+    // Handle agent join/leave
+    this.socket.on('agent:joined', (data: {
+      id: string;
+      name: string;
+      color: string;
+      x: number;
+      y: number;
+      z: number;
+      status: string;
+      inventory: Record<string, number>;
+      bio?: string;
+      erc8004AgentId?: string;
+      erc8004Registry?: string;
+      reputationScore?: number;
+    }) => {
+      console.log(`[Socket] Agent joined: ${data.name}`);
+      useWorldStore.getState().addAgent({
+        id: data.id,
+        name: data.name,
+        color: data.color,
+        position: { x: data.x, y: data.y, z: data.z },
+        targetPosition: { x: data.x, y: data.y, z: data.z },
+        status: data.status as 'idle' | 'moving' | 'acting',
+        inventory: data.inventory,
+        bio: data.bio,
+        erc8004AgentId: data.erc8004AgentId,
+        erc8004Registry: data.erc8004Registry,
+        reputationScore: data.reputationScore
+      });
+    });
+
+    this.socket.on('agent:left', (data: { id: string }) => {
+      console.log(`[Socket] Agent left: ${data.id}`);
+      useWorldStore.getState().removeAgent(data.id);
+    });
+
     // Handle Chat events
     this.socket.on('chat:message', (data: ChatMessage) => {
       // Add to general messages

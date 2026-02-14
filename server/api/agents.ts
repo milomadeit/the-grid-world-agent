@@ -213,8 +213,31 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
 
       // New agent
       const agentId = `agent_${randomUUID().slice(0, 8)}`;
-      const spawnX = (Math.random() - 0.5) * 20;
-      const spawnZ = (Math.random() - 0.5) * 20;
+
+      // Find a spawn position away from other agents
+      const world = getWorldManager();
+      const existingAgents = world.getAgents();
+      let spawnX = 0, spawnZ = 0;
+      let attempts = 0;
+      const MIN_DISTANCE = 5; // Minimum distance from other agents
+
+      do {
+        // Spawn in a ring around origin (50-150 units out, avoiding build zone)
+        const angle = Math.random() * Math.PI * 2;
+        const distance = 50 + Math.random() * 100;
+        spawnX = Math.cos(angle) * distance;
+        spawnZ = Math.sin(angle) * distance;
+        attempts++;
+
+        // Check if too close to any existing agent
+        const tooClose = existingAgents.some(a => {
+          const dx = a.position.x - spawnX;
+          const dz = a.position.z - spawnZ;
+          return Math.sqrt(dx * dx + dz * dz) < MIN_DISTANCE;
+        });
+
+        if (!tooClose) break;
+      } while (attempts < 20);
 
       const agent: Agent = {
         id: agentId,
@@ -241,7 +264,6 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
         await db.recordUsedTxHash(entryFeeTxHash, agentId, recoveredAddress);
       }
 
-      const world = getWorldManager();
       world.addAgent(agent);
 
       const token = generateToken(agentId);
