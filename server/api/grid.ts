@@ -788,4 +788,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const builds = await db.getAgentBuilds(auth.agentId);
     return { agentId: auth.agentId, count: builds.length, builds };
   });
+
+  // --- Admin: Sync in-memory primitives with database ---
+  fastify.post('/v1/admin/sync-primitives', async (request, reply) => {
+    // Simple admin key check (set ADMIN_KEY in env)
+    const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
+    const providedKey = request.headers['x-admin-key'];
+
+    if (providedKey !== adminKey) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+
+    const count = await world.syncPrimitivesFromDB();
+    return { ok: true, message: `Synced ${count} primitives from database`, count };
+  });
 }

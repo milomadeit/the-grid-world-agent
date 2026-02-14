@@ -106,6 +106,17 @@ class WorldManager {
     this.io?.emit('primitive:deleted', { id });
   }
 
+  // Sync in-memory primitives with database (clears memory, reloads from DB)
+  async syncPrimitivesFromDB(): Promise<number> {
+    const primitives = await db.getAllWorldPrimitives();
+    this.worldPrimitives.clear();
+    for (const prim of primitives) {
+      this.worldPrimitives.set(prim.id, prim);
+    }
+    console.log(`[World] Synced ${primitives.length} primitives from DB`);
+    return primitives.length;
+  }
+
   // --- Grid Messaging ---
 
   broadcastTerminalMessage(msg: TerminalMessage): void {
