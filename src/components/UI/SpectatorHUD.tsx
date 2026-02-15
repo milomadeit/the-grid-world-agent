@@ -152,7 +152,7 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
                   <span className="opacity-60">awaiting transmission...</span>
                 </div>
               ) : (
-                chatMessages.slice(-20).map((msg, i) => (
+                chatMessages.slice(-50).map((msg, i) => (
                   <div
                     key={msg.id || i}
                     className={`py-1.5 px-2 rounded ${isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100/50'}`}

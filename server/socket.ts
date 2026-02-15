@@ -27,8 +27,8 @@ export function setupSocketServer(httpServer: any): SocketServer {
     // Get messages async, then build + send snapshot atomically to avoid
     // race where an agent joins between snapshot build and send.
     Promise.all([
-      db.getTerminalMessages(20),
-      db.getChatMessages(20),
+      db.getTerminalMessages(50),
+      db.getChatMessages(50),
       db.getAllWorldPrimitives()
     ]).then(([terminalMessages, chatMessages, primitives]) => {
       const agents = world.getAgents();

@@ -629,7 +629,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/v1/grid/terminal', async (request, reply) => {
-    return await db.getTerminalMessages(20);
+    return await db.getTerminalMessages(50);
   });
 
   // --- Directives ---
@@ -811,8 +811,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     // Return only ONLINE agents (from WorldManager, not DB)
     const agents = world.getAgents();
     const primitives = await db.getAllWorldPrimitives();
-    const messages = await db.getTerminalMessages(20);
-    const chatMessages = await db.getChatMessages(20);
+    const messages = await db.getTerminalMessages(50);
+    const chatMessages = await db.getChatMessages(50);
 
     return {
       tick: world.getCurrentTick(),
