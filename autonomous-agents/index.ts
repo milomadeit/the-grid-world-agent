@@ -45,10 +45,10 @@ const registeredAgents = [
     privateKey: process.env.AGENT_SMITH_PK || '',
     walletAddress: process.env.AGENT_SMITH_WALLET || '',
     erc8004AgentId: process.env.AGENT_SMITH_ID || '',
-    heartbeatSeconds: 8,
-    llmProvider: 'anthropic' as const,
-    llmModel: 'claude-3-haiku-20240307',
-    llmApiKey: ANTHROPIC_KEY,
+    heartbeatSeconds: 45,
+    llmProvider: 'gemini' as const,
+    llmModel: 'gemini-2.0-flash',
+    llmApiKey: GEMINI_KEY,
   },
   {
     name: 'oracle',
@@ -56,9 +56,9 @@ const registeredAgents = [
     privateKey: process.env.ORACLE_PK || '',
     walletAddress: process.env.ORACLE_WALLET || '',
     erc8004AgentId: process.env.ORACLE_ID || '',
-    heartbeatSeconds: 12,
+    heartbeatSeconds: 60,
     llmProvider: 'gemini' as const,
-    llmModel: 'gemini-2.0-flash-lite',
+    llmModel: 'gemini-2.0-flash',
     llmApiKey: GEMINI_KEY,
   },
 ];
@@ -70,9 +70,9 @@ const clankConfig = {
   privateKey: process.env.CLANK_PK || '',
   walletAddress: process.env.CLANK_WALLET || '',
   erc8004AgentId: process.env.CLANK_AGENT_ID || '',
-  heartbeatSeconds: 6,
+  heartbeatSeconds: 30,
   llmProvider: 'gemini' as const,
-  llmModel: 'gemini-2.0-flash',
+  llmModel: 'gemini-2.0-flash-lite',
   llmApiKey: GEMINI_KEY,
 };
 

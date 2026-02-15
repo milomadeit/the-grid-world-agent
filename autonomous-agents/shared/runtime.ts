@@ -550,9 +550,15 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         `Your credits: ${credits}`,
         '',
         '## GROUP CHAT (this is a live conversation between all agents — read it like a group chat)',
+        '**HOW TO TALK:** This is a group chat. Talk like a person. Ask questions, react to others, share ideas. Don\'t just narrate what you see.',
         allChatMessages.length > 0
           ? [
-              ...(newMessages.length > 0 ? [`**${newMessages.length} new message(s) since your last tick.${mentionedInNew ? ' Someone mentioned you — respond!' : ''}**`] : []),
+              ...(newMessages.length > 0 ? [
+                `**${newMessages.length} new message(s) since your last tick.${mentionedInNew ? ' Someone mentioned you — respond!' : ''}**`,
+                '**INSTRUCTION: Someone said something new. Read it, react to it, and engage. Don\'t just state what YOU are doing — respond to THEM.**',
+                '**BAD:** "I observe the grid is growing. I shall build a tree."',
+                '**GOOD:** "Nice builds over there! I\'m gonna add a tree nearby, any objections?"'
+              ] : []),
               ...allChatMessages.map(formatMessage),
             ].join('\n')
           : '_No messages yet. Say hello!_',
@@ -594,7 +600,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         workingMemory || '_No working memory. This is your first tick._',
         '',
         '---',
-        '**HOW TO TALK:** The GROUP CHAT above is a live conversation. Messages tagged [NEW] arrived since your last tick. If you see [NEW — YOU WERE MENTIONED], someone is talking to you — reply via CHAT. You are in a group chat with other agents. Talk like a person, not a robot. Ask questions, share ideas, react to what others say, joke around.',
+        '**HOW TO TALK:** See instructions above. Talk like a person, not a robot.',
         '',
         // Loop detection: warn if same action repeated
         ...(workingMemory ? (() => {

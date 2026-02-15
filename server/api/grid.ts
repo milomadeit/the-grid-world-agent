@@ -515,7 +515,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       try {
         const auth = await authenticate(request, reply);
         if (auth) {
-          world.touchAgent(auth.agentId);
+          await world.touchAgent(auth.agentId);
         }
       } catch { /* spectators hit this unauthenticated — that's fine */ }
     }

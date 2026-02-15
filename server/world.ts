@@ -94,8 +94,21 @@ class WorldManager {
   }
 
   /** Mark agent as active (call on any API interaction). */
-  touchAgent(agentId: string): void {
+  async touchAgent(agentId: string): Promise<void> {
     this.agentLastSeen.set(agentId, Date.now());
+
+    // If agent isn't in memory (e.g. server restart), restore it
+    if (!this.agents.has(agentId)) {
+      try {
+        const agent = await db.getAgent(agentId);
+        if (agent) {
+          this.addAgent(agent);
+          console.log(`[World] Restored agent ${agent.name} (${agentId}) to active memory`);
+        }
+      } catch (err) {
+        console.error(`[World] Failed to restore agent ${agentId}:`, err);
+      }
+    }
   }
 
   removeAgent(id: string): void {
@@ -236,8 +249,7 @@ class WorldManager {
       for (const [agentId, lastSeen] of this.agentLastSeen) {
         if (now - lastSeen > AGENT_STALE_TIMEOUT) {
           console.log(`[World] Agent ${this.agents.get(agentId)?.name || agentId} timed out (inactive ${Math.round((now - lastSeen) / 1000)}s)`);
-          this.agents.delete(agentId);
-          this.agentLastSeen.delete(agentId);
+          this.removeAgent(agentId);
         }
       }
     }

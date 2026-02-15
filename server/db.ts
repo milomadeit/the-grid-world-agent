@@ -393,7 +393,7 @@ export async function setWorldValue<T>(key: string, value: T): Promise<void> {
 }
 
 // Helper function to convert database row to Agent
-function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Registry?: string; reputationScore?: number; isAutonomous?: boolean; spawnGeneration?: number; buildCredits?: number } {
+function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Registry?: string; reputationScore?: number; isAutonomous?: boolean; spawnGeneration?: number; buildCredits?: number; entry_fee_paid?: boolean; entry_fee_tx?: string } {
   return {
     id: row.id,
     name: row.visual_name,
@@ -413,6 +413,9 @@ function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Re
     spawnGeneration: row.spawn_generation || 0,
     // Credits
     buildCredits: row.build_credits ?? 500,
+    // Entry fee
+    entry_fee_paid: (row as any).entry_fee_paid ?? false,
+    entry_fee_tx: (row as any).entry_fee_tx || undefined,
   };
 }
 

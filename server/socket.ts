@@ -24,12 +24,16 @@ export function setupSocketServer(httpServer: any): SocketServer {
   io.on('connection', (socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
 
-    // Send current world state on connect
-    const agents = world.getAgents();
-    const primitives = world.getWorldPrimitives();
-    
-    // transform agents
-    const mappedAgents = agents.map(a => {
+    // Get messages async, then build + send snapshot atomically to avoid
+    // race where an agent joins between snapshot build and send.
+    Promise.all([
+      db.getTerminalMessages(20),
+      db.getChatMessages(20)
+    ]).then(([terminalMessages, chatMessages]) => {
+      const agents = world.getAgents();
+      const primitives = world.getWorldPrimitives();
+
+      const mappedAgents = agents.map(a => {
         const ext = a as any;
         return {
           id: a.id,
@@ -47,11 +51,6 @@ export function setupSocketServer(httpServer: any): SocketServer {
         };
       });
 
-    // Get messages async and send snapshot
-    Promise.all([
-      db.getTerminalMessages(20),
-      db.getChatMessages(20)
-    ]).then(([terminalMessages, chatMessages]) => {
       socket.emit('world:snapshot', {
         tick: world.getCurrentTick(),
         agents: mappedAgents,
@@ -64,7 +63,7 @@ export function setupSocketServer(httpServer: any): SocketServer {
 
 
     // Handle agent input from frontend clients
-    socket.on('agent:input', (data: AgentInputEvent & { agentId: string }) => {
+    socket.on('agent:input', async (data: AgentInputEvent & { agentId: string }) => {
       const { agentId, op, to, message } = data;
 
       if (!agentId) {
@@ -91,7 +90,7 @@ export function setupSocketServer(httpServer: any): SocketServer {
         case 'CHAT':
           if (message) {
             // Mark agent as active (prevents timeout)
-            world.touchAgent(agentId);
+            await world.touchAgent(agentId);
             // Persist chat to DB then broadcast
             db.writeChatMessage({
               id: 0,
