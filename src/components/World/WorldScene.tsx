@@ -82,7 +82,8 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
           alpha: false,
           powerPreference: "high-performance",
           stencil: false,
-          depth: true
+          depth: true,
+          logarithmicDepthBuffer: true
         }}
       >
         <color attach="background" args={[bgColor]} />

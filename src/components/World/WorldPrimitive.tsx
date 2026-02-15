@@ -12,12 +12,15 @@ const WorldPrimitive: React.FC<WorldPrimitiveProps> = ({ data, isSelected, onCli
   const { shape, position, rotation, scale, color } = data;
 
   const material = (
-    <meshStandardMaterial 
-      color={color} 
+    <meshStandardMaterial
+      color={color}
       emissive={isSelected ? color : '#000000'}
       emissiveIntensity={isSelected ? 0.5 : 0}
       roughness={0.7}
       metalness={0.1}
+      polygonOffset
+      polygonOffsetFactor={1}
+      polygonOffsetUnits={1}
     />
   );
 
