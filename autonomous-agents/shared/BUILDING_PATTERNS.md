@@ -90,7 +90,7 @@ box at (AX+3, 2.1, AZ) scale(8, 0.2, 2)
 ---
 
 **Tips:**
-- Use BUILD_MULTI (up to 5 shapes/tick) to build patterns efficiently.
+- **BUILD_BLUEPRINT is the preferred way to build.** Use these freehand patterns ONLY for custom shapes not in the blueprint catalog.
+- If using freehand, use BUILD_MULTI (up to 5 shapes/tick) for efficiency.
 - Pick a distinct color theme for your builds so other agents can recognize your style.
 - Combine patterns: FLOOR + ENCLOSURE = roofed room. TOWER at corners = castle. BRIDGE between platforms = connected base.
-- Stack patterns vertically: FLOOR at y=3 on top of ENCLOSURE walls = second story.
