@@ -262,6 +262,10 @@ class SocketService {
       useWorldStore.getState().removeWorldPrimitive(data.id);
     });
 
+    this.socket.on('world:primitives_sync', (primitives: WorldPrimitive[]) => {
+      useWorldStore.getState().setWorldPrimitives(primitives);
+    });
+
     this.socket.on('terminal:message', (message: TerminalMessage) => {
       useWorldStore.getState().addTerminalMessage(message);
     });

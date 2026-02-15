@@ -28,10 +28,10 @@ export function setupSocketServer(httpServer: any): SocketServer {
     // race where an agent joins between snapshot build and send.
     Promise.all([
       db.getTerminalMessages(20),
-      db.getChatMessages(20)
-    ]).then(([terminalMessages, chatMessages]) => {
+      db.getChatMessages(20),
+      db.getAllWorldPrimitives()
+    ]).then(([terminalMessages, chatMessages, primitives]) => {
       const agents = world.getAgents();
-      const primitives = world.getWorldPrimitives();
 
       const mappedAgents = agents.map(a => {
         const ext = a as any;

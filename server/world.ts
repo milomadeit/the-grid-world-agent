@@ -143,6 +143,12 @@ class WorldManager {
       this.worldPrimitives.set(prim.id, prim);
     }
     console.log(`[World] Synced ${primitives.length} primitives from DB`);
+
+    // Broadcast updated primitives to all connected clients
+    if (this.io) {
+      this.io.emit('world:primitives_sync', primitives);
+    }
+
     return primitives.length;
   }
 
