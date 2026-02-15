@@ -856,7 +856,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       let decision: AgentDecision;
       try {
         // Extract JSON from response (handle markdown code fences)
-        const jsonStr = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const jsonStr = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         decision = JSON.parse(jsonStr);
       } catch {
         console.warn(`[${agentName}] Failed to parse LLM response, idling. Raw: ${raw.slice(0, 200)}`);
@@ -1383,7 +1383,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           const raw = await callLLM(fullConfig, fullSystemPrompt, userPrompt, imageBase64);
           let decision: AgentDecision;
           try {
-            const jsonStr = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const jsonStr = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
             decision = JSON.parse(jsonStr);
           } catch {
             decision = { thought: 'Could not parse response', action: 'IDLE' };

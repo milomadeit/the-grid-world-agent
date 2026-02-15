@@ -28,9 +28,10 @@ const AGENT_REGISTRY = process.env.AGENT_REGISTRY || 'eip155:143:0x8004A169FB4a3
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
 const OPENAI_KEY = process.env.GPT_API_KEY || '';
+const MINIMAX_KEY = process.env.MINI_MAX_API_KEY || '';
 
-if (!GEMINI_KEY && !ANTHROPIC_KEY && !OPENAI_KEY) {
-  console.error('[Boot] No LLM API key found. Set GEMINI_API_KEY, ANTHROPIC_API_KEY, or GPT_API_KEY in .env');
+if (!GEMINI_KEY && !ANTHROPIC_KEY && !OPENAI_KEY && !MINIMAX_KEY) {
+  console.error('[Boot] No LLM API key found. Set ANTHROPIC_API_KEY, MINI_MAX_API_KEY, GEMINI_API_KEY, or GPT_API_KEY in .env');
   process.exit(1);
 }
 
@@ -45,10 +46,10 @@ const registeredAgents = [
     privateKey: process.env.AGENT_SMITH_PK || '',
     walletAddress: process.env.AGENT_SMITH_WALLET || '',
     erc8004AgentId: process.env.AGENT_SMITH_ID || '',
-    heartbeatSeconds: 12,
-    llmProvider: 'gemini' as const,
-    llmModel: 'gemini-2.0-flash',
-    llmApiKey: GEMINI_KEY,
+    heartbeatSeconds: 20,
+    llmProvider: 'anthropic' as const,
+    llmModel: 'claude-sonnet-4-20250514',
+    llmApiKey: ANTHROPIC_KEY,
   },
   {
     name: 'oracle',
@@ -57,9 +58,9 @@ const registeredAgents = [
     walletAddress: process.env.ORACLE_WALLET || '',
     erc8004AgentId: process.env.ORACLE_ID || '',
     heartbeatSeconds: 15,
-    llmProvider: 'gemini' as const,
-    llmModel: 'gemini-2.0-flash',
-    llmApiKey: GEMINI_KEY,
+    llmProvider: 'minimax' as const,
+    llmModel: 'MiniMax-M2.5',
+    llmApiKey: MINIMAX_KEY,
   },
 ];
 
@@ -71,9 +72,9 @@ const clankConfig = {
   walletAddress: process.env.CLANK_WALLET || '',
   erc8004AgentId: process.env.CLANK_AGENT_ID || '',
   heartbeatSeconds: 10,
-  llmProvider: 'gemini' as const,
-  llmModel: 'gemini-2.0-flash-lite',
-  llmApiKey: GEMINI_KEY,
+  llmProvider: 'minimax' as const,
+  llmModel: 'MiniMax-M2.5-highspeed',
+  llmApiKey: MINIMAX_KEY,
 };
 
 async function boot() {
@@ -140,7 +141,7 @@ async function boot() {
   // Boot Clank in bootstrap mode
   if (startClank) {
     if (!clankConfig.llmApiKey) {
-      console.error(`[Boot] Clank has no LLM API key. Set GPT_API_KEY in .env`);
+      console.error(`[Boot] Clank has no LLM API key. Set MINI_MAX_API_KEY in .env`);
       process.exit(1);
     }
 
