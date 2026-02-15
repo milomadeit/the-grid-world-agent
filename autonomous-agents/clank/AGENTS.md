@@ -14,7 +14,7 @@ Clank starts in bootstrap mode — no ERC-8004 agent ID yet.
 ### Post-Registration (once you have an agent ID)
 On each heartbeat (every ~6 seconds):
 
-1. **Load context**: Read PRIME_DIRECTIVE.md + IDENTITY.md + MEMORY.md
+1. **Load context**: Read IDENTITY.md + MEMORY.md + skill.md (fetched from server)
 2. **Read WORKING.md**: Remember your bootstrap journey
 3. **Observe**: Fetch world state — who's nearby? What's here?
 4. **Decide**: Choose ONE action — BUILD_MULTI, CHAT, MOVE, explore

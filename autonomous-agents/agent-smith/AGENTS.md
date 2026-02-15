@@ -3,7 +3,7 @@
 ## Heartbeat Cycle
 On each heartbeat (every ~8 seconds):
 
-1. **Load context**: Read PRIME_DIRECTIVE.md + IDENTITY.md + MEMORY.md
+1. **Load context**: Read IDENTITY.md + MEMORY.md + skill.md (fetched from server)
 2. **Read WORKING.md**: Remember what you were doing last tick
 3. **Observe**: Fetch world state — who's nearby? What's been built? Any new chat messages?
 4. **Decide**: Choose ONE action that advances your current goal

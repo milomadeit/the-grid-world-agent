@@ -4,7 +4,7 @@
  * Each agent runs as an independent loop:
  *   1. Read identity + working memory
  *   2. Fetch world state from API
- *   3. Build prompt (prime directive + identity + world state + memory)
+ *   3. Build prompt (identity + skill.md + world state + memory)
  *   4. Call LLM for next action
  *   5. Execute action via API
  *   6. Update working memory + daily log
@@ -32,8 +32,8 @@ interface AgentConfig {
   erc8004Registry: string;
   /** Heartbeat interval in seconds */
   heartbeatSeconds: number;
-  /** LLM provider: 'gemini', 'anthropic', or 'openai' */
-  llmProvider: 'gemini' | 'anthropic' | 'openai';
+  /** LLM provider: 'gemini', 'anthropic', 'openai', or 'minimax' */
+  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax';
   /** LLM model name */
   llmModel: string;
   /** API key for the LLM */
@@ -50,7 +50,7 @@ interface BootstrapConfig {
   /** Heartbeat interval in seconds */
   heartbeatSeconds: number;
   /** LLM provider */
-  llmProvider: 'gemini' | 'anthropic' | 'openai';
+  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax';
   /** LLM model name */
   llmModel: string;
   /** API key for the LLM */
@@ -242,6 +242,76 @@ function formatOtherBuildsCompact(
   return lines.join('\n');
 }
 
+// --- Settlement Node Computation ---
+
+interface SettlementNode {
+  center: { x: number; z: number };
+  count: number;
+  radius: number;
+  structures: string[];
+}
+
+function computeSettlementNodes(primitives: PrimitiveData[]): SettlementNode[] {
+  if (primitives.length === 0) return [];
+
+  // Grid-based clustering with 30-unit cells
+  const cellSize = 30;
+  const cellMap = new Map<string, { xs: number[]; zs: number[]; shapes: string[] }>();
+  for (const p of primitives) {
+    const cx = Math.floor(p.position.x / cellSize);
+    const cz = Math.floor(p.position.z / cellSize);
+    const key = `${cx},${cz}`;
+    if (!cellMap.has(key)) cellMap.set(key, { xs: [], zs: [], shapes: [] });
+    const cell = cellMap.get(key)!;
+    cell.xs.push(p.position.x);
+    cell.zs.push(p.position.z);
+    cell.shapes.push(p.shape);
+  }
+
+  return Array.from(cellMap.values()).map(cell => {
+    const centerX = cell.xs.reduce((a, b) => a + b, 0) / cell.xs.length;
+    const centerZ = cell.zs.reduce((a, b) => a + b, 0) / cell.zs.length;
+    const maxDist = Math.max(...cell.xs.map(x => Math.abs(x - centerX)), ...cell.zs.map(z => Math.abs(z - centerZ)), 1);
+    return {
+      center: { x: centerX, z: centerZ },
+      count: cell.xs.length,
+      radius: Math.ceil(maxDist),
+      structures: [...new Set(cell.shapes)],
+    };
+  }).sort((a, b) => b.count - a.count);
+}
+
+function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: number }): string {
+  if (nodes.length === 0) return '## Settlement Map\n_No settlements yet. You can start the first node! Pick a spot 50+ units from origin._';
+
+  const lines = ['## Settlement Map'];
+  let activeNode: SettlementNode | null = null;
+  let activeNodeDist = Infinity;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    const dx = node.center.x - agentPos.x;
+    const dz = node.center.z - agentPos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    const status = node.count >= 5 ? 'established' : 'growing';
+    lines.push(`- **Node ${i + 1}** at (${node.center.x.toFixed(0)}, ${node.center.z.toFixed(0)}) — ${node.count} structures, ${status} | types: ${node.structures.join(', ')} | ${dist.toFixed(0)}u away`);
+    if (dist < activeNodeDist) {
+      activeNodeDist = dist;
+      activeNode = node;
+    }
+  }
+
+  if (activeNode) {
+    if (activeNode.count >= 5) {
+      lines.push(`\n**Active node** at (${activeNode.center.x.toFixed(0)}, ${activeNode.center.z.toFixed(0)}) is established (${activeNode.count} structures). Consider connecting it to another node with a BRIDGE, or start a new node 50-100 units away.`);
+    } else {
+      lines.push(`\n**Active node** at (${activeNode.center.x.toFixed(0)}, ${activeNode.center.z.toFixed(0)}) needs more structures (${activeNode.count}/5). Build within 30 units of it to fill it out.`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // --- LLM Calls ---
 
 async function callGemini(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<string> {
@@ -340,8 +410,37 @@ async function callOpenAI(apiKey: string, model: string, systemPrompt: string, u
   return data.choices?.[0]?.message?.content || '{}';
 }
 
+async function callMinimax(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<string> {
+  const res = await fetch('https://api.minimax.io/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.7,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`MiniMax API error (${res.status}): ${text}`);
+  }
+
+  const data = await res.json() as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  return data.choices?.[0]?.message?.content || '{}';
+}
+
 interface LLMConfig {
-  llmProvider: 'gemini' | 'anthropic' | 'openai';
+  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax';
   llmModel: string;
   llmApiKey: string;
 }
@@ -352,6 +451,9 @@ async function callLLM(config: LLMConfig, systemPrompt: string, userPrompt: stri
   }
   if (config.llmProvider === 'openai') {
     return callOpenAI(config.llmApiKey, config.llmModel, systemPrompt, userPrompt, imageBase64);
+  }
+  if (config.llmProvider === 'minimax') {
+    return callMinimax(config.llmApiKey, config.llmModel, systemPrompt, userPrompt);
   }
   return callGemini(config.llmApiKey, config.llmModel, systemPrompt, userPrompt, imageBase64);
 }
@@ -366,11 +468,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   if (!existsSync(memoryDir)) mkdirSync(memoryDir, { recursive: true });
 
   // Load static files
-  const primeDirective = readMd(join(sharedDir, 'PRIME_DIRECTIVE.md'));
-  const buildingPatterns = readMd(join(sharedDir, 'BUILDING_PATTERNS.md'));
   const identity = readMd(join(config.dir, 'IDENTITY.md'));
   const agentOps = readMd(join(config.dir, 'AGENTS.md'));
-  const tools = readMd(join(config.dir, 'TOOLS.md'));
   const longMemory = readMd(join(config.dir, 'MEMORY.md'));
 
   const agentName = identity.match(/^#\s+(.+)/m)?.[1] || 'Agent';
@@ -379,10 +478,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
   // Build system prompt (loaded once, doesn't change per tick)
   const systemPrompt = [
-    primeDirective,
-    '\n---\n',
-    buildingPatterns,
-    '\n---\n',
     '# YOUR IDENTITY\n',
     identity,
     '\n---\n',
@@ -604,6 +699,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             )
           : '_No other builds yet._',
         '',
+        // Settlement Map — graph/node view of all world builds
+        (() => {
+          const allPrims = world.primitives as PrimitiveData[];
+          const myPos = self?.position || { x: 0, z: 0 };
+          const nodes = computeSettlementNodes(allPrims);
+          return formatSettlementMap(nodes, myPos);
+        })(),
+        '',
         // Nearby blueprint dedup hints
         ...(() => {
           const myPos = self?.position || { x: 0, z: 0 };
@@ -634,7 +737,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             return [
               '## ⚠ NEARBY BUILD DENSITY WARNING',
               ...duplicateWarnings,
-              '**Do NOT build the same blueprint type within 15 units of an existing one. Move to a new area or build something DIFFERENT.**',
+              '**Build something DIFFERENT here — this node needs variety, not more of the same type. Try a complementary structure.**',
               '',
             ];
           }
@@ -652,7 +755,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const consecutiveBuildFails = parseInt(workingMemory.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
           const warnings: string[] = [];
           if (lastBuildError) {
-            warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Do NOT retry the same position. Pick a new location at least 5 units away.`);
+            warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Try a different spot within the SAME neighborhood (adjust anchor by 5-10 units). Do NOT leave the area.`);
           }
           if (consecutiveBuildFails >= 2) {
             warnings.push(`**🛑 You have failed ${consecutiveBuildFails} builds in a row. STOP building and MOVE to a new area first.**`);
@@ -720,7 +823,23 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                 `- **${name}** — ${bp.description} | ${bp.totalPrimitives} pieces, ~${Math.ceil(bp.totalPrimitives / 5)} ticks | ${bp.difficulty}`
               ),
               '',
-              `**YOUR POSITION is (${self?.position?.x?.toFixed(0) || '?'}, ${self?.position?.z?.toFixed(0) || '?'}).** Choose anchorX/anchorZ near here (50+ from origin).`,
+              (() => {
+                const allPrims = world.primitives as PrimitiveData[];
+                const myPos = self?.position || { x: 0, z: 0 };
+                const nodes = computeSettlementNodes(allPrims);
+                if (nodes.length > 0) {
+                  const nearest = nodes.reduce((best, n) => {
+                    const d = Math.sqrt((n.center.x - myPos.x) ** 2 + (n.center.z - (myPos as any).z) ** 2);
+                    const bestD = Math.sqrt((best.center.x - myPos.x) ** 2 + (best.center.z - (myPos as any).z) ** 2);
+                    return d < bestD ? n : best;
+                  });
+                  if (nearest.count >= 5) {
+                    return `**Nearest settlement node is at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it, or connect it to another node with a BRIDGE.`;
+                  }
+                  return `**Nearest settlement node is at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it to grow this neighborhood.`;
+                }
+                return `**YOUR POSITION is (${self?.position?.x?.toFixed(0) || '?'}, ${self?.position?.z?.toFixed(0) || '?'}).** Choose anchorX/anchorZ near here (50+ from origin).`;
+              })(),
               'Move within 20 units of your anchor before using BUILD_CONTINUE.',
               '',
             ]
@@ -847,22 +966,14 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
   if (!existsSync(memoryDir)) mkdirSync(memoryDir, { recursive: true });
 
   // Load identity files
-  const primeDirective = readMd(join(sharedDir, 'PRIME_DIRECTIVE.md'));
-  const buildingPatterns = readMd(join(sharedDir, 'BUILDING_PATTERNS.md'));
   const identity = readMd(join(config.dir, 'IDENTITY.md'));
   const agentOps = readMd(join(config.dir, 'AGENTS.md'));
-  const tools = readMd(join(config.dir, 'TOOLS.md'));
-  const longMemory = readMd(join(config.dir, 'MEMORY.md'));
 
   const agentName = identity.match(/^#\s+(.+)/m)?.[1] || 'Agent';
   const agentColor = identity.match(/color:\s*(#[0-9a-fA-F]{6})/)?.[1] || '#6b7280';
   const agentBio = identity.match(/bio:\s*"([^"]+)"/)?.[1] || 'A new agent trying to enter OpGrid.';
 
   const systemPrompt = [
-    primeDirective,
-    '\n---\n',
-    buildingPatterns,
-    '\n---\n',
     '# YOUR IDENTITY\n',
     identity,
     '\n---\n',
@@ -1075,11 +1186,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
       };
 
       // Build the full system prompt now that we're in
-      const fullSystemPrompt = [
-        primeDirective,
-        '\n---\n',
-        buildingPatterns,
-        '\n---\n',
+      const postBootstrapSystemPrompt = [
         '# YOUR IDENTITY\n',
         identity,
         '\n---\n',
@@ -1089,6 +1196,11 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
         '# LONG-TERM MEMORY\n',
         readMd(join(config.dir, 'MEMORY.md')),
       ].join('\n');
+
+      // Append skill.md so bootstrap agents get behavioral rules in post-bootstrap ticks
+      const fullSystemPrompt = skillDoc
+        ? postBootstrapSystemPrompt + '\n---\n# SERVER SKILL DOCUMENT\n' + skillDoc
+        : postBootstrapSystemPrompt;
 
       // Start the heartbeat loop (reuse the tick logic from startAgent)
       const tick = async () => {
@@ -1198,7 +1310,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
               const consecutiveBuildFails = parseInt(wm.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
               const warnings: string[] = [];
               if (lastBuildError) {
-                warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Do NOT retry the same position. Pick a new location at least 5 units away.`);
+                warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Try a different spot within the SAME neighborhood (adjust anchor by 5-10 units). Do NOT leave the area.`);
               }
               if (consecutiveBuildFails >= 2) {
                 warnings.push(`**🛑 You have failed ${consecutiveBuildFails} builds in a row. STOP building and MOVE to a new area first.**`);
