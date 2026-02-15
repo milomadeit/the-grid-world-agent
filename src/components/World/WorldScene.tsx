@@ -76,14 +76,13 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
     <div className="w-full h-full cursor-crosshair">
       <Canvas
         shadows
-        camera={{ position: [60, 60, 60], fov: 20, near: 1, far: 2000 }}
+        camera={{ position: [60, 60, 60], fov: 20, near: 5, far: 1500 }}
         gl={{
           antialias: true,
           alpha: false,
           powerPreference: "high-performance",
           stencil: false,
-          depth: true,
-          logarithmicDepthBuffer: true
+          depth: true
         }}
       >
         <color attach="background" args={[bgColor]} />
@@ -96,7 +95,7 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
         />
 
         <Suspense fallback={null}>
-          {/* Ground plane for click events - matches background exactly */}
+          {/* Ground plane for click events - transparent but visible for raycasting */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
             position={[0, -0.02, 0]}
@@ -114,6 +113,7 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
             <planeGeometry args={[4000, 4000]} />
             <meshBasicMaterial color={bgColor} />
           </mesh>
+
 
           <InfiniteGrid isDarkMode={isDarkMode} />
 
