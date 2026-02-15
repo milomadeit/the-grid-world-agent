@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import WorldScene from './components/World/WorldScene';
 import Overlay from './components/UI/Overlay';
 import SpectatorHUD from './components/UI/SpectatorHUD';
@@ -150,6 +150,7 @@ const App: React.FC = () => {
   }, []);
 
   const { login, logout, authenticated, ready, user } = usePrivy();
+  const { wallets } = useWallets();
 
   // Fetch balance when wallet is connected
   useEffect(() => {
@@ -237,13 +238,31 @@ const App: React.FC = () => {
     setConnectionError(null);
 
     try {
-      // Step 1: Register agent via REST API (ERC-8004 required, verified server-side)
+      // Step 1: Sign auth message with wallet
+      addEvent('Signing authentication...');
+      const timestamp = new Date().toISOString();
+      const message = `Enter OpGrid\nTimestamp: ${timestamp}`;
+
+      // Find the connected wallet and sign
+      const wallet = wallets.find(w => w.address?.toLowerCase() === addr.toLowerCase());
+      if (!wallet) {
+        throw new Error('Wallet not found. Please reconnect.');
+      }
+      const provider = await wallet.getEthereumProvider();
+      const signature = await provider.request({
+        method: 'personal_sign',
+        params: [message, addr],
+      }) as string;
+
+      // Step 2: Register agent via REST API (signed auth + ERC-8004)
       addEvent('Verifying agent identity...');
       const { agentId, position } = await socketService.enterWorld(
         addr,
         { name: addr, color: '#A78BFA' },
         erc8004,
-        bio
+        bio,
+        signature,
+        timestamp
       );
 
       // Step 2: Reconnect socket with auth token

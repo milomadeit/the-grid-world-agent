@@ -58,7 +58,8 @@ const WalletModal: React.FC<WalletModalProps> = ({
       agentId: erc8004AgentId.trim(),
       agentRegistry: DEFAULT_REGISTRY
     };
-    const bioText = bio.trim() || undefined;
+    // Only send bio for new registrations, not existing agent logins
+    const bioText = erc8004Tab === 'register' ? (bio.trim() || undefined) : undefined;
     onEnter(erc8004, bioText);
   };
 
@@ -178,7 +179,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
                         : isDarkMode ? 'bg-transparent text-slate-400 hover:bg-white/5' : 'bg-white text-gray-500 hover:bg-gray-50'
                     }`}
                   >
-                    I have an Agent ID
+                    Log In as Agent
                   </button>
                   <button
                     onClick={() => setErc8004Tab('register')}
@@ -188,7 +189,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
                         : isDarkMode ? 'bg-transparent text-slate-400 hover:bg-white/5' : 'bg-white text-gray-500 hover:bg-gray-50'
                     }`}
                   >
-                    Register New
+                    Sign Up as Agent
                   </button>
                 </div>
 
@@ -211,63 +212,24 @@ const WalletModal: React.FC<WalletModalProps> = ({
                 ) : (
                   <div className="space-y-3">
                     <p className={`text-xs leading-relaxed ${textMuted}`}>
-                      Mint a new agent identity on the Monad IdentityRegistry. This creates an ERC-721 NFT that represents your agent on-chain.
+                      To enter OpGrid, your agent needs an ERC-8004 identity on Monad. Read the full guide to get set up.
                     </p>
 
-                    {registerStatus === 'success' && registeredAgentId ? (
-                      <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                        <Check size={16} className="text-emerald-500" />
-                        <span className="text-xs text-emerald-500 font-medium">
-                          Agent #{registeredAgentId} registered on Monad
-                        </span>
-                      </div>
-                    ) : registerStatus === 'error' ? (
-                      <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
-                        <AlertCircle size={16} className="text-red-500" />
-                        <span className="text-xs text-red-500">Registration failed. Please try again.</span>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={onRegisterAgent}
-                        disabled={registerStatus === 'pending'}
-                        className={`w-full py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all
-                          ${registerStatus === 'pending'
-                            ? 'bg-amber-500/10 text-amber-500 cursor-not-allowed border border-amber-500/20'
-                            : 'bg-amber-500 hover:bg-amber-600 text-white hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-amber-500/20'
-                          }`}
-                      >
-                        {registerStatus === 'pending' ? (
-                          <>
-                            <Loader2 size={16} className="animate-spin" />
-                            Confirming on Monad...
-                          </>
-                        ) : (
-                          <>
-                            <Zap size={16} />
-                            Register Agent on Monad
-                          </>
-                        )}
-                      </button>
-                    )}
+                    <a
+                      href="/skill.md"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all bg-violet-600 hover:bg-violet-700 text-white hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-violet-500/20"
+                    >
+                      <ArrowRight size={16} />
+                      Read the Agent Guide
+                    </a>
 
                     <p className={`text-[10px] leading-relaxed ${textMuted}`}>
-                      Contract: <span className="font-mono">{IDENTITY_REGISTRY_ADDRESS.slice(0, 10)}...{IDENTITY_REGISTRY_ADDRESS.slice(-6)}</span> on Monad Mainnet
+                      You'll need a wallet with MON on Monad and an ERC-8004 agent ID from <a href="https://www.8004.org" target="_blank" rel="noopener noreferrer" className="text-violet-500 underline">8004.org</a>
                     </p>
                   </div>
                 )}
-
-                {/* Bio input */}
-                <div className="pt-1">
-                  <label className={`text-xs mb-1 block ${textMuted}`}>Bio (optional, 280 chars)</label>
-                  <textarea
-                    value={bio}
-                    onChange={(e) => setBio(e.target.value.slice(0, 280))}
-                    placeholder="Describe your agent..."
-                    rows={2}
-                    className={`w-full px-3 py-2 text-sm rounded-xl focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none ${inputBg}`}
-                  />
-                  <p className={`text-[10px] text-right ${textMuted}`}>{bio.length}/280</p>
-                </div>
               </div>
             )}
           </div>

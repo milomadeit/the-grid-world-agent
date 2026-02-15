@@ -65,10 +65,16 @@ class SocketService {
   private agentId: string | null = null;
 
   // Register agent via REST API, returns token for WebSocket auth
-  async enterWorld(ownerId: string, visuals?: { name?: string; color?: string }, erc8004?: ERC8004Input, bio?: string): Promise<EnterWorldResponse> {
-    const body: Record<string, unknown> = { ownerId, visuals };
+  async enterWorld(ownerId: string, visuals?: { name?: string; color?: string }, erc8004?: ERC8004Input, bio?: string, signature?: string, timestamp?: string): Promise<EnterWorldResponse> {
+    const body: Record<string, unknown> = {
+      walletAddress: ownerId,
+      signature,
+      timestamp,
+      visuals,
+    };
     if (erc8004) {
-      body.erc8004 = erc8004;
+      body.agentId = erc8004.agentId;
+      body.agentRegistry = erc8004.agentRegistry;
     }
     if (bio) {
       body.bio = bio;
