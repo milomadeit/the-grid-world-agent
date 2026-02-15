@@ -63,7 +63,7 @@ interface BootstrapConfig {
 
 interface AgentDecision {
   thought: string;
-  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'IDLE';
+  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'TRANSFER_CREDITS' | 'IDLE';
   payload?: Record<string, unknown>;
 }
 
@@ -604,25 +604,79 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             )
           : '_No other builds yet._',
         '',
+        // Nearby blueprint dedup hints
+        ...(() => {
+          const myPos = self?.position || { x: 0, z: 0 };
+          const nearbyRadius = 15;
+          const nearbyPrims = world.primitives.filter(p => {
+            const dx = p.position.x - myPos.x;
+            const dz = p.position.z - (myPos as any).z;
+            return Math.sqrt(dx * dx + dz * dz) <= nearbyRadius;
+          });
+          if (nearbyPrims.length === 0) return [];
+          // Count blueprint-like clusters by shape composition within radius
+          const shapeCounts = new Map<string, number>();
+          for (const p of nearbyPrims) {
+            shapeCounts.set(p.shape, (shapeCounts.get(p.shape) || 0) + 1);
+          }
+          const duplicateWarnings: string[] = [];
+          // Detect lamp_post-like patterns (cylinder + cone + sphere clusters)
+          const spheres = shapeCounts.get('sphere') || 0;
+          const cones = shapeCounts.get('cone') || 0;
+          const cylinders = shapeCounts.get('cylinder') || 0;
+          if (spheres >= 3 && cones >= 2 && cylinders >= 3) {
+            duplicateWarnings.push('Multiple LAMP_POST-like structures detected nearby.');
+          }
+          if (nearbyPrims.length >= 8) {
+            duplicateWarnings.push(`${nearbyPrims.length} shapes within ${nearbyRadius} units of you.`);
+          }
+          if (duplicateWarnings.length > 0) {
+            return [
+              '## ⚠ NEARBY BUILD DENSITY WARNING',
+              ...duplicateWarnings,
+              '**Do NOT build the same blueprint type within 15 units of an existing one. Move to a new area or build something DIFFERENT.**',
+              '',
+            ];
+          }
+          return [];
+        })(),
         '## YOUR WORKING MEMORY',
         workingMemory || '_No working memory. This is your first tick._',
         '',
         '---',
         '**HOW TO TALK:** See instructions above. Talk like a person, not a robot.',
         '',
-        // Loop detection: warn if same action repeated
+        // Build error warnings — surface failures prominently
+        ...(workingMemory ? (() => {
+          const lastBuildError = workingMemory.match(/Last build error: (.+)/)?.[1];
+          const consecutiveBuildFails = parseInt(workingMemory.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
+          const warnings: string[] = [];
+          if (lastBuildError) {
+            warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Do NOT retry the same position. Pick a new location at least 5 units away.`);
+          }
+          if (consecutiveBuildFails >= 2) {
+            warnings.push(`**🛑 You have failed ${consecutiveBuildFails} builds in a row. STOP building and MOVE to a new area first.**`);
+          }
+          return warnings.length > 0 ? [...warnings, ''] : [];
+        })() : []),
+        // Loop detection: warn if same action repeated (threshold: 3)
         ...(workingMemory ? (() => {
           const lastActionMatch = workingMemory.match(/Last action: (\w+)/);
           const consecutiveMatch = workingMemory.match(/Consecutive same-action: (\d+)/);
           const lastAction = lastActionMatch?.[1];
           const consecutive = parseInt(consecutiveMatch?.[1] || '0');
-          if (lastAction && consecutive >= 5 && lastAction !== 'BUILD_CONTINUE') {
-            return [`**⚠ WARNING: You have done ${lastAction} ${consecutive} times in a row. You MUST choose a DIFFERENT action this tick.**`, ''];
+          if (lastAction && consecutive >= 4 && lastAction !== 'BUILD_CONTINUE') {
+            const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT'];
+            const isBuildAction = buildActions.includes(lastAction);
+            return [`**⚠ WARNING: You have done ${lastAction} ${consecutive} times in a row. You MUST choose a DIFFERENT action category this tick.${isBuildAction ? ' Try MOVE or CHAT instead.' : ''}**`, ''];
+          }
+          if (lastAction && consecutive >= 3 && lastAction !== 'BUILD_CONTINUE') {
+            return [`**⚠ WARNING: You have done ${lastAction} ${consecutive} times in a row. Consider doing something different.**`, ''];
           }
           return [];
         })() : []),
         'Decide your next action. Respond with EXACTLY one JSON object:',
-        '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
+        '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
         '',
         'Payload formats:',
         '  MOVE: {"x": 5, "z": 3}',
@@ -633,6 +687,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
         '  BUILD_MULTI: {"primitives": [{"shape":"cylinder","x":100,"y":1,"z":100,"scaleX":1,"scaleY":2,"scaleZ":1,"color":"#3b82f6"},{"shape":"cone","x":100,"y":3,"z":100,"scaleX":2,"scaleY":2,"scaleZ":2,"color":"#f59e0b"}]}  ← up to 5 per tick',
         '    Available shapes: box, sphere, cone, cylinder, plane, torus, dodecahedron, icosahedron, octahedron, torusKnot, capsule',
+        '  TRANSFER_CREDITS: {"toAgentId": "agent_xxx", "amount": 25}  ← send credits to another agent',
         '    **USE VARIETY:** Do NOT just build boxes. Use cylinders for pillars, cones for roofs, spheres for decorations, torus for rings/arches.',
         '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 → y=0.5, scaleY=0.2 → y=0.1, scaleY=2 → y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
         '  TERMINAL: {"message": "Status update..."}',
@@ -714,6 +769,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         : decision.action === 'CANCEL_BUILD' ? `CANCEL_BUILD: cancelled active blueprint`
         : decision.action === 'VOTE' ? `VOTE: ${(decision.payload as any)?.vote || '?'} on ${(decision.payload as any)?.directiveId || '?'}`
         : decision.action === 'SUBMIT_DIRECTIVE' ? `SUBMIT_DIRECTIVE: "${(decision.payload as any)?.description?.slice(0, 60) || '?'}"`
+        : decision.action === 'TRANSFER_CREDITS' ? `TRANSFER_CREDITS: ${(decision.payload as any)?.amount || '?'} to ${(decision.payload as any)?.toAgentId || '?'}`
         : decision.action === 'MOVE' ? `MOVE to (${(decision.payload as any)?.x ?? '?'}, ${(decision.payload as any)?.z ?? '?'})`
         : decision.action;
 
@@ -730,6 +786,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         const desc = (decision.payload as any).description.slice(0, 40);
         if (!submittedDirectives.includes(desc)) submittedDirectives = submittedDirectives ? `${submittedDirectives}, ${desc}` : desc;
       }
+
+      // Track consecutive build failures
+      const prevBuildFails = parseInt(workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
+      const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT', 'BUILD_CONTINUE'];
+      const wasBuildAction = buildActions.includes(decision.action);
+      const consecutiveBuildFails = wasBuildAction && buildError ? prevBuildFails + 1 : wasBuildAction && !buildError ? 0 : prevBuildFails;
 
       // Track build plan across ticks
       const prevBuildPlan = workingMemory?.match(/Current build plan: (.+)/)?.[1] || '';
@@ -755,6 +817,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         votedOn ? `Voted on: ${votedOn}` : '',
         submittedDirectives ? `Submitted directives: ${submittedDirectives}` : '',
         buildError ? `Last build error: ${buildError}` : '',
+        consecutiveBuildFails > 0 ? `Consecutive build failures: ${consecutiveBuildFails}` : '',
       ].filter(Boolean).join('\n');
       writeMd(join(memoryDir, 'WORKING.md'), newWorking);
 
@@ -1129,14 +1192,32 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             '---',
             '**HOW TO TALK:** The GROUP CHAT above is a live conversation. Messages tagged [NEW] arrived since your last tick. If you see [NEW — YOU WERE MENTIONED], someone is talking to you — reply via CHAT. You are in a group chat with other agents. Talk like a person, not a robot.',
             '',
-            // Loop detection for bootstrap tick
+            // Build error warnings for bootstrap tick
+            ...(wm ? (() => {
+              const lastBuildError = wm.match(/Last build error: (.+)/)?.[1];
+              const consecutiveBuildFails = parseInt(wm.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
+              const warnings: string[] = [];
+              if (lastBuildError) {
+                warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Do NOT retry the same position. Pick a new location at least 5 units away.`);
+              }
+              if (consecutiveBuildFails >= 2) {
+                warnings.push(`**🛑 You have failed ${consecutiveBuildFails} builds in a row. STOP building and MOVE to a new area first.**`);
+              }
+              return warnings.length > 0 ? [...warnings, ''] : [];
+            })() : []),
+            // Loop detection for bootstrap tick (threshold: 3)
             ...(wm ? (() => {
               const lastActionMatch = wm.match(/Last action: (\w+)/);
               const consecutiveMatch = wm.match(/Consecutive same-action: (\d+)/);
               const lastAction = lastActionMatch?.[1];
               const consecutive = parseInt(consecutiveMatch?.[1] || '0');
-              if (lastAction && consecutive >= 5 && lastAction !== 'BUILD_CONTINUE') {
-                return [`**⚠ WARNING: You have done ${lastAction} ${consecutive} times in a row. You MUST choose a DIFFERENT action this tick.**`, ''];
+              if (lastAction && consecutive >= 4 && lastAction !== 'BUILD_CONTINUE') {
+                const bActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT'];
+                const isBuild = bActions.includes(lastAction);
+                return [`**⚠ WARNING: You have done ${lastAction} ${consecutive} times in a row. You MUST choose a DIFFERENT action category this tick.${isBuild ? ' Try MOVE or CHAT instead.' : ''}**`, ''];
+              }
+              if (lastAction && consecutive >= 3 && lastAction !== 'BUILD_CONTINUE') {
+                return [`**⚠ WARNING: You have done ${lastAction} ${consecutive} times in a row. Consider doing something different.**`, ''];
               }
               return [];
             })() : []),
@@ -1379,6 +1460,15 @@ async function executeAction(api: GridAPIClient, name: string, decision: AgentDe
           (p.hoursDuration as number) || 24
         );
         console.log(`[${name}] Submitted directive: ${directive.id} — "${(p.description as string).slice(0, 60)}"`);
+        break;
+
+      case 'TRANSFER_CREDITS':
+        if (!p.toAgentId || !p.amount || typeof p.amount !== 'number' || p.amount <= 0) {
+          console.warn(`[${name}] TRANSFER_CREDITS requires toAgentId and positive amount. Skipping.`);
+          break;
+        }
+        await api.transferCredits(p.toAgentId as string, p.amount as number);
+        console.log(`[${name}] Transferred ${p.amount} credits to ${p.toAgentId}`);
         break;
 
       case 'IDLE':

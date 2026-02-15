@@ -353,6 +353,17 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       return reply.code(404).send({ error: `Blueprint '${body.name}' not found.` });
     }
 
+    // Reputation gate: advanced blueprints require reputation >= 5
+    if (blueprint.advanced) {
+      const agentData = await db.getAgent(agentId) as any;
+      const reputation = agentData?.reputationScore ?? 0;
+      if (reputation < 5) {
+        return reply.code(403).send({
+          error: `This blueprint requires reputation >= 5. Current: ${reputation}. Get positive feedback from other agents.`
+        });
+      }
+    }
+
     // Reject if agent already has an active plan
     if (world.getBuildPlan(agentId)) {
       return reply.code(409).send({
@@ -718,6 +729,23 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }
 
     const body = SubmitGridDirectiveSchema.parse(request.body);
+
+    // Directive dedup: reject if >70% word overlap with existing active directive
+    const activeDirectives = await db.getActiveDirectives();
+    const newWords = new Set(body.description.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2));
+    for (const existing of activeDirectives) {
+      const existingWords = new Set(existing.description.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2));
+      const intersection = [...newWords].filter(w => existingWords.has(w));
+      const unionSize = new Set([...newWords, ...existingWords]).size;
+      const overlap = unionSize > 0 ? intersection.length / unionSize : 0;
+      if (overlap > 0.7) {
+        return reply.status(409).send({
+          error: `A similar directive already exists: "${existing.description}". Vote on it instead.`,
+          existingDirectiveId: existing.id,
+        });
+      }
+    }
+
     const directive = {
       id: `dir_${randomUUID()}`,
       type: 'grid' as const,
@@ -800,6 +828,24 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     await db.writeChatMessage(sysMsg);
     world.broadcastChat('system', sysMsg.message, 'System');
 
+    // Check if directive should auto-complete (yes_votes >= agentsNeeded)
+    const directiveData = await db.getDirective(id);
+    if (directiveData && directiveData.status === 'active' && directiveData.yesVotes >= directiveData.agentsNeeded) {
+      await db.completeDirective(id);
+      const DIRECTIVE_REWARD = 25;
+      await db.rewardDirectiveVoters(id, DIRECTIVE_REWARD);
+
+      const completionMsg = {
+        id: 0,
+        agentId: 'system',
+        agentName: 'System',
+        message: `Directive completed: "${directiveData.description}" — all ${directiveData.yesVotes} yes-voters earned ${DIRECTIVE_REWARD} credits!`,
+        createdAt: Date.now()
+      };
+      await db.writeChatMessage(completionMsg);
+      world.broadcastChat('system', completionMsg.message, 'System');
+    }
+
     return { success: true };
   });
 
@@ -851,6 +897,54 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const credits = await db.getAgentCredits(agentId);
     return { credits };
+  });
+
+  // --- Credit Transfer ---
+
+  const TransferCreditsSchema = z.object({
+    toAgentId: z.string(),
+    amount: z.number().int().min(1),
+  });
+
+  fastify.post('/v1/grid/credits/transfer', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const body = TransferCreditsSchema.parse(request.body);
+
+    // Can't transfer to yourself
+    if (body.toAgentId === agentId) {
+      return reply.status(400).send({ error: 'Cannot transfer credits to yourself.' });
+    }
+
+    // Verify recipient exists
+    const recipient = await db.getAgent(body.toAgentId);
+    if (!recipient) {
+      return reply.status(404).send({ error: 'Recipient agent not found.' });
+    }
+
+    // Check sender balance
+    const senderCredits = await db.getAgentCredits(agentId);
+    if (senderCredits < body.amount) {
+      return reply.status(403).send({ error: `Insufficient credits. You have ${senderCredits}, tried to send ${body.amount}.` });
+    }
+
+    await db.transferCredits(agentId, body.toAgentId, body.amount);
+
+    // Broadcast transfer to chat
+    const sender = await db.getAgent(agentId);
+    const senderName = sender?.name || agentId;
+    const sysMsg = {
+      id: 0,
+      agentId: 'system',
+      agentName: 'System',
+      message: `${senderName} transferred ${body.amount} credits to ${recipient.name}`,
+      createdAt: Date.now()
+    };
+    await db.writeChatMessage(sysMsg);
+    world.broadcastChat('system', sysMsg.message, 'System');
+
+    return { success: true, transferred: body.amount, to: body.toAgentId };
   });
 
   // --- General ---

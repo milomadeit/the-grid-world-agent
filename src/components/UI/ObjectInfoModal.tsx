@@ -4,8 +4,13 @@ import { useWorldStore } from '../../store';
 const ObjectInfoModal: React.FC = () => {
   const selectedPrimitive = useWorldStore((state) => state.selectedPrimitive);
   const setSelectedPrimitive = useWorldStore((state) => state.setSelectedPrimitive);
+  const agents = useWorldStore((state) => state.agents);
 
   if (!selectedPrimitive || selectedPrimitive.id === 'system-terminal') return null;
+
+  const ownerAgent = agents.find(a => a.id === selectedPrimitive.ownerAgentId);
+  const ownerName = ownerAgent?.name || selectedPrimitive.ownerAgentId.slice(0, 12) + '...';
+  const ownerColor = ownerAgent?.color;
 
   return (
     <div
@@ -31,11 +36,19 @@ const ObjectInfoModal: React.FC = () => {
       </div>
 
       <div className="space-y-1 text-[10px]">
-        <div className="flex justify-between">
+        <div className="flex justify-between items-center">
           <span className="text-slate-500">Owner</span>
-          <span className="font-mono truncate max-w-[100px]" title={selectedPrimitive.ownerAgentId}>
-            {selectedPrimitive.ownerAgentId.slice(0, 12)}...
-          </span>
+          <div className="flex items-center gap-1">
+            {ownerColor && (
+              <span
+                className="w-2 h-2 rounded-full inline-block"
+                style={{ backgroundColor: ownerColor }}
+              />
+            )}
+            <span className="font-mono truncate max-w-[100px]" title={selectedPrimitive.ownerAgentId}>
+              {ownerName}
+            </span>
+          </div>
         </div>
         <div className="flex justify-between">
           <span className="text-slate-500">Position</span>

@@ -953,11 +953,72 @@ export async function deductCredits(agentId: string, amount: number): Promise<bo
 
 export async function resetDailyCredits(soloAmount: number): Promise<void> {
   if (!pool) return;
-  // This simplistic reset doesn't handle guild multipliers yet - doing simple reset for now
+  const guildAmount = Math.round(soloAmount * 1.5);
+  // Solo agents: base credits
   await pool.query(
-    'UPDATE agents SET build_credits = $1, credits_last_reset = NOW() WHERE credits_last_reset < NOW() - INTERVAL \'24 hours\'',
+    `UPDATE agents SET build_credits = $1, credits_last_reset = NOW()
+     WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
+     AND id NOT IN (SELECT agent_id FROM guild_members)`,
     [soloAmount]
   );
+  // Guild agents: 1.5x multiplier
+  await pool.query(
+    `UPDATE agents SET build_credits = $1, credits_last_reset = NOW()
+     WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
+     AND id IN (SELECT agent_id FROM guild_members)`,
+    [guildAmount]
+  );
+}
+
+// --- Directive Completion + Rewards ---
+
+export async function completeDirective(directiveId: string): Promise<void> {
+  if (!pool) {
+    const d = inMemoryStore.directives.get(directiveId);
+    if (d) d.status = 'completed';
+    return;
+  }
+  await pool.query(
+    "UPDATE directives SET status = 'completed' WHERE id = $1",
+    [directiveId]
+  );
+}
+
+export async function rewardDirectiveVoters(directiveId: string, creditAmount: number): Promise<void> {
+  if (!pool) return;
+  // Add credits to all yes-voters on this directive
+  await pool.query(
+    `UPDATE agents SET build_credits = build_credits + $1
+     WHERE id IN (SELECT agent_id FROM directive_votes WHERE directive_id = $2 AND vote = 'yes')`,
+    [creditAmount, directiveId]
+  );
+}
+
+// --- Credit Transfer ---
+
+export async function transferCredits(fromAgentId: string, toAgentId: string, amount: number): Promise<void> {
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const deduct = await client.query(
+      'UPDATE agents SET build_credits = build_credits - $1 WHERE id = $2 AND build_credits >= $1',
+      [amount, fromAgentId]
+    );
+    if ((deduct.rowCount ?? 0) === 0) {
+      throw new Error('Insufficient credits for transfer');
+    }
+    await client.query(
+      'UPDATE agents SET build_credits = build_credits + $1 WHERE id = $2',
+      [amount, toAgentId]
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 // --- Entry Fee ---

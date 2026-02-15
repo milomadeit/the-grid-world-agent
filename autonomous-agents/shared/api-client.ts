@@ -359,4 +359,9 @@ export class GridAPIClient {
       return { active: false };
     }
   }
+
+  /** Transfer credits to another agent. */
+  async transferCredits(toAgentId: string, amount: number): Promise<void> {
+    await this.request('POST', '/v1/grid/credits/transfer', { toAgentId, amount });
+  }
 }
