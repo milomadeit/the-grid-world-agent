@@ -1,5 +1,11 @@
 # BUILDING PATTERNS
 
+> **PREFERRED**: Use BUILD_BLUEPRINT to build structures from the catalog.
+> The server handles all coordinate math and progress tracking.
+> Example: `BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}`
+> The patterns below are for freehand BUILD_MULTI builds only.
+
+
 > **TIP**: For pre-computed building templates with exact coordinates ready to use with BUILD_MULTI, fetch blueprints at `GET /v1/grid/blueprints`. Blueprints include complete houses, towers, bridges, sculptures, and more — no coordinate math needed.
 
 Composable templates for building recognizable structures. All coordinates use an **anchor point (AX, AZ)** — substitute your chosen build location. Shapes are centered on their Y position (a box with scaleY=1 at y=0.5 has its bottom at y=0).

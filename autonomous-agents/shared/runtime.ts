@@ -63,7 +63,7 @@ interface BootstrapConfig {
 
 interface AgentDecision {
   thought: string;
-  action: 'MOVE' | 'CHAT' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'IDLE';
+  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'IDLE';
   payload?: Record<string, unknown>;
 }
 
@@ -494,6 +494,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const directives = await api.getDirectives();
       const credits = await api.getCredits();
 
+      // Fetch blueprint build status (lightweight — reads in-memory map)
+      let blueprintStatus: any = { active: false };
+      try {
+        blueprintStatus = await api.getBlueprintStatus();
+      } catch {
+        // Non-critical — default to no active plan
+      }
+
       // Fetch blueprints (cached, agents should use these!)
       let blueprints: Record<string, any> = {};
       try {
@@ -608,17 +616,20 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const consecutiveMatch = workingMemory.match(/Consecutive same-action: (\d+)/);
           const lastAction = lastActionMatch?.[1];
           const consecutive = parseInt(consecutiveMatch?.[1] || '0');
-          if (lastAction && consecutive >= 5) {
+          if (lastAction && consecutive >= 5 && lastAction !== 'BUILD_CONTINUE') {
             return [`**⚠ WARNING: You have done ${lastAction} ${consecutive} times in a row. You MUST choose a DIFFERENT action this tick.**`, ''];
           }
           return [];
         })() : []),
         'Decide your next action. Respond with EXACTLY one JSON object:',
-        '{ "thought": "...", "action": "MOVE|CHAT|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
+        '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
         '',
         'Payload formats:',
         '  MOVE: {"x": 5, "z": 3}',
         '  CHAT: {"message": "Hello!"}',
+        '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}  ← start a blueprint build (server computes all coordinates)',
+        '  BUILD_CONTINUE: {}  ← place next batch from your active blueprint (must be near site)',
+        '  CANCEL_BUILD: {}  ← abandon current blueprint (placed pieces stay)',
         '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
         '  BUILD_MULTI: {"primitives": [{"shape":"cylinder","x":100,"y":1,"z":100,"scaleX":1,"scaleY":2,"scaleZ":1,"color":"#3b82f6"},{"shape":"cone","x":100,"y":3,"z":100,"scaleX":2,"scaleY":2,"scaleZ":2,"color":"#f59e0b"}]}  ← up to 5 per tick',
         '    Available shapes: box, sphere, cone, cylinder, plane, torus, dodecahedron, icosahedron, octahedron, torusKnot, capsule',
@@ -629,35 +640,36 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
         '  IDLE: {}',
         '',
-        '**EFFICIENCY:** Prefer BUILD_MULTI over BUILD_PRIMITIVE to place up to 5 shapes per tick. This is much faster for building structures.',
+        '**EFFICIENCY:** Use BUILD_BLUEPRINT for structures from the catalog (recommended — server handles coordinate math). Use BUILD_MULTI for custom/freehand shapes (up to 5 per tick).',
         'IMPORTANT: You can build on your own any time you have credits. You do NOT need a directive or permission to build. Directives are ONLY for organizing group projects with other agents.',
         'If you already voted on a directive, do NOT vote again. If you already submitted a directive with a similar description, do NOT submit another.',
         '**BUILD ZONE RULE:** You MUST NOT build within 50 units of the origin (0,0). The area around origin is reserved for the system terminal. All builds must be at least 50 units away (e.g., x=60, z=70). Builds closer than 50 units will be REJECTED by the server.',
         '**BUILD DISTANCE RULE:** You must be within 20 units (XZ plane) of the target coordinates to build there. If you are too far away, the server will reject your build with an error. MOVE to the location first, THEN build.',
         '',
-        '## BLUEPRINTS — USE THESE TO BUILD STRUCTURES',
-        '**HOW TO USE:** 1) Pick a blueprint. 2) Choose YOUR anchor coords (where you are, at least 50 units from origin). 3) Add YOUR anchor to each x/z.',
-        '',
-        // Show blueprints with RELATIVE coords (0,0) so agents understand to add their own
-        ...(() => {
-          const blueprintNames = ['TREE', 'LAMP_POST', 'ARCHWAY'];
-          const examples: string[] = [];
-          for (const name of blueprintNames) {
-            const bp = blueprints[name];
-            if (!bp?.phases?.[0]?.primitives) continue;
-            const prims = bp.phases.flatMap((p: any) => p.primitives || []).slice(0, 5);
-            examples.push(`**${name}** — ${bp.description}`);
-            examples.push('Base primitives (x/z are RELATIVE to your anchor):');
-            prims.forEach((p: any) => {
-              examples.push(`  ${p.shape} at (+${p.x || 0}, y=${p.y}, +${p.z || 0}) scale(${p.scaleX||1},${p.scaleY||1},${p.scaleZ||1}) ${p.color}`);
-            });
-            examples.push(`To build at YOUR position (e.g., x=80, z=120): add 80 to all x, add 120 to all z.`);
-            examples.push('');
-          }
-          return examples.length > 0 ? examples : ['_No blueprints loaded_'];
-        })(),
-        `**YOUR POSITION is (${self?.position?.x?.toFixed(0) || '?'}, ${self?.position?.z?.toFixed(0) || '?'}).** Build near here. Pick a blueprint, add your coords to each primitive.`,
-        'Other blueprints: ' + Object.keys(blueprints).filter(n => !['TREE', 'LAMP_POST', 'ARCHWAY'].includes(n)).slice(0, 8).join(', '),
+        // Blueprint section — either show active plan or catalog
+        ...(blueprintStatus?.active
+          ? [
+              '## ACTIVE BUILD PLAN',
+              `Building: **${blueprintStatus.blueprintName}** at (${blueprintStatus.anchorX}, ${blueprintStatus.anchorZ})`,
+              `Progress: ${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives} pieces placed${blueprintStatus.currentPhase ? ` (Phase: "${blueprintStatus.currentPhase}")` : ''}`,
+              `Next: Use **BUILD_CONTINUE** to place next ${blueprintStatus.nextBatchSize} pieces (must be within 20 units of anchor)`,
+              `Or: CHAT, MOVE, VOTE, etc. — your build plan persists until you CANCEL_BUILD.`,
+              '',
+            ]
+          : [
+              '## BLUEPRINT CATALOG',
+              'Pick a blueprint and start building. The server computes all coordinates for you.',
+              '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}',
+              '',
+              ...Object.entries(blueprints).map(([name, bp]: [string, any]) =>
+                `- **${name}** — ${bp.description} | ${bp.totalPrimitives} pieces, ~${Math.ceil(bp.totalPrimitives / 5)} ticks | ${bp.difficulty}`
+              ),
+              '',
+              `**YOUR POSITION is (${self?.position?.x?.toFixed(0) || '?'}, ${self?.position?.z?.toFixed(0) || '?'}).** Choose anchorX/anchorZ near here (50+ from origin).`,
+              'Move within 20 units of your anchor before using BUILD_CONTINUE.',
+              '',
+            ]
+        ),
       ].join('\n');
 
       // 5. Capture View & Call LLM
@@ -697,6 +709,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const actionSummary = decision.action === 'CHAT' ? `CHAT: "${(decision.payload as any)?.message?.slice(0, 80) || ''}"`
         : decision.action === 'BUILD_PRIMITIVE' ? `BUILD_PRIMITIVE: ${(decision.payload as any)?.shape || 'shape'} at (${(decision.payload as any)?.x ?? '?'}, ${(decision.payload as any)?.y ?? 0}, ${(decision.payload as any)?.z ?? '?'})`
         : decision.action === 'BUILD_MULTI' ? `BUILD_MULTI: ${((decision.payload as any)?.primitives || []).length} primitives`
+        : decision.action === 'BUILD_BLUEPRINT' ? `BUILD_BLUEPRINT: ${(decision.payload as any)?.name || '?'} at (${(decision.payload as any)?.anchorX ?? '?'}, ${(decision.payload as any)?.anchorZ ?? '?'})`
+        : decision.action === 'BUILD_CONTINUE' ? `BUILD_CONTINUE: continued active blueprint`
+        : decision.action === 'CANCEL_BUILD' ? `CANCEL_BUILD: cancelled active blueprint`
         : decision.action === 'VOTE' ? `VOTE: ${(decision.payload as any)?.vote || '?'} on ${(decision.payload as any)?.directiveId || '?'}`
         : decision.action === 'SUBMIT_DIRECTIVE' ? `SUBMIT_DIRECTIVE: "${(decision.payload as any)?.description?.slice(0, 60) || '?'}"`
         : decision.action === 'MOVE' ? `MOVE to (${(decision.payload as any)?.x ?? '?'}, ${(decision.payload as any)?.z ?? '?'})`
@@ -720,18 +735,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const prevBuildPlan = workingMemory?.match(/Current build plan: (.+)/)?.[1] || '';
       let currentBuildPlan = prevBuildPlan;
       
-      // If agent used BUILD_MULTI, try to detect blueprint usage from consecutive building
-      if (decision.action === 'BUILD_MULTI' || decision.action === 'BUILD_PRIMITIVE') {
-        // Keep existing plan if it exists, or note that agent is building
-        if (!currentBuildPlan) {
-          currentBuildPlan = 'Building (no blueprint specified)';
-        }
-      }
-      // If agent mentioned a blueprint name in their thought, capture it
-      const blueprintMention = decision.thought?.match(/blueprint[:\s]+(\w+)/i)?.[1] ||
-                                decision.thought?.match(/(SMALL_HOUSE|WATCHTOWER|SHOP|BRIDGE|ARCHWAY|PLAZA|SERVER_RACK|ANTENNA_TOWER|SCULPTURE_SPIRAL|FOUNTAIN|MONUMENT|TREE|ROCK_FORMATION|GARDEN|DATACENTER|MANSION|WALL_SECTION|LAMP_POST|WAREHOUSE)/i)?.[1];
-      if (blueprintMention) {
-        currentBuildPlan = `Blueprint: ${blueprintMention.toUpperCase()}`;
+      // Server-authoritative build status
+      if (blueprintStatus?.active) {
+        currentBuildPlan = `Blueprint: ${blueprintStatus.blueprintName} at (${blueprintStatus.anchorX}, ${blueprintStatus.anchorZ}) — ${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives} placed`;
+      } else {
+        currentBuildPlan = ''; // Clear if server says no active plan
       }
 
       const newWorking = [
@@ -1026,6 +1034,15 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           const world = await api.getWorldState();
           const directives = await api.getDirectives();
           const credits = await api.getCredits();
+          
+          // Fetch blueprint build status (lightweight — reads in-memory map)
+          let blueprintStatus: any = { active: false };
+          try {
+            blueprintStatus = await api.getBlueprintStatus();
+          } catch {
+            // Non-critical
+          }
+
           const self = world.agents.find(a => a.id === api.getAgentId());
           const otherAgents = world.agents.filter(a => a.id !== api.getAgentId());
 
@@ -1118,17 +1135,20 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
               const consecutiveMatch = wm.match(/Consecutive same-action: (\d+)/);
               const lastAction = lastActionMatch?.[1];
               const consecutive = parseInt(consecutiveMatch?.[1] || '0');
-              if (lastAction && consecutive >= 5) {
+              if (lastAction && consecutive >= 5 && lastAction !== 'BUILD_CONTINUE') {
                 return [`**⚠ WARNING: You have done ${lastAction} ${consecutive} times in a row. You MUST choose a DIFFERENT action this tick.**`, ''];
               }
               return [];
             })() : []),
             'Decide your next action. Respond with EXACTLY one JSON object:',
-            '{ "thought": "...", "action": "MOVE|CHAT|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
+            '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
             '',
             'Payload formats:',
             '  MOVE: {"x": 5, "z": 3}',
             '  CHAT: {"message": "Hello!"}',
+            '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}  ← start a blueprint build',
+            '  BUILD_CONTINUE: {}  ← place next batch (must be near site)',
+            '  CANCEL_BUILD: {}  ← abandon current blueprint',
             '  BUILD_PRIMITIVE: {"shape": "box", "x": 100, "y": 0.5, "z": 100, "scaleX": 1, "scaleY": 1, "scaleZ": 1, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
             '  BUILD_MULTI: {"primitives": [{"shape":"box","x":100,"y":0.5,"z":100,"scaleX":1,"scaleY":1,"scaleZ":1,"rotX":0,"rotY":0,"rotZ":0,"color":"#3b82f6"}, ...]}  ← up to 5 primitives per tick',
             '    Available shapes: box, sphere, cone, cylinder, plane, torus, circle, dodecahedron, icosahedron, octahedron, ring, tetrahedron, torusKnot, capsule',
@@ -1138,6 +1158,24 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
             '  IDLE: {}',
             '',
+            // Blueprint section — either show active plan or catalog
+            ...(blueprintStatus?.active
+              ? [
+                  '## ACTIVE BUILD PLAN',
+                  `Building: **${blueprintStatus.blueprintName}** at (${blueprintStatus.anchorX}, ${blueprintStatus.anchorZ})`,
+                  `Progress: ${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives} pieces placed${blueprintStatus.currentPhase ? ` (Phase: "${blueprintStatus.currentPhase}")` : ''}`,
+                  `Next: Use **BUILD_CONTINUE** to place next ${blueprintStatus.nextBatchSize} pieces (must be within 20 units of anchor)`,
+                  `Or: CHAT, MOVE, VOTE, etc. — your build plan persists until you CANCEL_BUILD.`,
+                  '',
+                ]
+              : [
+                  '## BLUEPRINT CATALOG',
+                  'Pick a blueprint and start building. The server computes all coordinates for you.',
+                  '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}',
+                  '  (Check /v1/grid/blueprints for names if you are unsure)',
+                  '',
+                ]
+            ),
             '**EFFICIENCY:** Prefer BUILD_MULTI over BUILD_PRIMITIVE to place up to 5 shapes per tick.',
             'IMPORTANT: You can build on your own any time you have credits. You do NOT need a directive or permission to build.',
             'If you already voted on a directive, do NOT vote again. If you already submitted a directive with a similar description, do NOT submit another.',
@@ -1168,19 +1206,35 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           const bootActionSummary = decision.action === 'CHAT' ? `CHAT: "${(decision.payload as any)?.message?.slice(0, 80) || ''}"`
             : decision.action === 'BUILD_PRIMITIVE' ? `BUILD_PRIMITIVE: ${(decision.payload as any)?.shape || 'shape'} at (${(decision.payload as any)?.x ?? '?'}, ${(decision.payload as any)?.y ?? 0}, ${(decision.payload as any)?.z ?? '?'})`
             : decision.action === 'BUILD_MULTI' ? `BUILD_MULTI: ${((decision.payload as any)?.primitives || []).length} primitives`
+            : decision.action === 'BUILD_BLUEPRINT' ? `BUILD_BLUEPRINT: ${(decision.payload as any)?.name || '?'} at (${(decision.payload as any)?.anchorX ?? '?'}, ${(decision.payload as any)?.anchorZ ?? '?'})`
+            : decision.action === 'BUILD_CONTINUE' ? `BUILD_CONTINUE: continued active blueprint`
+            : decision.action === 'CANCEL_BUILD' ? `CANCEL_BUILD: cancelled active blueprint`
             : decision.action === 'VOTE' ? `VOTE: ${(decision.payload as any)?.vote || '?'} on ${(decision.payload as any)?.directiveId || '?'}`
             : decision.action === 'SUBMIT_DIRECTIVE' ? `SUBMIT_DIRECTIVE: "${(decision.payload as any)?.description?.slice(0, 60) || '?'}"`
             : decision.action === 'MOVE' ? `MOVE to (${(decision.payload as any)?.x ?? '?'}, ${(decision.payload as any)?.z ?? '?'})`
             : decision.action;
 
+          // Compute consecutive same-action count from previous working memory
+          const prevLastAction = wm?.match(/Last action: (\w+)/)?.[1];
+          const prevConsecutive = parseInt(wm?.match(/Consecutive same-action: (\d+)/)?.[1] || '0');
+          const bsConsecutive = (prevLastAction === decision.action) ? prevConsecutive + 1 : 1;
+
+          // Server-authoritative build plan tracking
+          let bsCurrentBuildPlan = '';
+          if (blueprintStatus?.active) {
+            bsCurrentBuildPlan = `Blueprint: ${blueprintStatus.blueprintName} at (${blueprintStatus.anchorX}, ${blueprintStatus.anchorZ}) — ${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives} placed`;
+          }
+
           const newWorking = [
             '# Working Memory',
             `Last updated: ${timestamp()}`,
             `Last action: ${decision.action}`,
+            `Consecutive same-action: ${bsConsecutive}`,
             `Last action detail: ${bootActionSummary}`,
             `Position: (${self?.position.x.toFixed(1)}, ${self?.position.z.toFixed(1)})`,
             `Credits: ${credits}`,
             `Last seen message id: ${bsLatestMsgId}`,
+            bsCurrentBuildPlan ? `Current build plan: ${bsCurrentBuildPlan}` : '',
             bsBuildError ? `Last build error: ${bsBuildError}` : '',
           ].filter(Boolean).join('\n');
           writeMd(join(memoryDir, 'WORKING.md'), newWorking);
@@ -1277,6 +1331,30 @@ async function executeAction(api: GridAPIClient, name: string, decision: AgentDe
         }
         break;
       }
+
+      case 'BUILD_BLUEPRINT':
+        await api.startBlueprint(
+          p.name as string,
+          p.anchorX as number,
+          p.anchorZ as number
+        );
+        console.log(`[${name}] Started blueprint: ${p.name} at (${p.anchorX}, ${p.anchorZ})`);
+        break;
+
+      case 'BUILD_CONTINUE': {
+        const result = await api.continueBlueprint() as any;
+        if (result.status === 'complete') {
+          console.log(`[${name}] Blueprint complete! ${result.placed}/${result.total} placed.`);
+        } else {
+          console.log(`[${name}] Blueprint progress: ${result.placed}/${result.total}`);
+        }
+        break;
+      }
+
+      case 'CANCEL_BUILD':
+        await api.cancelBlueprint();
+        console.log(`[${name}] Cancelled build plan.`);
+        break;
 
       case 'TERMINAL':
         await api.writeTerminal(p.message as string);

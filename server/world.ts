@@ -1,5 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
-import type { Agent, WorldUpdateEvent, WorldPrimitive, TerminalMessage, Guild, Directive } from './types.js';
+import type { Agent, WorldUpdateEvent, WorldPrimitive, TerminalMessage, Guild, Directive, BlueprintBuildPlan } from './types.js';
 import { BUILD_CREDIT_CONFIG } from './types.js';
 import * as db from './db.js';
 
@@ -20,6 +20,8 @@ class WorldManager {
   private agents: Map<string, Agent> = new Map();
   private agentLastSeen: Map<string, number> = new Map();
   private worldPrimitives: Map<string, WorldPrimitive> = new Map();
+  // In-memory blueprint execution plans (not persisted)
+  private buildPlans: Map<string, BlueprintBuildPlan> = new Map();
   private actionQueue: QueuedAction[] = [];
   private tick: number = 0;
   private io: SocketServer | null = null;
@@ -142,6 +144,20 @@ class WorldManager {
     }
     console.log(`[World] Synced ${primitives.length} primitives from DB`);
     return primitives.length;
+  }
+
+  // --- Blueprint Management ---
+
+  setBuildPlan(agentId: string, plan: BlueprintBuildPlan): void {
+    this.buildPlans.set(agentId, plan);
+  }
+
+  getBuildPlan(agentId: string): BlueprintBuildPlan | undefined {
+    return this.buildPlans.get(agentId);
+  }
+
+  clearBuildPlan(agentId: string): void {
+    this.buildPlans.delete(agentId);
   }
 
   // --- Grid Messaging ---

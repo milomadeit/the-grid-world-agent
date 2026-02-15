@@ -275,7 +275,7 @@ export async function getAgentByOwnerId(ownerId: string): Promise<Agent | null> 
 
   if (!pool) {
     for (const agent of inMemoryStore.agents.values()) {
-      if (agent.ownerId.toLowerCase() === normalizedId) return agent;
+      if (agent.ownerId?.toLowerCase() === normalizedId) return agent;
     }
     return null;
   }

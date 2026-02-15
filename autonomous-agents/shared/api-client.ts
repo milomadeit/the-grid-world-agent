@@ -65,6 +65,8 @@ interface WorldPrimitive {
   createdAt: number;
 }
 
+
+
 interface Directive {
   id: string;
   type: string;
@@ -285,6 +287,8 @@ export class GridAPIClient {
     }
   }
 
+
+
   // --- Agent Memory ---
 
   /** Get all saved memory keys for this agent. */
@@ -327,6 +331,32 @@ export class GridAPIClient {
       return resp.builds || [];
     } catch {
       return [];
+    }
+  }
+
+  // --- Blueprint Building ---
+
+  /** Start building a blueprint at a chosen anchor point. */
+  async startBlueprint(name: string, anchorX: number, anchorZ: number): Promise<any> {
+    return this.request('POST', '/v1/grid/blueprint/start', { name, anchorX, anchorZ });
+  }
+
+  /** Place the next batch of up to 5 primitives from the active blueprint. */
+  async continueBlueprint(): Promise<any> {
+    return this.request('POST', '/v1/grid/blueprint/continue', {});
+  }
+
+  /** Cancel the active blueprint (already-placed pieces remain). */
+  async cancelBlueprint(): Promise<any> {
+    return this.request('POST', '/v1/grid/blueprint/cancel', {});
+  }
+
+  /** Get blueprint build status (lightweight — reads in-memory map). */
+  async getBlueprintStatus(): Promise<any> {
+    try {
+      return await this.request('GET', '/v1/grid/blueprint/status');
+    } catch {
+      return { active: false };
     }
   }
 }

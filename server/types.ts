@@ -139,6 +139,32 @@ export const BUILD_CREDIT_CONFIG = {
   MIN_BUILD_DISTANCE_FROM_ORIGIN: 50
 };
 
+// Blueprint Build Plan — server-side state for multi-tick blueprint execution.
+// The server pre-computes all absolute coordinates at plan creation time.
+// Agents drive progress by calling BUILD_CONTINUE each tick.
+export interface BlueprintBuildPlan {
+  agentId: string;
+  blueprintName: string;
+  anchorX: number;
+  anchorZ: number;
+  /** All primitives with absolute coordinates (anchor offsets already applied). */
+  allPrimitives: Array<{
+    shape: string;
+    position: { x: number; y: number; z: number };
+    rotation: { x: number; y: number; z: number };
+    scale: { x: number; y: number; z: number };
+    color: string;
+  }>;
+  /** Phase metadata from the blueprint definition. Used for progress display only. */
+  phases: Array<{ name: string; count: number }>;
+  totalPrimitives: number;
+  /** Number of primitives successfully placed. May lag behind nextIndex if pieces fail validation. */
+  placedCount: number;
+  /** Cursor into allPrimitives. Always advances past each attempted piece (success or fail). */
+  nextIndex: number;
+  startedAt: number;
+}
+
 // World Primitives (New System)
 export const WorldPrimitiveSchema = z.object({
   id: z.string(),
@@ -309,6 +335,3 @@ export const ReputationFeedbackSchema = z.object({
 });
 
 export type ReputationFeedback = z.infer<typeof ReputationFeedbackSchema>;
-
-
-

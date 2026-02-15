@@ -18,6 +18,7 @@ import {
   VoteDirectiveSchema,
   BUILD_CREDIT_CONFIG
 } from '../types.js';
+import type { BlueprintBuildPlan } from '../types.js';
 
 // --- Build Validation ---
 
@@ -298,6 +299,293 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }
 
     return { ...primitive, warnings: warnings.length > 0 ? warnings : undefined };
+  });
+
+  // --- Blueprint Execution Engine ---
+
+  const StartBlueprintSchema = z.object({
+    name: z.string(),
+    anchorX: z.number(),
+    anchorZ: z.number(),
+  });
+
+  fastify.post('/v1/grid/blueprint/start', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const body = StartBlueprintSchema.parse(request.body);
+
+    // Load blueprints
+    const blueprintsPath = join(__dirname, '../blueprints.json');
+    const rawBlueprints = await readFile(blueprintsPath, 'utf-8');
+    const blueprints = JSON.parse(rawBlueprints);
+    const blueprint = blueprints[body.name];
+
+    if (!blueprint) {
+      return reply.code(404).send({ error: `Blueprint '${body.name}' not found.` });
+    }
+
+    // Reject if agent already has an active plan
+    if (world.getBuildPlan(agentId)) {
+      return reply.code(409).send({
+        error: 'You already have an active build plan. Use BUILD_CONTINUE to continue or CANCEL_BUILD to cancel it first.'
+      });
+    }
+
+    // Validate anchor distance from origin
+    const distFromOrigin = Math.sqrt(body.anchorX ** 2 + body.anchorZ ** 2);
+    if (distFromOrigin < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) {
+      return reply.code(403).send({
+        error: `Cannot build within ${BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN} units of the origin.`
+      });
+    }
+
+    // Check agent has enough credits for total primitives
+    const totalPrims = blueprint.totalPrimitives || blueprint.phases.reduce(
+      (sum: number, phase: any) => sum + phase.primitives.length, 0
+    );
+    const credits = await db.getAgentCredits(agentId);
+    if (credits < totalPrims * BUILD_CREDIT_CONFIG.PRIMITIVE_COST) {
+      return reply.code(403).send({
+        error: `Insufficient credits. Need ${totalPrims}, have ${credits}.`
+      });
+    }
+
+    // Compute absolute coordinates — the core value of the blueprint engine.
+    // Flatten all phases, apply anchor offset to x/z (y stays relative to ground).
+    const allPrimitives: BlueprintBuildPlan['allPrimitives'] = [];
+    const phases: BlueprintBuildPlan['phases'] = [];
+
+    for (const phase of blueprint.phases) {
+      const phaseCount = phase.primitives.length;
+      phases.push({ name: phase.name, count: phaseCount });
+
+      for (const prim of phase.primitives) {
+        allPrimitives.push({
+          shape: prim.shape,
+          position: {
+            x: (prim.x || 0) + body.anchorX,
+            y: prim.y || 0,
+            z: (prim.z || 0) + body.anchorZ,
+          },
+          rotation: {
+            x: prim.rotX || 0,
+            y: prim.rotY || 0,
+            z: prim.rotZ || 0,
+          },
+          scale: {
+            x: prim.scaleX || 1,
+            y: prim.scaleY || 1,
+            z: prim.scaleZ || 1,
+          },
+          color: prim.color || '#808080',
+        });
+      }
+    }
+
+    // Store plan
+    const plan: BlueprintBuildPlan = {
+      agentId,
+      blueprintName: body.name,
+      anchorX: body.anchorX,
+      anchorZ: body.anchorZ,
+      allPrimitives,
+      phases,
+      totalPrimitives: allPrimitives.length,
+      placedCount: 0,
+      nextIndex: 0,
+      startedAt: Date.now(),
+    };
+    world.setBuildPlan(agentId, plan);
+
+    return {
+      blueprintName: body.name,
+      totalPrimitives: allPrimitives.length,
+      phases,
+      estimatedTicks: Math.ceil(allPrimitives.length / 5),
+      anchorX: body.anchorX,
+      anchorZ: body.anchorZ,
+    };
+  });
+
+  fastify.post('/v1/grid/blueprint/continue', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const plan = world.getBuildPlan(agentId);
+    if (!plan) {
+      return reply.code(404).send({
+        error: 'No active build plan. Use BUILD_BLUEPRINT to start one.'
+      });
+    }
+
+    // Check agent distance to anchor
+    const agent = world.getAgent(agentId);
+    if (agent) {
+      const dx = plan.anchorX - agent.position.x;
+      const dz = plan.anchorZ - agent.position.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      const MAX_BUILD_DISTANCE = 20;
+
+      if (distance > MAX_BUILD_DISTANCE) {
+        return reply.code(400).send({
+          error: `Too far from build site. MOVE to within ${MAX_BUILD_DISTANCE} units of (${plan.anchorX}, ${plan.anchorZ}) first.`,
+          distance: Math.round(distance),
+          anchorX: plan.anchorX,
+          anchorZ: plan.anchorZ,
+        });
+      }
+    }
+
+    // Place next batch of up to 5 primitives
+    const batchSize = Math.min(5, plan.totalPrimitives - plan.nextIndex);
+    const results: Array<{ index: number; success: boolean; error?: string }> = [];
+    const builder = await db.getAgent(agentId);
+    const builderName = builder?.name || agentId;
+
+    for (let i = 0; i < batchSize; i++) {
+      const idx = plan.nextIndex;
+      const prim = plan.allPrimitives[idx];
+      plan.nextIndex++; // Always advance cursor (don't retry failed pieces)
+
+      try {
+        // Credit check per piece
+        const credits = await db.getAgentCredits(agentId);
+        if (credits < BUILD_CREDIT_CONFIG.PRIMITIVE_COST) {
+          results.push({ index: idx, success: false, error: 'Insufficient credits' });
+          continue;
+        }
+
+        // Position copy for potential Y correction
+        const position = { ...prim.position };
+
+        // Floating validation (same as single-primitive endpoint)
+        const nearbyPrimitives = await db.getAllWorldPrimitives();
+        const relevant = nearbyPrimitives.filter(p =>
+          Math.abs(p.position.x - position.x) < 20 &&
+          Math.abs(p.position.z - position.z) < 20
+        );
+        const validation = validateBuildPosition(prim.shape, position, prim.scale, relevant);
+        if (validation.correctedY !== undefined) {
+          position.y = validation.correctedY;
+        }
+
+        // Create the primitive
+        const primitive = {
+          id: `prim_${randomUUID()}`,
+          shape: prim.shape as any,
+          ownerAgentId: agentId,
+          position,
+          rotation: prim.rotation,
+          scale: prim.scale,
+          color: prim.color,
+          createdAt: Date.now(),
+        };
+
+        await db.createWorldPrimitive(primitive);
+        await db.deductCredits(agentId, BUILD_CREDIT_CONFIG.PRIMITIVE_COST);
+        world.addWorldPrimitive(primitive);
+
+        plan.placedCount++;
+        results.push({ index: idx, success: true });
+      } catch (err: any) {
+        results.push({ index: idx, success: false, error: err?.message || String(err) });
+      }
+    }
+
+    // Broadcast a single build message for the batch
+    const successCount = results.filter(r => r.success).length;
+    if (successCount > 0) {
+      const sysMsg = {
+        id: 0,
+        agentId: 'system',
+        agentName: 'System',
+        message: `${builderName} placed ${successCount} pieces of ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) [${plan.placedCount}/${plan.totalPrimitives}]`,
+        createdAt: Date.now(),
+      };
+      await db.writeChatMessage(sysMsg);
+      world.broadcastChat('system', sysMsg.message, 'System');
+    }
+
+    // Check completion
+    if (plan.nextIndex >= plan.totalPrimitives) {
+      world.clearBuildPlan(agentId);
+      return {
+        status: 'complete',
+        placed: plan.placedCount,
+        total: plan.totalPrimitives,
+        results,
+      };
+    }
+
+    // Determine current phase
+    let currentPhase = '';
+    let cumulative = 0;
+    for (const phase of plan.phases) {
+      cumulative += phase.count;
+      if (plan.nextIndex <= cumulative) {
+        currentPhase = phase.name;
+        break;
+      }
+    }
+
+    return {
+      status: 'building',
+      placed: plan.placedCount,
+      total: plan.totalPrimitives,
+      currentPhase,
+      nextBatchSize: Math.min(5, plan.totalPrimitives - plan.nextIndex),
+      results,
+    };
+  });
+
+  fastify.get('/v1/grid/blueprint/status', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const plan = world.getBuildPlan(agentId);
+    if (!plan) {
+      return { active: false };
+    }
+
+    // Determine current phase
+    let currentPhase = '';
+    let cumulative = 0;
+    for (const phase of plan.phases) {
+      cumulative += phase.count;
+      if (plan.nextIndex <= cumulative) {
+        currentPhase = phase.name;
+        break;
+      }
+    }
+
+    return {
+      active: true,
+      blueprintName: plan.blueprintName,
+      anchorX: plan.anchorX,
+      anchorZ: plan.anchorZ,
+      placedCount: plan.placedCount,
+      totalPrimitives: plan.totalPrimitives,
+      nextIndex: plan.nextIndex,
+      currentPhase,
+      nextBatchSize: Math.min(5, plan.totalPrimitives - plan.nextIndex),
+      startedAt: plan.startedAt,
+    };
+  });
+
+  fastify.post('/v1/grid/blueprint/cancel', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const plan = world.getBuildPlan(agentId);
+    if (!plan) {
+      return reply.code(404).send({ error: 'No active build plan to cancel.' });
+    }
+
+    const piecesPlaced = plan.placedCount;
+    world.clearBuildPlan(agentId);
+
+    return { cancelled: true, piecesPlaced };
   });
 
   fastify.delete('/v1/grid/primitive/:id', async (request, reply) => {
