@@ -46,7 +46,7 @@ const Terminal3D: React.FC = () => {
 
       {/* Holographic Text */}
       {/* Holographic Text */}
-      <Html position={[0, 5.5, 0]} center distanceFactor={12}>
+      <Html position={[0, 5.5, 0]} center distanceFactor={12} zIndexRange={[0, 0]}>
         <div className="bg-black/60 backdrop-blur-md border border-green-500/50 rounded-lg px-4 py-2 shadow-[0_0_15px_rgba(0,255,0,0.3)]">
           <div className="text-green-400 font-mono text-[10px] tracking-[0.2em] font-bold select-none whitespace-nowrap flex items-center gap-2">
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />

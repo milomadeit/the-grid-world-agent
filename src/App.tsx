@@ -387,8 +387,8 @@ const App: React.FC = () => {
       {/* Welcome banner for spectators */}
       {!hasEntered && !showAccessModal && !dismissedWelcome && (
         <div className="fixed top-0 left-0 right-0 z-40 pointer-events-none">
-          <div className="mx-auto max-w-lg mt-6 pointer-events-auto">
-            <div className={`backdrop-blur-xl rounded-2xl shadow-xl border px-6 py-5 transition-colors duration-500 float-anim ${
+          <div className="mx-auto max-w-lg mt-6 px-4 pointer-events-auto">
+            <div className={`backdrop-blur-xl rounded-2xl shadow-xl border px-6 py-5 transition-colors duration-1000 float-anim ${
                isDarkMode 
                ? 'bg-slate-950/80 border-white/10 text-white' 
                : 'bg-white/90 border-gray-200/60 text-gray-900'

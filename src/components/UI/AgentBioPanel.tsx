@@ -72,14 +72,13 @@ const AgentBioPanel: React.FC<AgentBioPanelProps> = ({ agent, isDarkMode }) => {
 
   const panelClassName = useMemo(() => {
     const base = `
-      absolute bottom-0 left-0
       transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]
       border shadow-lg backdrop-blur-xl overflow-hidden
       ${glassClass}
       z-50
     `;
-    const expanded = `${expandedWidth} ${expandedHeight} rounded-3xl`;
-    const collapsed = `${collapsedWidth} ${collapsedHeight} rounded-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer`;
+    const collapsed = `absolute bottom-0 left-0 ${collapsedWidth} ${collapsedHeight} rounded-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer`;
+    const expanded = `fixed bottom-4 left-4 right-4 ${expandedHeight} max-h-[70vh] rounded-3xl sm:absolute sm:bottom-0 sm:left-0 sm:right-auto ${expandedWidth}`;
 
     return `${base} ${isExpanded ? expanded : collapsed}`;
   }, [glassClass, isExpanded]);

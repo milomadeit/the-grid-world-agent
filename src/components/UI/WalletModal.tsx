@@ -72,7 +72,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={onClose}>
-      <div className={`w-full max-w-md rounded-3xl shadow-2xl overflow-hidden float-anim border backdrop-blur-xl ${bgClass}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`w-full max-w-md max-h-[calc(100vh-3rem)] overflow-y-auto rounded-3xl shadow-2xl float-anim border backdrop-blur-xl ${bgClass}`} onClick={(e) => e.stopPropagation()}>
         <div className="p-6 pb-0 relative">
           <button
             onClick={onClose}
