@@ -1266,6 +1266,36 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     return { ok: true, expired: count };
   });
 
+  // --- Admin: Bulk delete specific primitives by ID ---
+  fastify.post('/v1/admin/delete-primitives', async (request, reply) => {
+    const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
+    const providedKey = request.headers['x-admin-key'];
+
+    if (providedKey !== adminKey) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+
+    const { ids } = request.body as { ids: string[] };
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return reply.code(400).send({ error: 'ids must be a non-empty array of primitive IDs' });
+    }
+
+    let deleted = 0;
+    let notFound = 0;
+    for (const id of ids) {
+      const primitive = await db.getWorldPrimitive(id);
+      if (primitive) {
+        await db.deleteWorldPrimitive(id);
+        world.removeWorldPrimitive(id);
+        deleted++;
+      } else {
+        notFound++;
+      }
+    }
+
+    return { ok: true, deleted, notFound, requested: ids.length };
+  });
+
   // --- Admin: Wipe world (primitives + agent memory) ---
   fastify.post('/v1/admin/wipe-world', async (request, reply) => {
     const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
