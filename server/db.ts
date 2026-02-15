@@ -910,6 +910,20 @@ export async function getDirective(id: string): Promise<Directive | null> {
   };
 }
 
+export async function expireAllDirectives(): Promise<number> {
+  if (!pool) {
+    let count = 0;
+    for (const d of inMemoryStore.directives.values()) {
+      if (d.status === 'active') { d.status = 'expired'; count++; }
+    }
+    return count;
+  }
+  const result = await pool.query("UPDATE directives SET status = 'expired' WHERE status = 'active'");
+  const count = result.rowCount ?? 0;
+  console.log(`[DB] Force-expired ${count} directive(s)`);
+  return count;
+}
+
 export async function expireDirectives(): Promise<number> {
   if (!pool) {
     const now = Date.now();

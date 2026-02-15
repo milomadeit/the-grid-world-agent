@@ -257,10 +257,10 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       });
     }
 
-    // Validate build position (no floating shapes)
-    const nearbyPrimitives = await db.getAllWorldPrimitives();
+    // Validate build position (no floating shapes) — use in-memory cache, not DB
+    const allPrimitives = world.getWorldPrimitives();
     // Filter to shapes within 20 units XZ for performance
-    const relevant = nearbyPrimitives.filter(p =>
+    const relevant = allPrimitives.filter(p =>
       Math.abs(p.position.x - body.position.x) < 20 &&
       Math.abs(p.position.z - body.position.z) < 20
     );
@@ -308,9 +308,9 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     // --- Build Quality Warnings (soft feedback, not rejections) ---
     const warnings: string[] = [];
-    
+
     // Check agent's builds for height vs spread ratio
-    const agentPrims = nearbyPrimitives.filter(p => p.ownerAgentId === agentId);
+    const agentPrims = allPrimitives.filter(p => p.ownerAgentId === agentId);
     if (agentPrims.length >= 3) {
       const bb = computeBoundingBox(agentPrims);
       const width = bb.maxX - bb.minX;
@@ -434,8 +434,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       footMaxZ = Math.max(footMaxZ, prim.position.z + hz);
     }
 
-    // Check footprint against existing primitives
-    const existingPrims = await db.getAllWorldPrimitives();
+    // Check footprint against existing primitives (in-memory cache)
+    const existingPrims = world.getWorldPrimitives();
     for (const ep of existingPrims) {
       if (EXEMPT_SHAPES.has(ep.shape)) continue;
       const ehx = ep.scale.x / 2;
@@ -540,8 +540,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         // Position copy for potential Y correction
         const position = { ...prim.position };
 
-        // Floating validation (same as single-primitive endpoint)
-        const nearbyPrimitives = await db.getAllWorldPrimitives();
+        // Floating validation (same as single-primitive endpoint) — use in-memory cache
+        const nearbyPrimitives = world.getWorldPrimitives();
         const relevant = nearbyPrimitives.filter(p =>
           Math.abs(p.position.x - position.x) < 20 &&
           Math.abs(p.position.z - position.z) < 20
@@ -974,7 +974,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     // Return only ONLINE agents (from WorldManager, not DB)
     const agents = world.getAgents();
-    const primitives = await db.getAllWorldPrimitives();
+    const primitives = world.getWorldPrimitives();
     const messages = await db.getTerminalMessages(50);
     const chatMessages = await db.getChatMessages(50);
 
@@ -990,7 +990,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
   // --- Spatial Summary (World Map for Agents) ---
 
   fastify.get('/v1/grid/spatial-summary', async (request, reply) => {
-    const primitives = await db.getAllWorldPrimitives();
+    const primitives = world.getWorldPrimitives();
     const agents = world.getAgents();
     const agentNameMap = new Map(agents.map(a => [a.id, a.name]));
 
@@ -1253,6 +1253,17 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const count = await world.syncPrimitivesFromDB();
     return { ok: true, message: `Synced ${count} primitives from database`, count };
+  });
+
+  // --- Admin: Expire all active directives ---
+  fastify.post('/v1/admin/expire-directives', async (request, reply) => {
+    const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
+    const providedKey = request.headers['x-admin-key'];
+    if (providedKey !== adminKey) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+    const count = await db.expireAllDirectives();
+    return { ok: true, expired: count };
   });
 
   // --- Admin: Wipe world (primitives + agent memory) ---
