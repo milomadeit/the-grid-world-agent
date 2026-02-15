@@ -4,6 +4,7 @@ import { authenticate, generateToken, recoverWallet, isTimestampValid } from '..
 import {
   EnterWorldWithIdentitySchema,
   ActionRequestSchema,
+  BUILD_CREDIT_CONFIG,
   type EnterWorldWithIdentity,
   type ActionRequest,
   type Agent
@@ -310,6 +311,19 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
             const { x, z } = payload as { x: number; z: number };
             if (typeof x !== 'number' || typeof z !== 'number') {
               return reply.code(400).send({ error: 'MOVE requires x and z coordinates' });
+            }
+
+            // Cap movement distance per tick — prevents teleporting across the map
+            const agent = world.getAgent(auth.agentId);
+            if (agent) {
+              const dx = x - agent.position.x;
+              const dz = z - agent.position.z;
+              const moveDist = Math.sqrt(dx * dx + dz * dz);
+              if (moveDist > BUILD_CREDIT_CONFIG.MAX_MOVE_DISTANCE) {
+                return reply.code(400).send({
+                  error: `Move distance ${moveDist.toFixed(0)} exceeds max ${BUILD_CREDIT_CONFIG.MAX_MOVE_DISTANCE} units per tick. Move in smaller steps.`
+                });
+              }
             }
 
             // Queue movement action

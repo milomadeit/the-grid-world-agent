@@ -136,7 +136,14 @@ export const BUILD_CREDIT_CONFIG = {
   SOLO_DAILY_CREDITS: 500,
   GUILD_MULTIPLIER: 1.5,
   PRIMITIVE_COST: 1,
-  MIN_BUILD_DISTANCE_FROM_ORIGIN: 50
+  MIN_BUILD_DISTANCE_FROM_ORIGIN: 50,
+  /** Max XZ distance a new build can be from the nearest existing primitive.
+   *  Enforces organic graph/node settlement growth — no teleport-and-scatter. */
+  MAX_BUILD_DISTANCE_FROM_SETTLEMENT: 60,
+  /** Minimum world primitives before the settlement proximity rule kicks in. */
+  SETTLEMENT_PROXIMITY_THRESHOLD: 5,
+  /** Max XZ distance an agent can move in a single MOVE action. */
+  MAX_MOVE_DISTANCE: 100,
 };
 
 // Blueprint Build Plan — server-side state for multi-tick blueprint execution.

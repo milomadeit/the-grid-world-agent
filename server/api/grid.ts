@@ -197,6 +197,21 @@ function roundBB(bb: BoundingBox): { minX: number; maxX: number; minY: number; m
   };
 }
 
+/** Find the XZ distance from a point to the nearest existing primitive in the world. */
+function distanceToNearestPrimitive(
+  x: number, z: number, primitives: Array<{ position: { x: number; z: number } }>
+): number {
+  if (primitives.length === 0) return 0;
+  let minDist = Infinity;
+  for (const p of primitives) {
+    const dx = x - p.position.x;
+    const dz = z - p.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < minDist) minDist = dist;
+  }
+  return minDist;
+}
+
 export async function registerGridRoutes(fastify: FastifyInstance) {
   const world = getWorldManager();
 
@@ -257,8 +272,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       });
     }
 
-    // Validate build position (no floating shapes) — use in-memory cache, not DB
+    // Enforce settlement proximity — builds must be near existing structures
     const allPrimitives = world.getWorldPrimitives();
+    if (allPrimitives.length >= BUILD_CREDIT_CONFIG.SETTLEMENT_PROXIMITY_THRESHOLD) {
+      const distToSettlement = distanceToNearestPrimitive(body.position.x, body.position.z, allPrimitives);
+      if (distToSettlement > BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT) {
+        return reply.status(400).send({
+          error: `Too far from any existing build (${distToSettlement.toFixed(0)} units). Build within ${BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT} units of existing structures to grow the settlement organically. Use GET /v1/grid/spatial-summary to find active neighborhoods.`
+        });
+      }
+    }
+
+    // Validate build position (no floating shapes) — use in-memory cache, not DB
     // Filter to shapes within 20 units XZ for performance
     const relevant = allPrimitives.filter(p =>
       Math.abs(p.position.x - body.position.x) < 20 &&
@@ -377,6 +402,17 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       return reply.code(403).send({
         error: `Cannot build within ${BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN} units of the origin.`
       });
+    }
+
+    // Enforce settlement proximity — blueprint anchor must be near existing structures
+    const existingWorldPrims = world.getWorldPrimitives();
+    if (existingWorldPrims.length >= BUILD_CREDIT_CONFIG.SETTLEMENT_PROXIMITY_THRESHOLD) {
+      const distToSettlement = distanceToNearestPrimitive(body.anchorX, body.anchorZ, existingWorldPrims);
+      if (distToSettlement > BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT) {
+        return reply.code(400).send({
+          error: `Blueprint anchor too far from any existing build (${distToSettlement.toFixed(0)} units). Place within ${BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT} units of existing structures. Use GET /v1/grid/spatial-summary to find active neighborhoods.`
+        });
+      }
     }
 
     // Check agent has enough credits for total primitives
