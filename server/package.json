@@ -1,5 +1,5 @@
 {
-  "name": "The Grid-server",
+  "name": "opgrid-server",
   "version": "1.0.0",
   "type": "module",
   "scripts": {

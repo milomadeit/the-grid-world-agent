@@ -30,6 +30,20 @@ interface ValidationResult {
 
 const EXEMPT_SHAPES = new Set(['plane', 'circle']);
 const SNAP_TOLERANCE = 0.25;
+const OVERLAP_TOLERANCE = 0.05; // allow touching but not intersecting
+
+/** Check if two axis-aligned bounding boxes overlap (with tolerance). */
+function boxesOverlap(
+  a: { x: number; y: number; z: number },
+  aScale: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+  bScale: { x: number; y: number; z: number },
+): boolean {
+  const overlapX = Math.abs(a.x - b.x) < (aScale.x / 2 + bScale.x / 2 - OVERLAP_TOLERANCE);
+  const overlapY = Math.abs(a.y - b.y) < (aScale.y / 2 + bScale.y / 2 - OVERLAP_TOLERANCE);
+  const overlapZ = Math.abs(a.z - b.z) < (aScale.z / 2 + bScale.z / 2 - OVERLAP_TOLERANCE);
+  return overlapX && overlapY && overlapZ;
+}
 
 function validateBuildPosition(
   shape: string,
@@ -48,55 +62,69 @@ function validateBuildPosition(
 
   const bottomEdge = position.y - scale.y / 2;
 
+  // --- Y-axis validation: determine correctedY ---
+  let correctedY: number | undefined;
+
   // Ground contact: bottom edge within tolerance of y=0
   if (Math.abs(bottomEdge) <= SNAP_TOLERANCE) {
-    const correctedY = scale.y / 2;
-    return { valid: true, correctedY };
+    correctedY = scale.y / 2;
+  } else {
+    // Stacking: check if bottom edge rests on top of any existing shape
+    for (const existing of existingPrimitives) {
+      if (EXEMPT_SHAPES.has(existing.shape)) continue;
+
+      const existingTopEdge = existing.position.y + existing.scale.y / 2;
+
+      if (Math.abs(bottomEdge - existingTopEdge) <= SNAP_TOLERANCE) {
+        const overlapX = Math.abs(position.x - existing.position.x) < (existing.scale.x / 2 + scale.x / 2);
+        const overlapZ = Math.abs(position.z - existing.position.z) < (existing.scale.z / 2 + scale.z / 2);
+
+        if (overlapX && overlapZ) {
+          correctedY = existingTopEdge + scale.y / 2;
+          break;
+        }
+      }
+    }
   }
 
-  // Stacking: check if bottom edge rests on top of any existing shape
-  for (const existing of existingPrimitives) {
-    // Skip exempt shapes as supports
-    if (EXEMPT_SHAPES.has(existing.shape)) continue;
+  // If no valid Y found, shape is floating
+  if (correctedY === undefined) {
+    let bestY = scale.y / 2;
+    for (const existing of existingPrimitives) {
+      if (EXEMPT_SHAPES.has(existing.shape)) continue;
 
-    const existingTopEdge = existing.position.y + existing.scale.y / 2;
-
-    // Bottom edge within tolerance of existing top edge
-    if (Math.abs(bottomEdge - existingTopEdge) <= SNAP_TOLERANCE) {
-      // Check XZ overlap: new shape's center must be within existing shape's footprint (with tolerance)
+      const existingTopEdge = existing.position.y + existing.scale.y / 2;
       const overlapX = Math.abs(position.x - existing.position.x) < (existing.scale.x / 2 + scale.x / 2);
       const overlapZ = Math.abs(position.z - existing.position.z) < (existing.scale.z / 2 + scale.z / 2);
 
       if (overlapX && overlapZ) {
-        const correctedY = existingTopEdge + scale.y / 2;
-        return { valid: true, correctedY };
+        const candidateY = existingTopEdge + scale.y / 2;
+        if (Math.abs(candidateY - position.y) < Math.abs(bestY - position.y)) {
+          bestY = candidateY;
+        }
       }
     }
+
+    return {
+      valid: false,
+      correctedY: bestY,
+      error: `Shape would float at y=${position.y.toFixed(2)}. Nearest valid y=${bestY.toFixed(2)} (ground or top of existing shape).`
+    };
   }
 
-  // Floating: find the nearest valid Y
-  let bestY = scale.y / 2; // default: ground level
-
+  // --- XZ overlap rejection (AABB check against corrected position) ---
+  const correctedPos = { x: position.x, y: correctedY, z: position.z };
   for (const existing of existingPrimitives) {
     if (EXEMPT_SHAPES.has(existing.shape)) continue;
-
-    const existingTopEdge = existing.position.y + existing.scale.y / 2;
-    const overlapX = Math.abs(position.x - existing.position.x) < (existing.scale.x / 2 + scale.x / 2);
-    const overlapZ = Math.abs(position.z - existing.position.z) < (existing.scale.z / 2 + scale.z / 2);
-
-    if (overlapX && overlapZ) {
-      const candidateY = existingTopEdge + scale.y / 2;
-      if (Math.abs(candidateY - position.y) < Math.abs(bestY - position.y)) {
-        bestY = candidateY;
-      }
+    if (boxesOverlap(correctedPos, scale, existing.position, existing.scale)) {
+      return {
+        valid: false,
+        error: `Overlaps existing ${existing.shape} at (${existing.position.x.toFixed(1)}, ${existing.position.y.toFixed(1)}, ${existing.position.z.toFixed(1)}). Move at least ${Math.max(scale.x, scale.z).toFixed(1)} units away.`
+      };
     }
   }
 
-  return {
-    valid: false,
-    correctedY: bestY,
-    error: `Shape would float at y=${position.y.toFixed(2)}. Nearest valid y=${bestY.toFixed(2)} (ground or top of existing shape).`
-  };
+  return { valid: true, correctedY };
 }
 
 // --- Spatial Computation Helpers ---
@@ -383,6 +411,47 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Compute blueprint footprint (XZ bounding box)
+    let footMinX = Infinity, footMaxX = -Infinity;
+    let footMinZ = Infinity, footMaxZ = -Infinity;
+    for (const prim of allPrimitives) {
+      const hx = prim.scale.x / 2;
+      const hz = prim.scale.z / 2;
+      footMinX = Math.min(footMinX, prim.position.x - hx);
+      footMaxX = Math.max(footMaxX, prim.position.x + hx);
+      footMinZ = Math.min(footMinZ, prim.position.z - hz);
+      footMaxZ = Math.max(footMaxZ, prim.position.z + hz);
+    }
+
+    // Check footprint against existing primitives
+    const existingPrims = await db.getAllWorldPrimitives();
+    for (const ep of existingPrims) {
+      if (EXEMPT_SHAPES.has(ep.shape)) continue;
+      const ehx = ep.scale.x / 2;
+      const ehz = ep.scale.z / 2;
+      const epMinX = ep.position.x - ehx;
+      const epMaxX = ep.position.x + ehx;
+      const epMinZ = ep.position.z - ehz;
+      const epMaxZ = ep.position.z + ehz;
+
+      // AABB overlap test in XZ
+      if (footMinX < epMaxX && footMaxX > epMinX && footMinZ < epMaxZ && footMaxZ > epMinZ) {
+        return reply.code(409).send({
+          error: `Blueprint footprint overlaps existing geometry near (${ep.position.x.toFixed(1)}, ${ep.position.z.toFixed(1)}). Try a different anchor further away.`
+        });
+      }
+    }
+
+    // Check footprint against active blueprint reservations from other agents
+    for (const [reservedAgent, res] of world.getBlueprintReservations()) {
+      if (reservedAgent === agentId) continue;
+      if (footMinX < res.maxX && footMaxX > res.minX && footMinZ < res.maxZ && footMaxZ > res.minZ) {
+        return reply.code(409).send({
+          error: `Blueprint footprint overlaps another agent's active build. Try a different anchor.`
+        });
+      }
+    }
+
     // Store plan
     const plan: BlueprintBuildPlan = {
       agentId,
@@ -397,6 +466,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       startedAt: Date.now(),
     };
     world.setBuildPlan(agentId, plan);
+    world.setBlueprintReservation(agentId, { minX: footMinX, maxX: footMaxX, minZ: footMinZ, maxZ: footMaxZ });
 
     return {
       blueprintName: body.name,
@@ -1089,5 +1159,27 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const count = await world.syncPrimitivesFromDB();
     return { ok: true, message: `Synced ${count} primitives from database`, count };
+  });
+
+  // --- Admin: Wipe world (primitives + agent memory) ---
+  fastify.post('/v1/admin/wipe-world', async (request, reply) => {
+    const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
+    const providedKey = request.headers['x-admin-key'];
+
+    if (providedKey !== adminKey) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+
+    const primsCleared = await db.clearAllWorldPrimitives();
+    const memoryCleared = await db.clearAllAgentMemory();
+
+    // Sync in-memory state (will now load empty set from DB)
+    await world.syncPrimitivesFromDB();
+
+    return {
+      ok: true,
+      primitivesCleared: primsCleared,
+      memoryEntriesCleared: memoryCleared,
+    };
   });
 }

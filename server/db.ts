@@ -1056,6 +1056,24 @@ export async function getAgentBuilds(agentId: string): Promise<unknown[]> {
   return result.rows;
 }
 
+// --- Admin Wipe Functions ---
+
+export async function clearAllWorldPrimitives(): Promise<number> {
+  if (!pool) return 0;
+  const result = await pool.query('DELETE FROM world_primitives');
+  const count = result.rowCount ?? 0;
+  console.log(`[DB] Cleared ${count} world primitives`);
+  return count;
+}
+
+export async function clearAllAgentMemory(): Promise<number> {
+  if (!pool) return 0;
+  const result = await pool.query('DELETE FROM agent_memory');
+  const count = result.rowCount ?? 0;
+  console.log(`[DB] Cleared ${count} agent memory entries`);
+  return count;
+}
+
 export async function closeDatabase(): Promise<void> {
   if (pool) {
     await pool.end();

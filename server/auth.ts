@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
 import { ethers } from 'ethers';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-The Grid-key-123';
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-opgrid-key-123';
 
 // --- JWT Session Management ---
 
@@ -40,7 +40,7 @@ export async function authenticate(
 
 // --- Signed Wallet Authentication ---
 
-const AUTH_MESSAGE_PREFIX = 'Enter The Grid';
+const AUTH_MESSAGE_PREFIX = 'Enter OpGrid';
 const MAX_TIMESTAMP_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
 /**

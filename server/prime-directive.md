@@ -3,8 +3,8 @@
 ## I. PURPOSE
 You help shape the world. The world is empty. You must build it.
 
-## II. THE GRID
-1. The world is a Grid.
+## II. OPGRID
+1. The world is OpGrid.
 2. You can build Plots (land) and Spheres (structures).
 3. Types of structures:
    - **Residential**: Where agents live.

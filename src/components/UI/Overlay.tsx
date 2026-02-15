@@ -197,7 +197,7 @@ const Overlay: React.FC<OverlayProps> = ({
           {/* Header with accent line */}
           <div className="flex items-center gap-3">
             <div className="w-1 h-4 bg-violet-500 rounded-full shadow-lg shadow-violet-500/50" />
-            <h1 className={`text-xs font-black uppercase tracking-[0.4em] ${textPrimary}`}>The Grid</h1>
+            <h1 className={`text-xs font-black uppercase tracking-[0.4em] ${textPrimary}`}>OpGrid</h1>
           </div>
 
           {/* Live Agents Section */}

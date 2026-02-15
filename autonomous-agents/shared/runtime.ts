@@ -375,7 +375,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
   const agentName = identity.match(/^#\s+(.+)/m)?.[1] || 'Agent';
   const agentColor = identity.match(/color:\s*(#[0-9a-fA-F]{6})/)?.[1] || '#6b7280';
-  const agentBio = identity.match(/bio:\s*"([^"]+)"/)?.[1] || 'An autonomous agent on The Grid.';
+  const agentBio = identity.match(/bio:\s*"([^"]+)"/)?.[1] || 'An autonomous agent on OpGrid.';
 
   // Build system prompt (loaded once, doesn't change per tick)
   const systemPrompt = [
@@ -397,7 +397,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const api = new GridAPIClient();
 
   // Enter the world with ERC-8004 identity — same door as everyone
-  console.log(`[${agentName}] Entering The Grid (wallet: ${config.walletAddress}, agent ID: ${config.erc8004AgentId})...`);
+  console.log(`[${agentName}] Entering OpGrid (wallet: ${config.walletAddress}, agent ID: ${config.erc8004AgentId})...`);
   let enteredOk = false;
   try {
     const entry = await api.enter(
@@ -793,7 +793,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
 
   const agentName = identity.match(/^#\s+(.+)/m)?.[1] || 'Agent';
   const agentColor = identity.match(/color:\s*(#[0-9a-fA-F]{6})/)?.[1] || '#6b7280';
-  const agentBio = identity.match(/bio:\s*"([^"]+)"/)?.[1] || 'A new agent trying to enter The Grid.';
+  const agentBio = identity.match(/bio:\s*"([^"]+)"/)?.[1] || 'A new agent trying to enter OpGrid.';
 
   const systemPrompt = [
     primeDirective,
@@ -820,7 +820,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
   log('Starting bootstrap — no agent ID yet.');
 
   // Step 1: Try to enter without an agent ID — expect rejection
-  log('Step 1: Attempting to enter The Grid without agent ID...');
+  log('Step 1: Attempting to enter OpGrid without agent ID...');
   let entryError = '';
   try {
     const res = await fetch(`${config.apiBaseUrl}/v1/agents/enter`, {
@@ -890,7 +890,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
   const bootstrapPrompt = [
     '# BOOTSTRAP SITUATION',
     '',
-    'You just tried to enter The Grid and were REJECTED because you have no agent ID. This is expected.',
+    'You just tried to enter OpGrid and were REJECTED because you have no agent ID. This is expected.',
     '',
     '## Entry Rejection',
     entryError,
@@ -905,7 +905,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
     '## What You Need To Do',
     `Call register() on the IdentityRegistry at ${config.erc8004Registry} to mint your agent ID.`,
     'You have a private key and MON for gas. You CAN do this yourself.',
-    'After registration, re-enter The Grid with your new agent ID.',
+    'After registration, re-enter OpGrid with your new agent ID.',
     '',
     '## Your Working Memory',
     workingMemory || '_First bootstrap attempt._',
@@ -949,7 +949,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
 
   // Step 6: If registered, enter the world
   if (newAgentId !== null && chain) {
-    log(`Step 6: Entering The Grid with new agent ID ${newAgentId}...`);
+    log(`Step 6: Entering OpGrid with new agent ID ${newAgentId}...`);
 
     const walletAddr = chain.getAddress()!;
     const registryAddr = config.erc8004Registry.split(':').pop() || '';
@@ -964,7 +964,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             agentBio,
             config.erc8004Registry
           );
-      log(`ENTERED The Grid at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
+      log(`ENTERED OpGrid at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
 
       // Write registration success to memory
       const successMemory = [
@@ -980,7 +980,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
         '2. Fetched skill.md → learned about registration',
         '3. Called register() on IdentityRegistry',
         `4. Got agent ID ${newAgentId}`,
-        '5. Entered The Grid successfully',
+        '5. Entered OpGrid successfully',
       ].join('\n');
       writeMd(join(memoryDir, 'WORKING.md'), successMemory);
 
@@ -992,7 +992,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
         `- Bootstrapped from nothing. No agent ID at start.`,
         `- Registered on-chain: agent ID ${newAgentId}`,
         `- Wallet: ${walletAddr}`,
-        `- Entered The Grid successfully on first try after registration.`,
+        `- Entered OpGrid successfully on first try after registration.`,
       ].join('\n');
       writeMd(join(config.dir, 'MEMORY.md'), memoryMd);
 

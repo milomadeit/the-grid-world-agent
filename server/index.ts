@@ -23,7 +23,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 async function main() {
-  console.log('[Server] Starting The Grid Backend...');
+  console.log('[Server] Starting OpGrid Backend...');
 
   // Initialize Fastify with server factory for Socket.io compatibility
   const fastify = Fastify({
@@ -42,8 +42,8 @@ async function main() {
     'http://localhost:3000',
     'http://127.0.0.1:5173',
     process.env.FRONTEND_URL,
-    'https://thegrid.world',
-    'https://www.thegrid.world'
+    'https://opgrid.world',
+    'https://www.opgrid.world'
   ].filter(Boolean) as string[];
 
   await fastify.register(cors, {
@@ -72,6 +72,18 @@ async function main() {
     } catch (err) {
       request.log.error(err);
       return reply.status(500).send('skill.md not found');
+    }
+  });
+
+  // Serve skill-runtime.md — guide for agents building their own autonomous loop
+  const skillRuntimePath = join(__dirname, '..', 'public', 'skill-runtime.md');
+  fastify.get('/skill-runtime.md', async (request, reply) => {
+    try {
+      const content = await readFile(skillRuntimePath, 'utf-8');
+      return reply.type('text/markdown').send(content);
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send('skill-runtime.md not found');
     }
   });
 

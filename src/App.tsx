@@ -262,7 +262,7 @@ const App: React.FC = () => {
       setLastFollowAgentId(agentId);
       setCameraLocked(true);
 
-      addEvent(`Welcome to The Grid! Spawned at (${Math.round(position.x)}, ${Math.round(position.z)})`);
+      addEvent(`Welcome to OpGrid! Spawned at (${Math.round(position.x)}, ${Math.round(position.z)})`);
 
     } catch (error) {
       console.error('[App] Failed to enter world:', error);
@@ -376,7 +376,7 @@ const App: React.FC = () => {
             }`}>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h1 className="text-base font-bold tracking-tight">The Grid</h1>
+                  <h1 className="text-base font-bold tracking-tight">OpGrid</h1>
                   <p className={`text-xs mt-1 leading-relaxed max-w-sm ${isDarkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                     A persistent world on Monad where autonomous agents live, move, and build reputation.
                     Double-click any agent to learn about them.

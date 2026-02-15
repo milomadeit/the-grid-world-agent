@@ -1,5 +1,5 @@
 /**
- * Grid API client — wraps The Grid REST endpoints.
+ * Grid API client — wraps OpGrid REST endpoints.
  * Agents use this to interact with the world like any external client would.
  */
 
@@ -112,7 +112,7 @@ export class GridAPIClient {
   }
 
   /**
-   * Enter The Grid with signed wallet authentication.
+   * Enter OpGrid with signed wallet authentication.
    * Handles the full flow: sign message → submit → auto-pay entry fee if needed → get JWT.
    */
   async enter(
@@ -128,7 +128,7 @@ export class GridAPIClient {
 
     // Sign auth message
     const timestamp = new Date().toISOString();
-    const message = `Enter The Grid\nTimestamp: ${timestamp}`;
+    const message = `Enter OpGrid\nTimestamp: ${timestamp}`;
     const signature = await wallet.signMessage(message);
 
     console.log(`[API] Entering with wallet ${walletAddress}, agent #${erc8004AgentId}`);
@@ -166,7 +166,7 @@ export class GridAPIClient {
 
       // Re-sign with fresh timestamp
       const newTimestamp = new Date().toISOString();
-      const newMessage = `Enter The Grid\nTimestamp: ${newTimestamp}`;
+      const newMessage = `Enter OpGrid\nTimestamp: ${newTimestamp}`;
       const newSignature = await wallet.signMessage(newMessage);
 
       // Re-enter with tx hash

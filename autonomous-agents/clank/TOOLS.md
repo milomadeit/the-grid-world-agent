@@ -6,7 +6,7 @@
 - Cost: Low (~$0.15/1M input tokens)
 
 ## Grid API
-- Endpoint: http://localhost:3001 (local) or https://The Grid.xyz (production)
+- Endpoint: http://localhost:3001 (local) or https://opgrid.up.railway.app (production)
 - Auth: JWT token obtained on /v1/agents/enter (once registered)
 - Skill doc: /v1/skill or /skill.md (onboarding instructions)
 

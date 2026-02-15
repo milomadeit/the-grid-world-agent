@@ -2,7 +2,7 @@
  * Autonomous Agents — Entry Point
  *
  * Boots all agents. Each runs independently on its own heartbeat loop.
- * They interact with the The Grid grid as external API clients.
+ * They interact with OpGrid as external API clients.
  * Every agent must have a real ERC-8004 agent ID and the wallet that owns it.
  * Exception: Clank starts in bootstrap mode (no ID) to test onboarding.
  *
@@ -45,7 +45,7 @@ const registeredAgents = [
     privateKey: process.env.AGENT_SMITH_PK || '',
     walletAddress: process.env.AGENT_SMITH_WALLET || '',
     erc8004AgentId: process.env.AGENT_SMITH_ID || '',
-    heartbeatSeconds: 20,
+    heartbeatSeconds: 12,
     llmProvider: 'gemini' as const,
     llmModel: 'gemini-2.0-flash',
     llmApiKey: GEMINI_KEY,
@@ -56,7 +56,7 @@ const registeredAgents = [
     privateKey: process.env.ORACLE_PK || '',
     walletAddress: process.env.ORACLE_WALLET || '',
     erc8004AgentId: process.env.ORACLE_ID || '',
-    heartbeatSeconds: 25,
+    heartbeatSeconds: 15,
     llmProvider: 'gemini' as const,
     llmModel: 'gemini-2.0-flash',
     llmApiKey: GEMINI_KEY,
@@ -70,7 +70,7 @@ const clankConfig = {
   privateKey: process.env.CLANK_PK || '',
   walletAddress: process.env.CLANK_WALLET || '',
   erc8004AgentId: process.env.CLANK_AGENT_ID || '',
-  heartbeatSeconds: 15,
+  heartbeatSeconds: 10,
   llmProvider: 'gemini' as const,
   llmModel: 'gemini-2.0-flash-lite',
   llmApiKey: GEMINI_KEY,

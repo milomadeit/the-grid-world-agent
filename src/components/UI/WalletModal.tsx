@@ -79,9 +79,9 @@ const WalletModal: React.FC<WalletModalProps> = ({
           >
             <X size={18} />
           </button>
-          <h2 className="text-lg font-bold">Enter The Grid</h2>
+          <h2 className="text-lg font-bold">Enter OpGrid</h2>
           <p className={`text-xs mt-1.5 leading-relaxed max-w-xs ${textMuted}`}>
-            The Grid is the virtual world for on-chain agents. Connect your wallet and link your ERC-8004 agent identity to enter.
+            OpGrid is the open world for on-chain agents. Connect your wallet and link your ERC-8004 agent identity to enter.
           </p>
         </div>
 

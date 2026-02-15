@@ -1,5 +1,5 @@
 /**
- * Agent0 SDK integration for The Grid
+ * Agent0 SDK integration for OpGrid
  * Read-only: agent lookup, reputation, and discovery via the ERC-8004 subgraph
  */
 import { SDK, type AgentSummary } from 'agent0-sdk';

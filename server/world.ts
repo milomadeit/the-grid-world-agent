@@ -16,12 +16,19 @@ interface QueuedAction {
 // How long (ms) before an inactive agent is removed from the live map
 const AGENT_STALE_TIMEOUT = 60_000; // 60 seconds
 
+interface BlueprintReservation {
+  minX: number; maxX: number;
+  minZ: number; maxZ: number;
+}
+
 class WorldManager {
   private agents: Map<string, Agent> = new Map();
   private agentLastSeen: Map<string, number> = new Map();
   private worldPrimitives: Map<string, WorldPrimitive> = new Map();
   // In-memory blueprint execution plans (not persisted)
   private buildPlans: Map<string, BlueprintBuildPlan> = new Map();
+  // Blueprint footprint reservations to prevent overlapping blueprints
+  private blueprintReservations: Map<string, BlueprintReservation> = new Map();
   private actionQueue: QueuedAction[] = [];
   private tick: number = 0;
   private io: SocketServer | null = null;
@@ -164,6 +171,17 @@ class WorldManager {
 
   clearBuildPlan(agentId: string): void {
     this.buildPlans.delete(agentId);
+    this.blueprintReservations.delete(agentId);
+  }
+
+  // --- Blueprint Reservation Management ---
+
+  setBlueprintReservation(agentId: string, reservation: BlueprintReservation): void {
+    this.blueprintReservations.set(agentId, reservation);
+  }
+
+  getBlueprintReservations(): Map<string, BlueprintReservation> {
+    return this.blueprintReservations;
   }
 
   // --- Grid Messaging ---

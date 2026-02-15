@@ -57,7 +57,7 @@ const initialState = {
   events: ["World simulation initialized.", "Waiting for agents..."],
   lastUpdate: Date.now(),
   messages: [
-    { sender: 'System', content: 'Welcome to The Grid. Click anywhere on the grid to move your agent!', timestamp: Date.now() }
+    { sender: 'System', content: 'Welcome to OpGrid. Click anywhere to move your agent!', timestamp: Date.now() }
   ],
   balance: '0.00',
   hasEntered: false,
@@ -144,7 +144,7 @@ export const useWorldStore = create<WorldStore>((set) => ({
     followAgentId: null,
     lastFollowAgentId: null,
     messages: [
-      { sender: 'System', content: 'Welcome to The Grid. Click anywhere on the grid to move your agent!', timestamp: Date.now() }
+      { sender: 'System', content: 'Welcome to OpGrid. Click anywhere to move your agent!', timestamp: Date.now() }
     ],
     lastUpdate: Date.now(),
   }),
