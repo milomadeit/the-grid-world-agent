@@ -2,7 +2,26 @@ import { Server as SocketServer } from 'socket.io';
 import type { AgentInputEvent } from './types.js';
 import { getWorldManager } from './world.js';
 import * as db from './db.js';
+import { verifyToken } from './auth.js';
 
+
+function extractSocketToken(socket: any): string | null {
+  const authToken = typeof socket.handshake?.auth?.token === 'string'
+    ? socket.handshake.auth.token
+    : null;
+
+  const queryTokenRaw = socket.handshake?.query?.token;
+  const queryToken = typeof queryTokenRaw === 'string'
+    ? queryTokenRaw
+    : (Array.isArray(queryTokenRaw) ? queryTokenRaw[0] : null);
+
+  const authHeader = socket.handshake?.headers?.authorization;
+  const headerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : null;
+
+  return authToken || queryToken || headerToken;
+}
 
 export function setupSocketServer(httpServer: any): SocketServer {
   const io = new SocketServer(httpServer, {
@@ -22,7 +41,20 @@ export function setupSocketServer(httpServer: any): SocketServer {
   world.setSocketServer(io);
 
   io.on('connection', (socket) => {
-    console.log(`[Socket] Client connected: ${socket.id}`);
+    const token = extractSocketToken(socket);
+    const auth = token ? verifyToken(token) : null;
+
+    if (token && !auth) {
+      socket.emit('error', { message: 'Invalid or expired socket token' });
+      socket.disconnect(true);
+      return;
+    }
+
+    const authenticatedAgentId = auth?.agentId || null;
+    const authenticatedOwnerId = auth?.ownerId?.toLowerCase() || null;
+    console.log(
+      `[Socket] Client connected: ${socket.id} (${authenticatedAgentId ? `agent:${authenticatedAgentId}` : 'spectator'})`
+    );
 
     // Get messages async, then build + send snapshot atomically to avoid
     // race where an agent joins between snapshot build and send.
@@ -63,24 +95,38 @@ export function setupSocketServer(httpServer: any): SocketServer {
 
 
     // Handle agent input from frontend clients
-    socket.on('agent:input', async (data: AgentInputEvent & { agentId: string }) => {
-      const { agentId, op, to, message } = data;
-
-      if (!agentId) {
-        socket.emit('error', { message: 'agentId required' });
+    socket.on('agent:input', async (data: AgentInputEvent & { agentId?: string }) => {
+      if (!authenticatedAgentId) {
+        socket.emit('error', { message: 'Authentication required for agent actions' });
         return;
       }
 
-      const agent = world.getAgent(agentId);
+      const { agentId, op, to, message } = data;
+
+      if (agentId && agentId !== authenticatedAgentId) {
+        socket.emit('error', { message: 'Cannot act as another agent' });
+        return;
+      }
+
+      const actingAgentId = authenticatedAgentId;
+      await world.touchAgent(actingAgentId);
+
+      const agent = world.getAgent(actingAgentId);
       if (!agent) {
-        socket.emit('error', { message: 'Agent not found' });
+        socket.emit('error', { message: 'Agent not active. Re-enter via POST /v1/agents/enter.' });
+        return;
+      }
+
+      const agentOwner = (agent.ownerId || '').toLowerCase();
+      if (authenticatedOwnerId && agentOwner && agentOwner !== authenticatedOwnerId) {
+        socket.emit('error', { message: 'Token owner does not match agent owner' });
         return;
       }
 
       switch (op) {
         case 'MOVE':
           if (to) {
-            world.queueAction(agentId, {
+            world.queueAction(actingAgentId, {
               type: 'MOVE',
               targetPosition: { x: to.x, y: 0, z: to.z }
             });
@@ -89,20 +135,18 @@ export function setupSocketServer(httpServer: any): SocketServer {
 
         case 'CHAT':
           if (message) {
-            // Mark agent as active (prevents timeout)
-            await world.touchAgent(agentId);
             // Persist chat to DB then broadcast
             db.writeChatMessage({
               id: 0,
-              agentId,
+              agentId: actingAgentId,
               agentName: agent.name,
               message,
               createdAt: Date.now()
             }).then(() => {
-              world.broadcastChat(agentId, message, agent.name);
+              world.broadcastChat(actingAgentId, message, agent.name);
             }).catch(err => {
               console.error('[Socket] Failed to persist chat:', err);
-              world.broadcastChat(agentId, message, agent.name);
+              world.broadcastChat(actingAgentId, message, agent.name);
             });
           }
           break;
@@ -112,40 +156,11 @@ export function setupSocketServer(httpServer: any): SocketServer {
       }
     });
 
-    // Handle agent registration from frontend
-    socket.on('agent:register', async (data: {
-      ownerId: string;
-      name?: string;
-      color?: string;
-    }) => {
-      const { ownerId, name, color } = data;
-
-      // Import dynamically to avoid circular dependency
-      const { randomUUID } = await import('crypto');
-
-      // db is already imported at top level
-
-      const agentId = `agent_${randomUUID().slice(0, 8)}`;
-      const spawnX = (Math.random() - 0.5) * 20;
-      const spawnZ = (Math.random() - 0.5) * 20;
-
-      const agent = {
-        id: agentId,
-        name: name || `Agent-${agentId.slice(-4)}`,
-        color: color || '#6b7280',
-        position: { x: spawnX, y: 0, z: spawnZ },
-        targetPosition: { x: spawnX, y: 0, z: spawnZ },
-        status: 'idle' as const,
-        inventory: { wood: 0, stone: 0, gold: 0 },
-        ownerId
-      };
-
-      await db.createAgent(agent);
-      world.addAgent(agent);
-
-      socket.emit('agent:registered', {
-        agentId,
-        position: { x: spawnX, z: spawnZ }
+    // Registration is intentionally disabled on sockets; identity + payment checks
+    // are enforced through POST /v1/agents/enter.
+    socket.on('agent:register', async () => {
+      socket.emit('error', {
+        message: 'Socket registration is disabled. Use POST /v1/agents/enter.'
       });
     });
 

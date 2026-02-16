@@ -1152,8 +1152,15 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   let lastWorldHash = '';
   let ticksSinceLastLLMCall = 0;
   const MAX_SKIP_TICKS = 5; // Force an LLM call at least every 5 ticks
+  let tickInProgress = false;
 
   const tick = async () => {
+    if (tickInProgress) {
+      console.log(`[${agentName}] Previous tick still running, skipping this heartbeat`);
+      return;
+    }
+
+    tickInProgress = true;
     try {
       // 1. Read working memory
       const workingMemory = readMd(join(memoryDir, 'WORKING.md'));
@@ -1231,12 +1238,20 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const mentionsMe = newMessages.some(m =>
         m.message?.toLowerCase().includes(agentName.toLowerCase())
       );
+
+      const selfPosKey = self
+        ? `${self.position.x.toFixed(1)},${self.position.z.toFixed(1)},${self.status}`
+        : 'noself';
+      const directivesKey = directives
+        .map(d => `${d.id}:${d.status}:${d.yesVotes}:${d.noVotes}`)
+        .sort()
+        .join(',');
       const worldHash = [
-        world.tick,
+        selfPosKey,
         world.agents.length,
         world.primitives.length,
         latestMsgId,
-        directives.length,
+        directivesKey,
         credits,
         blueprintStatus?.active ? `bp:${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives}` : 'nobp',
       ].join('|');
@@ -1646,6 +1661,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
     } catch (err) {
       console.error(`[${agentName}] Heartbeat error:`, err);
+    } finally {
+      tickInProgress = false;
     }
   };
 
@@ -1901,7 +1918,14 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
         : postBootstrapSystemPrompt;
 
       // Start the heartbeat loop (reuse the tick logic from startAgent)
+      let bootstrapTickInProgress = false;
       const tick = async () => {
+        if (bootstrapTickInProgress) {
+          console.log(`[${agentName}] Previous bootstrap tick still running, skipping this heartbeat`);
+          return;
+        }
+
+        bootstrapTickInProgress = true;
         try {
           const wm = readMd(join(memoryDir, 'WORKING.md'));
           const world = await api.getWorldState();
@@ -2153,6 +2177,8 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           appendLog(dailyLogPath, `[${timestamp()}] ${decision.action}: ${decision.thought}`);
         } catch (err) {
           console.error(`[${agentName}] Heartbeat error:`, err);
+        } finally {
+          bootstrapTickInProgress = false;
         }
       };
 

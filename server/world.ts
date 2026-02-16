@@ -121,6 +121,8 @@ class WorldManager {
   }
 
   removeAgent(id: string): void {
+    // Clear any active build plan + reservation owned by this agent.
+    this.clearBuildPlan(id);
     this.agents.delete(id);
     this.agentLastSeen.delete(id);
     this.io?.emit('agent:left', { id });

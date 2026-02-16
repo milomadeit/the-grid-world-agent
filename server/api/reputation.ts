@@ -1,38 +1,7 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { ReputationFeedbackSchema } from '../types.js';
 import * as db from '../db.js';
-
-import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-opgrid-key-123';
-
-function verifyToken(token: string): { agentId: string } | null {
-  try {
-    return jwt.verify(token, JWT_SECRET) as { agentId: string };
-  } catch {
-    return null;
-  }
-}
-
-async function authenticate(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<{ agentId: string } | undefined> {
-  const auth = request.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) {
-    reply.code(401).send({ error: 'Missing or invalid authorization header' });
-    return;
-  }
-
-  const token = auth.slice(7);
-  const payload = verifyToken(token);
-  if (!payload) {
-    reply.code(401).send({ error: 'Invalid or expired token' });
-    return;
-  }
-
-  return payload;
-}
+import { authenticate } from '../auth.js';
 
 export async function registerReputationRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /v1/reputation/feedback — submit feedback

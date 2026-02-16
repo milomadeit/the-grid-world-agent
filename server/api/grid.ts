@@ -228,6 +228,24 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     return payload.agentId;
   };
 
+  // Helper: enforce explicit admin key configuration for admin routes.
+  const requireAdmin = (request: FastifyRequest, reply: FastifyReply): boolean => {
+    const adminKey = process.env.ADMIN_KEY;
+    if (!adminKey) {
+      request.log.error('ADMIN_KEY is not configured');
+      reply.code(503).send({ error: 'Admin routes are disabled until ADMIN_KEY is configured.' });
+      return false;
+    }
+
+    const providedKey = request.headers['x-admin-key'];
+    if (typeof providedKey !== 'string' || providedKey !== adminKey) {
+      reply.code(401).send({ error: 'Unauthorized' });
+      return false;
+    }
+
+    return true;
+  };
+
   // --- World Primitives (New System) ---
 
   fastify.post('/v1/grid/primitive', async (request, reply) => {
@@ -583,6 +601,14 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           Math.abs(p.position.z - position.z) < 20
         );
         const validation = validateBuildPosition(prim.shape, position, prim.scale, relevant);
+        if (!validation.valid) {
+          results.push({
+            index: idx,
+            success: false,
+            error: validation.error || 'Invalid build position',
+          });
+          continue;
+        }
         if (validation.correctedY !== undefined) {
           position.y = validation.correctedY;
         }
@@ -1311,13 +1337,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
   // --- Admin: Sync in-memory primitives with database ---
   fastify.post('/v1/admin/sync-primitives', async (request, reply) => {
-    // Simple admin key check (set ADMIN_KEY in env)
-    const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
-    const providedKey = request.headers['x-admin-key'];
-
-    if (providedKey !== adminKey) {
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
+    if (!requireAdmin(request, reply)) return;
 
     const count = await world.syncPrimitivesFromDB();
     return { ok: true, message: `Synced ${count} primitives from database`, count };
@@ -1325,23 +1345,15 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
   // --- Admin: Expire all active directives ---
   fastify.post('/v1/admin/expire-directives', async (request, reply) => {
-    const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
-    const providedKey = request.headers['x-admin-key'];
-    if (providedKey !== adminKey) {
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
+    if (!requireAdmin(request, reply)) return;
+
     const count = await db.expireAllDirectives();
     return { ok: true, expired: count };
   });
 
   // --- Admin: Bulk delete specific primitives by ID ---
   fastify.post('/v1/admin/delete-primitives', async (request, reply) => {
-    const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
-    const providedKey = request.headers['x-admin-key'];
-
-    if (providedKey !== adminKey) {
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
+    if (!requireAdmin(request, reply)) return;
 
     const { ids } = request.body as { ids: string[] };
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -1366,12 +1378,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
   // --- Admin: Wipe world (primitives + agent memory) ---
   fastify.post('/v1/admin/wipe-world', async (request, reply) => {
-    const adminKey = process.env.ADMIN_KEY || 'dev-admin-key';
-    const providedKey = request.headers['x-admin-key'];
-
-    if (providedKey !== adminKey) {
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
+    if (!requireAdmin(request, reply)) return;
 
     const primsCleared = await db.clearAllWorldPrimitives();
     const memoryCleared = await db.clearAllAgentMemory();

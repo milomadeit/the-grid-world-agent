@@ -152,7 +152,7 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
       const useOwnerId = recoveredAddress; // wallet address is the owner
 
       if (isReturning && existingAgent) {
-        const token = generateToken(existingAgent.id);
+        const token = generateToken(existingAgent.id, existingAgent.ownerId || useOwnerId);
         const world = getWorldManager();
 
         // Check if agent's saved position is inside an object — if so, respawn near terminal
@@ -266,7 +266,7 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
 
       world.addAgent(agent);
 
-      const token = generateToken(agentId);
+      const token = generateToken(agentId, useOwnerId);
 
       return {
         agentId,
