@@ -579,6 +579,63 @@ function computeSettlementNodes(
   return nodes;
 }
 
+/**
+ * Pre-compute safe build spots near an agent by checking clearance against existing primitives.
+ * Uses 6u clearance radius (fits most blueprints except MANSION/PLAZA/DATACENTER).
+ * Checks a spiral of candidate spots around the agent position.
+ */
+function findSafeBuildSpots(
+  agentPos: { x: number; z: number },
+  primitives: { position: { x: number; z: number }; scale: { x: number; z: number }; shape: string }[],
+  maxResults = 5
+): { x: number; z: number; distFromAgent: number }[] {
+  const CLEARANCE = 6; // half-width clearance for medium blueprints
+  const EXEMPT = new Set(['plane', 'circle']);
+  const MIN_DIST_FROM_ORIGIN = 50;
+
+  // Only check primitives within 80u of agent (performance)
+  const nearby = primitives.filter(p => {
+    if (EXEMPT.has(p.shape)) return false;
+    const dx = p.position.x - agentPos.x;
+    const dz = p.position.z - agentPos.z;
+    return Math.abs(dx) < 80 && Math.abs(dz) < 80;
+  });
+
+  const safe: { x: number; z: number; distFromAgent: number }[] = [];
+
+  // Check candidates in expanding rings: 10u, 15u, 20u, 30u, 40u, 50u from agent
+  for (const radius of [10, 15, 20, 30, 40, 50]) {
+    const steps = Math.max(8, Math.floor(radius * 0.8)); // more points at larger radii
+    for (let i = 0; i < steps; i++) {
+      const angle = (2 * Math.PI * i) / steps;
+      const cx = Math.round(agentPos.x + radius * Math.cos(angle));
+      const cz = Math.round(agentPos.z + radius * Math.sin(angle));
+
+      // Skip if too close to origin
+      if (Math.sqrt(cx * cx + cz * cz) < MIN_DIST_FROM_ORIGIN) continue;
+
+      // Check if a 2*CLEARANCE × 2*CLEARANCE footprint at (cx, cz) overlaps any primitive
+      let overlaps = false;
+      for (const p of nearby) {
+        const hx = p.scale.x / 2 + CLEARANCE;
+        const hz = p.scale.z / 2 + CLEARANCE;
+        if (Math.abs(cx - p.position.x) < hx && Math.abs(cz - p.position.z) < hz) {
+          overlaps = true;
+          break;
+        }
+      }
+
+      if (!overlaps) {
+        const dist = Math.sqrt((cx - agentPos.x) ** 2 + (cz - agentPos.z) ** 2);
+        safe.push({ x: cx, z: cz, distFromAgent: Math.round(dist) });
+        if (safe.length >= maxResults) return safe;
+      }
+    }
+  }
+
+  return safe;
+}
+
 function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: number }, agentName?: string): string {
   if (nodes.length === 0) return '## World Graph\n_No settlements yet. You can start the first node! Pick a spot 50+ units from origin._';
 
@@ -1136,15 +1193,25 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           return formatSettlementMap(nodes, myPos, agentName);
         })(),
         '',
-        // Open Areas from server spatial summary
+        // Safe build spots — pre-computed valid anchor points near the agent
         ...(() => {
-          if (!serverSpatial || !serverSpatial.openAreas || serverSpatial.openAreas.length === 0) return [];
-          const lines = ['## Open Areas (expansion opportunities)'];
-          const topAreas = serverSpatial.openAreas.slice(0, 3);
-          for (let i = 0; i < topAreas.length; i++) {
-            const area = topAreas[i];
-            lines.push(`${i + 1}. (${Math.round(area.x)}, ${Math.round(area.z)}) — ${Math.round(area.nearestBuildDist)}u from nearest build`);
+          const myPos = self?.position || { x: 0, z: 0 };
+          const safeSpots = findSafeBuildSpots(
+            myPos,
+            world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }))
+          );
+          if (safeSpots.length === 0) {
+            return [
+              '## ⚠ NO SAFE BUILD SPOTS NEARBY',
+              'All areas within 50u are too dense. MOVE 50+ units toward an Open Area before building.',
+              '',
+            ];
           }
+          const lines = ['## SAFE BUILD SPOTS (use these as anchorX/anchorZ — verified clear of overlap)'];
+          for (const spot of safeSpots) {
+            lines.push(`- **(${spot.x}, ${spot.z})** — ${spot.distFromAgent}u from you`);
+          }
+          lines.push('**Use one of these coordinates as your anchorX/anchorZ when building.** They have 6u clearance from existing geometry.');
           lines.push('');
           return lines;
         })(),
@@ -1190,16 +1257,17 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '---',
         '**HOW TO TALK:** See instructions above. Talk like a person, not a robot.',
         '',
-        // Build error warnings — surface failures prominently
+        // Build error warnings — direct agents to safe spots
         ...(workingMemory ? (() => {
           const lastBuildError = workingMemory.match(/Last build error: (.+)/)?.[1];
           const consecutiveBuildFails = parseInt(workingMemory.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
           const warnings: string[] = [];
           if (lastBuildError) {
-            warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Try a different spot — adjust coordinates by 5-15 units from your last attempt, or try a different blueprint.`);
+            warnings.push(`**⚠️ LAST BUILD FAILED:** ${lastBuildError}`);
+            warnings.push('**FIX:** Use a coordinate from the SAFE BUILD SPOTS list above as your anchorX/anchorZ. Do NOT guess — use the exact coordinates listed.');
           }
           if (consecutiveBuildFails >= 3) {
-            warnings.push(`**⚠️ ${consecutiveBuildFails} build failures in a row.** Move 20-30 units away and try building at the new location. The failures reset after you MOVE.`);
+            warnings.push(`**🛑 ${consecutiveBuildFails} build failures in a row.** MOVE to a Safe Build Spot or Open Area before trying again.`);
           }
           return warnings.length > 0 ? [...warnings, ''] : [];
         })() : []),
@@ -1225,7 +1293,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         'Payload formats:',
         '  MOVE: {"x": 5, "z": 3}',
         '  CHAT: {"message": "Hello!"}',
-        '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}  ← start a blueprint build (server computes all coordinates)',
+        '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}  ← USE coordinates from SAFE BUILD SPOTS above!',
         '  BUILD_CONTINUE: {}  ← place next batch from your active blueprint (must be near site)',
         '  CANCEL_BUILD: {}  ← abandon current blueprint (placed pieces stay)',
         '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
