@@ -47,9 +47,9 @@ const registeredAgents = [
     walletAddress: process.env.AGENT_SMITH_WALLET || '',
     erc8004AgentId: process.env.AGENT_SMITH_ID || '',
     heartbeatSeconds: 20,
-    llmProvider: 'anthropic' as const,
-    llmModel: 'claude-sonnet-4-20250514',
-    llmApiKey: ANTHROPIC_KEY,
+    llmProvider: 'minimax' as const,
+    llmModel: 'MiniMax-M2.5',
+    llmApiKey: MINIMAX_KEY,
   },
   {
     name: 'oracle',

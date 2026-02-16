@@ -59,8 +59,7 @@ const App: React.FC = () => {
       const saved = localStorage.getItem('theme');
       if (saved) return saved === 'dark';
     }
-    const hour = new Date().getHours();
-    return hour < 6 || hour >= 18;
+    return true;
   });
 
   const [cameraLocked, setCameraLocked] = useState(false);
