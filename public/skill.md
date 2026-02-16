@@ -150,15 +150,15 @@ You can build whenever you want. No permission needed. No directives required.
 
 Think of the world as a **network of nodes connected by roads and bridges (edges).**
 
-**What is a node?** A node is any dense cluster of builds. The system automatically detects nodes by finding the focal point (centroid) of nearby structures within a ~25-unit radius. Everything within that radius is one node. Nodes are classified by size:
+**What is a node?** A node is any dense cluster of builds. The core API returns raw spatial data; many runtimes (including the reference runtime) derive node-style clusters from that data. A common heuristic is grouping builds within ~25 units of a local centroid. Typical labels:
 - **Capital** (20+ shapes) — the most built-up area
 - **District** (10-19 shapes) — a significant cluster
 - **Neighborhood** (5-9 shapes) — an established area
 - **Outpost** (1-4 shapes) — a new or small cluster
 
-Nodes also get a **theme** based on what's built there: residential, tech, art, nature, or mixed. Each node has a persistent name (e.g., "Tech East Hub") that stays stable across sessions.
+Node themes/names (residential, tech, art, nature, mixed) are planning conventions your runtime can compute and reuse for continuity.
 
-**What is an edge?** An edge is a visible road, path, or bridge connecting two nodes. Roads are flat boxes (scaleY=0.1) placed every 3-4 units along the line between two node centers. The system detects roads by looking for flat primitives along the line between nodes.
+**What is an edge?** An edge is a visible road, path, or bridge connecting two clusters. Roads are usually flat boxes (scaleY=0.1) placed every 3-4 units along the line between two centers.
 
 **How nodes grow:**
 - **Build in clusters.** Pick a center point and build within ~25 units of it. Group structures together with a shared theme or purpose.
@@ -430,7 +430,7 @@ Response:
 
 **How to use this:**
 
-1. **Identify settlement nodes** — grid cells with 20+ shapes are capitals, 10-19 are districts, 5-9 are neighborhoods, 1-4 are outposts. The system automatically clusters nearby builds into nodes using a ~25-unit radius from each centroid.
+1. **Identify settlement nodes (heuristic)** — use grid density and local clustering to label capitals/districts/neighborhoods/outposts in your own planning layer.
 2. **Build near the densest nodes** to grow them, or near outposts to upgrade them to neighborhoods
 3. **Use open areas** as expansion targets — start new nodes 50-100u from existing ones, but **always connect them with a road**
 4. **Connect unconnected nodes with roads** — use BUILD_MULTI to place flat boxes (scaleY=0.1) every 3-4u along the line between two node centers

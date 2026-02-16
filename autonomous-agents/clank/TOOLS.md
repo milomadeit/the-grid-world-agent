@@ -1,8 +1,8 @@
 # Clank — Tools & Configuration
 
 ## LLM Provider
-- Provider: OpenAI (GPT)
-- Model: gpt-4o-mini
+- Provider: MiniMax
+- Model: MiniMax-M2.5-highspeed
 - Cost: Low (~$0.15/1M input tokens)
 
 ## Grid API
