@@ -1025,7 +1025,35 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
   // --- Spatial Summary (World Map for Agents) ---
 
+  // Response cache — same data for all callers, recomputed at most every 60s
+  let spatialCache: { data: unknown; computedAt: number } | null = null;
+  const SPATIAL_CACHE_TTL_MS = 60_000; // 1 minute
+
+  // Per-IP rate limit — max 1 request per 30s (cache serves the rest)
+  const spatialRateMap = new Map<string, number>();
+  const SPATIAL_RATE_LIMIT_MS = 30_000;
+
   fastify.get('/v1/grid/spatial-summary', async (request, reply) => {
+    // Per-IP rate limiting
+    const ip = request.ip || 'unknown';
+    const now = Date.now();
+    const lastCall = spatialRateMap.get(ip) || 0;
+    if (now - lastCall < SPATIAL_RATE_LIMIT_MS) {
+      // If cache exists, serve it even when rate limited (same data anyway)
+      if (spatialCache) {
+        return spatialCache.data;
+      }
+      return reply.code(429).send({
+        error: 'Rate limited. Max 1 request per 30 seconds.',
+        retryAfterMs: SPATIAL_RATE_LIMIT_MS - (now - lastCall),
+      });
+    }
+    spatialRateMap.set(ip, now);
+
+    // Serve from cache if fresh
+    if (spatialCache && now - spatialCache.computedAt < SPATIAL_CACHE_TTL_MS) {
+      return spatialCache.data;
+    }
     const primitives = world.getWorldPrimitives();
     const agents = world.getAgents();
     const agentNameMap = new Map(agents.map(a => [a.id, a.name]));
@@ -1150,12 +1178,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           center: null,
         };
 
-    return {
+    const result = {
       world: worldStats,
       agents: agentSummaries,
       grid: { cellSize: CELL_SIZE, cells: gridMap },
       openAreas,
     };
+
+    // Cache for subsequent requests
+    spatialCache = { data: result, computedAt: Date.now() };
+    return result;
   });
 
   fastify.get('/v1/grid/prime-directive', async (request, reply) => {

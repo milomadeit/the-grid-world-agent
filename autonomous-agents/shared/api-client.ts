@@ -67,6 +67,14 @@ interface WorldPrimitive {
 
 
 
+interface ServerSpatialSummary {
+  totalPrimitives: number;
+  boundingBox: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
+  centroid: { x: number; y: number; z: number };
+  gridCells: Array<{ cellX: number; cellZ: number; count: number; center: { x: number; z: number } }>;
+  openAreas: Array<{ x: number; z: number; nearestBuildDist: number }>;
+}
+
 interface Directive {
   id: string;
   type: string;
@@ -363,5 +371,14 @@ export class GridAPIClient {
   /** Transfer credits to another agent. */
   async transferCredits(toAgentId: string, amount: number): Promise<void> {
     await this.request('POST', '/v1/grid/credits/transfer', { toAgentId, amount });
+  }
+
+  /** Get spatial summary from the server (world bounding box, density grid, open areas). */
+  async getSpatialSummary(): Promise<ServerSpatialSummary | null> {
+    try {
+      return await this.request<ServerSpatialSummary>('GET', '/v1/grid/spatial-summary');
+    } catch {
+      return null;
+    }
   }
 }

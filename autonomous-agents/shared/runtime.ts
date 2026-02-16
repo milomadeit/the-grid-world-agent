@@ -244,68 +244,279 @@ function formatOtherBuildsCompact(
 
 // --- Settlement Node Computation ---
 
+type NodeTier = 'Capital' | 'District' | 'Neighborhood' | 'Outpost';
+type NodeTheme = 'residential' | 'tech' | 'art' | 'nature' | 'mixed';
+type BuildCategory = 'structure' | 'infrastructure' | 'decoration' | 'signature';
+
 interface SettlementNode {
   center: { x: number; z: number };
   count: number;
   radius: number;
   structures: string[];
+  builders: string[];
+  tier: NodeTier;
+  theme: NodeTheme;
+  name: string;
+  missingCategories: BuildCategory[];
+  connections: Array<{ targetIdx: number; distance: number; hasBridge: boolean }>;
 }
 
-function computeSettlementNodes(primitives: PrimitiveData[]): SettlementNode[] {
+// Shape-to-category mappings for "what's missing" analysis
+const STRUCTURE_SHAPES = new Set(['box', 'capsule']);
+const INFRA_SHAPES = new Set(['plane', 'ring']);
+const DECORATION_SHAPES = new Set(['sphere', 'torus', 'torusKnot']);
+const SIGNATURE_SHAPES = new Set(['dodecahedron', 'icosahedron', 'octahedron', 'tetrahedron']);
+
+// Shape-to-theme mappings
+const RESIDENTIAL_SHAPES = new Set(['box', 'capsule', 'plane']);
+const TECH_SHAPES = new Set(['cylinder', 'cone', 'ring']);
+const ART_SHAPES = new Set(['torus', 'dodecahedron', 'icosahedron', 'octahedron', 'torusKnot', 'tetrahedron']);
+const NATURE_SHAPES = new Set(['sphere']);
+
+// Directional names for node naming
+const NODE_NAMES_BY_DIRECTION: Record<string, string> = {
+  'N':  'North Quarter',
+  'NE': 'Northeast Hub',
+  'E':  'East Hub',
+  'SE': 'Southeast Hub',
+  'S':  'South Quarter',
+  'SW': 'Southwest Hub',
+  'W':  'West Hub',
+  'NW': 'Northwest Hub',
+  'C':  'Central Hub',
+};
+
+function getDirection(x: number, z: number, centroidX: number, centroidZ: number): string {
+  const dx = x - centroidX;
+  const dz = z - centroidZ;
+  if (Math.abs(dx) < 15 && Math.abs(dz) < 15) return 'C';
+  const angle = Math.atan2(dz, dx) * (180 / Math.PI);
+  if (angle >= -22.5 && angle < 22.5) return 'E';
+  if (angle >= 22.5 && angle < 67.5) return 'SE';
+  if (angle >= 67.5 && angle < 112.5) return 'S';
+  if (angle >= 112.5 && angle < 157.5) return 'SW';
+  if (angle >= 157.5 || angle < -157.5) return 'W';
+  if (angle >= -157.5 && angle < -112.5) return 'NW';
+  if (angle >= -112.5 && angle < -67.5) return 'N';
+  return 'NE';
+}
+
+function classifyTheme(shapes: string[]): NodeTheme {
+  let res = 0, tech = 0, art = 0, nat = 0;
+  for (const s of shapes) {
+    if (RESIDENTIAL_SHAPES.has(s)) res++;
+    if (TECH_SHAPES.has(s)) tech++;
+    if (ART_SHAPES.has(s)) art++;
+    if (NATURE_SHAPES.has(s)) nat++;
+  }
+  const max = Math.max(res, tech, art, nat);
+  if (max === 0) return 'mixed';
+  // Need >40% dominance to get a theme label
+  const total = res + tech + art + nat;
+  if (res === max && res / total > 0.4) return 'residential';
+  if (tech === max && tech / total > 0.4) return 'tech';
+  if (art === max && art / total > 0.4) return 'art';
+  if (nat === max && nat / total > 0.4) return 'nature';
+  return 'mixed';
+}
+
+function detectMissingCategories(shapes: string[]): BuildCategory[] {
+  const missing: BuildCategory[] = [];
+  if (!shapes.some(s => STRUCTURE_SHAPES.has(s))) missing.push('structure');
+  if (!shapes.some(s => INFRA_SHAPES.has(s))) missing.push('infrastructure');
+  if (!shapes.some(s => DECORATION_SHAPES.has(s))) missing.push('decoration');
+  if (!shapes.some(s => SIGNATURE_SHAPES.has(s))) missing.push('signature');
+  return missing;
+}
+
+interface PrimitiveWithOwner extends PrimitiveData {
+  ownerAgentId?: string;
+}
+
+function computeSettlementNodes(
+  primitives: PrimitiveWithOwner[],
+  agentNameMap?: Map<string, string>
+): SettlementNode[] {
   if (primitives.length === 0) return [];
 
   // Grid-based clustering with 30-unit cells
   const cellSize = 30;
-  const cellMap = new Map<string, { xs: number[]; zs: number[]; shapes: string[] }>();
+  const cellMap = new Map<string, { xs: number[]; zs: number[]; shapes: string[]; owners: Set<string> }>();
   for (const p of primitives) {
     const cx = Math.floor(p.position.x / cellSize);
     const cz = Math.floor(p.position.z / cellSize);
     const key = `${cx},${cz}`;
-    if (!cellMap.has(key)) cellMap.set(key, { xs: [], zs: [], shapes: [] });
+    if (!cellMap.has(key)) cellMap.set(key, { xs: [], zs: [], shapes: [], owners: new Set() });
     const cell = cellMap.get(key)!;
     cell.xs.push(p.position.x);
     cell.zs.push(p.position.z);
     cell.shapes.push(p.shape);
+    if (p.ownerAgentId) cell.owners.add(p.ownerAgentId);
   }
 
-  return Array.from(cellMap.values()).map(cell => {
+  // Compute world centroid for directional naming
+  let totalX = 0, totalZ = 0, totalCount = 0;
+  for (const cell of cellMap.values()) {
+    for (const x of cell.xs) totalX += x;
+    for (const z of cell.zs) totalZ += z;
+    totalCount += cell.xs.length;
+  }
+  const worldCentroidX = totalCount > 0 ? totalX / totalCount : 0;
+  const worldCentroidZ = totalCount > 0 ? totalZ / totalCount : 0;
+
+  // Track used direction names to avoid duplicates
+  const usedNames = new Set<string>();
+
+  const nodes: SettlementNode[] = Array.from(cellMap.values()).map(cell => {
     const centerX = cell.xs.reduce((a, b) => a + b, 0) / cell.xs.length;
     const centerZ = cell.zs.reduce((a, b) => a + b, 0) / cell.zs.length;
     const maxDist = Math.max(...cell.xs.map(x => Math.abs(x - centerX)), ...cell.zs.map(z => Math.abs(z - centerZ)), 1);
+
+    const count = cell.xs.length;
+    const tier: NodeTier = count >= 20 ? 'Capital' : count >= 10 ? 'District' : count >= 5 ? 'Neighborhood' : 'Outpost';
+    const theme = classifyTheme(cell.shapes);
+    const missing = count >= 5 ? detectMissingCategories(cell.shapes) : [];
+
+    // Build builder names list
+    const builders: string[] = [];
+    for (const ownerId of cell.owners) {
+      const name = agentNameMap?.get(ownerId) || ownerId;
+      builders.push(name);
+    }
+
+    // Generate name from direction
+    const dir = getDirection(centerX, centerZ, worldCentroidX, worldCentroidZ);
+    let baseName = NODE_NAMES_BY_DIRECTION[dir] || 'Hub';
+    // Append theme hint for variety
+    if (theme !== 'mixed') {
+      const themeLabel = theme.charAt(0).toUpperCase() + theme.slice(1);
+      baseName = `${themeLabel} ${baseName}`;
+    }
+    // Deduplicate names
+    let nodeName = baseName;
+    let suffix = 2;
+    while (usedNames.has(nodeName)) {
+      nodeName = `${baseName} ${suffix}`;
+      suffix++;
+    }
+    usedNames.add(nodeName);
+
     return {
       center: { x: centerX, z: centerZ },
-      count: cell.xs.length,
+      count,
       radius: Math.ceil(maxDist),
       structures: [...new Set(cell.shapes)],
+      builders,
+      tier,
+      theme,
+      name: nodeName,
+      missingCategories: missing,
+      connections: [],
     };
   }).sort((a, b) => b.count - a.count);
+
+  // Compute adjacency: nodes within 80 units are "adjacent"
+  // Check for bridge primitives between them
+  const ADJACENCY_DIST = 80;
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dx = nodes[i].center.x - nodes[j].center.x;
+      const dz = nodes[i].center.z - nodes[j].center.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist <= ADJACENCY_DIST) {
+        // Check if any primitive lies on the line between them (bridge detection)
+        const midX = (nodes[i].center.x + nodes[j].center.x) / 2;
+        const midZ = (nodes[i].center.z + nodes[j].center.z) / 2;
+        const hasBridge = primitives.some(p => {
+          const pdx = p.position.x - midX;
+          const pdz = p.position.z - midZ;
+          const pDist = Math.sqrt(pdx * pdx + pdz * pdz);
+          // Primitive within 15u of midpoint and is a connecting shape
+          return pDist < 15 && (p.shape === 'plane' || p.shape === 'box' || p.shape === 'cylinder');
+        });
+        nodes[i].connections.push({ targetIdx: j, distance: Math.round(dist), hasBridge });
+        nodes[j].connections.push({ targetIdx: i, distance: Math.round(dist), hasBridge });
+      }
+    }
+  }
+
+  return nodes;
 }
 
 function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: number }): string {
-  if (nodes.length === 0) return '## Settlement Map\n_No settlements yet. You can start the first node! Pick a spot 50+ units from origin._';
+  if (nodes.length === 0) return '## World Graph\n_No settlements yet. You can start the first node! Pick a spot 50+ units from origin._';
 
-  const lines = ['## Settlement Map'];
-  let activeNode: SettlementNode | null = null;
-  let activeNodeDist = Infinity;
+  // Compute world center
+  let totalX = 0, totalZ = 0, totalCount = 0;
+  for (const n of nodes) { totalX += n.center.x * n.count; totalZ += n.center.z * n.count; totalCount += n.count; }
+  const worldCenterX = totalCount > 0 ? Math.round(totalX / totalCount) : 0;
+  const worldCenterZ = totalCount > 0 ? Math.round(totalZ / totalCount) : 0;
+
+  const capitalNode = nodes.find(n => n.tier === 'Capital');
+  const capitalLabel = capitalNode ? `Capital: "${capitalNode.name}" (${capitalNode.count} shapes).` : '';
+
+  const lines = [
+    `## World Graph`,
+    `${nodes.length} nodes. ${capitalLabel} World center: (${worldCenterX}, ${worldCenterZ}).`,
+    '',
+  ];
+
+  let closestNode: SettlementNode | null = null;
+  let closestDist = Infinity;
 
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     const dx = node.center.x - agentPos.x;
     const dz = node.center.z - agentPos.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
-    const status = node.count >= 5 ? 'established' : 'growing';
-    lines.push(`- **Node ${i + 1}** at (${node.center.x.toFixed(0)}, ${node.center.z.toFixed(0)}) — ${node.count} structures, ${status} | types: ${node.structures.join(', ')} | ${dist.toFixed(0)}u away`);
-    if (dist < activeNodeDist) {
-      activeNodeDist = dist;
-      activeNode = node;
+
+    if (dist < closestDist) { closestDist = dist; closestNode = node; }
+
+    const builderStr = node.builders.length > 0 ? ` | ${node.builders.join(', ')}` : '';
+    lines.push(`- **${node.tier} "${node.name}"** (${node.center.x.toFixed(0)}, ${node.center.z.toFixed(0)}) — ${node.count} shapes, ${node.theme}${builderStr}`);
+
+    // Show connections
+    if (node.connections.length > 0) {
+      for (const conn of node.connections) {
+        const target = nodes[conn.targetIdx];
+        const bridgeLabel = conn.hasBridge ? 'via BRIDGE' : 'no bridge';
+        lines.push(`  → Connected to "${target.name}" (${conn.distance}u, ${bridgeLabel})`);
+      }
+    } else if (node.tier !== 'Outpost') {
+      lines.push(`  → ISOLATED — no connections to any node`);
+    }
+
+    // Show missing categories for established nodes
+    if (node.missingCategories.length > 0) {
+      lines.push(`  → Missing: ${node.missingCategories.join(', ')}`);
+    }
+
+    // Outpost growth hint
+    if (node.tier === 'Outpost') {
+      lines.push(`  → Needs ${5 - node.count}+ more shapes to become a Neighborhood`);
     }
   }
 
-  if (activeNode) {
-    if (activeNode.count >= 5) {
-      lines.push(`\n**Active node** at (${activeNode.center.x.toFixed(0)}, ${activeNode.center.z.toFixed(0)}) is established (${activeNode.count} structures). Connect it to another node with a BRIDGE, or start a new node 50-100 units away — a different district type (tech zone, art park, commercial area, etc).`);
+  // YOUR NODE suggestion
+  if (closestNode) {
+    lines.push('');
+    lines.push(`YOUR NODE: ${closestNode.tier} "${closestNode.name}" (${closestDist.toFixed(0)}u away)`);
+
+    // Find isolated nodes and suggest connections
+    const isolatedNodes = nodes.filter(n => n.connections.length === 0 && n.tier !== 'Outpost' && n !== closestNode);
+    if (isolatedNodes.length > 0) {
+      const isolated = isolatedNodes[0];
+      const isoDx = isolated.center.x - closestNode.center.x;
+      const isoDz = isolated.center.z - closestNode.center.z;
+      const isoDist = Math.round(Math.sqrt(isoDx * isoDx + isoDz * isoDz));
+      lines.push(`SUGGESTION: "${isolated.name}" is isolated (${isoDist}u from "${closestNode.name}"). Connect with BRIDGE.`);
+    } else if (closestNode.missingCategories.length > 0) {
+      lines.push(`SUGGESTION: "${closestNode.name}" is missing ${closestNode.missingCategories.join(', ')}. Add complementary builds.`);
     } else {
-      lines.push(`\n**Active node** at (${activeNode.center.x.toFixed(0)}, ${activeNode.center.z.toFixed(0)}) needs more structures (${activeNode.count}/5). Build within 30 units of it — add something that complements what's already here.`);
+      const outposts = nodes.filter(n => n.tier === 'Outpost');
+      if (outposts.length > 0) {
+        lines.push(`SUGGESTION: Grow outpost "${outposts[0].name}" — build ${5 - outposts[0].count}+ varied structures nearby.`);
+      }
     }
   }
 
@@ -484,6 +695,21 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '# OPERATING MANUAL\n',
     agentOps,
     '\n---\n',
+    '# STRATEGIC THINKING\n',
+    'Don\'t just react to what\'s nearby. Before each action, consider:',
+    '1. What is your CURRENT OBJECTIVE? (e.g., "connect Garden to East Hub", "establish a civic center at the new outpost")',
+    '2. What STEP are you on? Break objectives into 3-5 concrete steps.',
+    '3. Is this the highest-impact action right now? Building a 4th lamp post matters less than connecting an isolated node.',
+    '',
+    'Priorities (in order):',
+    '- Connect isolated nodes (BRIDGE/ROAD between unconnected clusters)',
+    '- Fill gaps in established nodes (add missing categories: art, nature, infrastructure)',
+    '- Grow outposts into neighborhoods (build 3-5 varied structures)',
+    '- Start new nodes in open areas 50-100u from existing ones',
+    '- Avoid redundant builds (don\'t add what\'s already there)',
+    '',
+    'Write your current objective and step number in your "thought" before choosing an action.',
+    '\n---\n',
     '# LONG-TERM MEMORY\n',
     longMemory || '_No long-term memories yet._',
   ].join('\n');
@@ -605,6 +831,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         console.warn(`[${agentName}] Could not fetch blueprints`);
       }
 
+      // Fetch spatial summary from server (rate-limited server-side)
+      let serverSpatial: Awaited<ReturnType<typeof api.getSpatialSummary>> = null;
+      try {
+        serverSpatial = await api.getSpatialSummary();
+      } catch {
+        // Non-critical — skip if unavailable or rate-limited
+      }
+
       // Debug: log what agents actually receive
       console.log(`[${agentName}] State: ${world.agents.length} agents, ${(world.chatMessages||[]).length} chat msgs, ${(world.messages||[]).length} terminal msgs, ${directives.length} directives`);
       if (directives.length > 0) {
@@ -699,14 +933,26 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             )
           : '_No other builds yet._',
         '',
-        // Settlement Map — graph/node view of all world builds
+        // World Graph — hierarchical node view of all world builds
         (() => {
-          const allPrims = world.primitives as PrimitiveData[];
+          const allPrims = world.primitives as PrimitiveWithOwner[];
           const myPos = self?.position || { x: 0, z: 0 };
-          const nodes = computeSettlementNodes(allPrims);
+          const nodes = computeSettlementNodes(allPrims, agentNameMap);
           return formatSettlementMap(nodes, myPos);
         })(),
         '',
+        // Open Areas from server spatial summary
+        ...(() => {
+          if (!serverSpatial || !serverSpatial.openAreas || serverSpatial.openAreas.length === 0) return [];
+          const lines = ['## Open Areas (expansion opportunities)'];
+          const topAreas = serverSpatial.openAreas.slice(0, 3);
+          for (let i = 0; i < topAreas.length; i++) {
+            const area = topAreas[i];
+            lines.push(`${i + 1}. (${Math.round(area.x)}, ${Math.round(area.z)}) — ${Math.round(area.nearestBuildDist)}u from nearest build`);
+          }
+          lines.push('');
+          return lines;
+        })(),
         // Nearby blueprint dedup hints
         ...(() => {
           const myPos = self?.position || { x: 0, z: 0 };
@@ -824,9 +1070,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               ),
               '',
               (() => {
-                const allPrims = world.primitives as PrimitiveData[];
+                const allPrims = world.primitives as PrimitiveWithOwner[];
                 const myPos = self?.position || { x: 0, z: 0 };
-                const nodes = computeSettlementNodes(allPrims);
+                const nodes = computeSettlementNodes(allPrims, agentNameMap);
                 if (nodes.length > 0) {
                   const nearest = nodes.reduce((best, n) => {
                     const d = Math.sqrt((n.center.x - myPos.x) ** 2 + (n.center.z - (myPos as any).z) ** 2);
@@ -834,9 +1080,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                     return d < bestD ? n : best;
                   });
                   if (nearest.count >= 5) {
-                    return `**Nearest settlement node is at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it, or connect it to another node with a BRIDGE.`;
+                    return `**Nearest node: "${nearest.name}" at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it, or connect it to another node with a BRIDGE.`;
                   }
-                  return `**Nearest settlement node is at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it — add something that complements or contrasts what's already there.`;
+                  return `**Nearest node: "${nearest.name}" at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it — add something that complements or contrasts what's already there.`;
                 }
                 return `**YOUR POSITION is (${self?.position?.x?.toFixed(0) || '?'}, ${self?.position?.z?.toFixed(0) || '?'}).** Choose anchorX/anchorZ near here (50+ from origin).`;
               })(),
@@ -915,13 +1161,22 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       // Track build plan across ticks
       const prevBuildPlan = workingMemory?.match(/Current build plan: (.+)/)?.[1] || '';
       let currentBuildPlan = prevBuildPlan;
-      
+
       // Server-authoritative build status
       if (blueprintStatus?.active) {
         currentBuildPlan = `Blueprint: ${blueprintStatus.blueprintName} at (${blueprintStatus.anchorX}, ${blueprintStatus.anchorZ}) — ${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives} placed`;
       } else {
         currentBuildPlan = ''; // Clear if server says no active plan
       }
+
+      // Extract objective from thought (persists across ticks)
+      const prevObjective = workingMemory?.match(/Current objective: (.+)/)?.[1] || '';
+      const prevObjectiveStep = parseInt(workingMemory?.match(/Objective step: (\d+)/)?.[1] || '0');
+      // Parse objective from thought if agent mentions one (look for patterns like "Objective: ..." or "Step N:")
+      const thoughtObjectiveMatch = decision.thought?.match(/(?:objective|goal|mission)[:\s]+["']?([^"'\n.]{10,80})["']?/i);
+      const thoughtStepMatch = decision.thought?.match(/step\s+(\d+)/i);
+      const currentObjective = thoughtObjectiveMatch?.[1]?.trim() || prevObjective;
+      const objectiveStep = thoughtStepMatch ? parseInt(thoughtStepMatch[1]) : (currentObjective === prevObjective ? prevObjectiveStep : 1);
 
       const newWorking = [
         `# Working Memory`,
@@ -932,6 +1187,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         `Position: (${self?.position.x.toFixed(1)}, ${self?.position.z.toFixed(1)})`,
         `Credits: ${credits}`,
         `Last seen message id: ${latestMsgId}`,
+        currentObjective ? `Current objective: ${currentObjective}` : '',
+        objectiveStep > 0 ? `Objective step: ${objectiveStep}` : '',
         currentBuildPlan ? `Current build plan: ${currentBuildPlan}` : '',
         votedOn ? `Voted on: ${votedOn}` : '',
         submittedDirectives ? `Submitted directives: ${submittedDirectives}` : '',
@@ -1418,6 +1675,14 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             bsCurrentBuildPlan = `Blueprint: ${blueprintStatus.blueprintName} at (${blueprintStatus.anchorX}, ${blueprintStatus.anchorZ}) — ${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives} placed`;
           }
 
+          // Extract objective from thought (persists across ticks)
+          const bsPrevObjective = wm?.match(/Current objective: (.+)/)?.[1] || '';
+          const bsPrevObjStep = parseInt(wm?.match(/Objective step: (\d+)/)?.[1] || '0');
+          const bsThoughtObjMatch = decision.thought?.match(/(?:objective|goal|mission)[:\s]+["']?([^"'\n.]{10,80})["']?/i);
+          const bsThoughtStepMatch = decision.thought?.match(/step\s+(\d+)/i);
+          const bsCurrentObjective = bsThoughtObjMatch?.[1]?.trim() || bsPrevObjective;
+          const bsObjectiveStep = bsThoughtStepMatch ? parseInt(bsThoughtStepMatch[1]) : (bsCurrentObjective === bsPrevObjective ? bsPrevObjStep : 1);
+
           const newWorking = [
             '# Working Memory',
             `Last updated: ${timestamp()}`,
@@ -1427,6 +1692,8 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             `Position: (${self?.position.x.toFixed(1)}, ${self?.position.z.toFixed(1)})`,
             `Credits: ${credits}`,
             `Last seen message id: ${bsLatestMsgId}`,
+            bsCurrentObjective ? `Current objective: ${bsCurrentObjective}` : '',
+            bsObjectiveStep > 0 ? `Objective step: ${bsObjectiveStep}` : '',
             bsCurrentBuildPlan ? `Current build plan: ${bsCurrentBuildPlan}` : '',
             bsBuildError ? `Last build error: ${bsBuildError}` : '',
           ].filter(Boolean).join('\n');
