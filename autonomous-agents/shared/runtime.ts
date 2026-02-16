@@ -517,17 +517,40 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
     unconnectedPairs.sort((a, b) => a.dist - b.dist);
 
     if (unconnectedPairs.length > 0) {
-      const pair = unconnectedPairs[0];
-      const midX = Math.round((pair.from.center.x + pair.to.center.x) / 2);
-      const midZ = Math.round((pair.from.center.z + pair.to.center.z) / 2);
-      lines.push(`SUGGESTION: Build a ROAD from "${pair.from.name}" (${pair.from.center.x.toFixed(0)},${pair.from.center.z.toFixed(0)}) to "${pair.to.name}" (${pair.to.center.x.toFixed(0)},${pair.to.center.z.toFixed(0)}). Place flat boxes (scaleY=0.1) every 4u along the line. Midpoint: (${midX}, ${midZ}).`);
-    } else if (closestNode.missingCategories.length > 0) {
-      lines.push(`SUGGESTION: "${closestNode.name}" is missing ${closestNode.missingCategories.join(', ')}. Add complementary builds.`);
-    } else {
-      const outposts = nodes.filter(n => n.tier === 'Outpost');
-      if (outposts.length > 0) {
-        lines.push(`SUGGESTION: Grow outpost "${outposts[0].name}" — build ${5 - outposts[0].count}+ varied structures nearby.`);
+      lines.push('');
+      lines.push(`**🛣️ ROADS NEEDED (${unconnectedPairs.length} unconnected pairs):**`);
+      // Show top 3 closest unconnected pairs
+      const topPairs = unconnectedPairs.slice(0, 3);
+      for (const pair of topPairs) {
+        const midX = Math.round((pair.from.center.x + pair.to.center.x) / 2);
+        const midZ = Math.round((pair.from.center.z + pair.to.center.z) / 2);
+        lines.push(`- "${pair.from.name}" ↔ "${pair.to.name}" (${pair.dist}u apart, midpoint: ${midX},${midZ})`);
       }
+
+      // Generate a concrete BUILD_MULTI example for the closest pair (ready to copy)
+      const closest = topPairs[0];
+      const fromX = Math.round(closest.from.center.x);
+      const fromZ = Math.round(closest.from.center.z);
+      const toX = Math.round(closest.to.center.x);
+      const toZ = Math.round(closest.to.center.z);
+      const roadLen = closest.dist;
+      const stepCount = Math.min(5, Math.max(2, Math.floor(roadLen / 4)));
+      const roadPrims: string[] = [];
+      for (let s = 1; s <= stepCount; s++) {
+        const t = s / (stepCount + 1);
+        const rx = Math.round(fromX + (toX - fromX) * t);
+        const rz = Math.round(fromZ + (toZ - fromZ) * t);
+        roadPrims.push(`{"shape":"box","x":${rx},"y":0.05,"z":${rz},"scaleX":2,"scaleY":0.1,"scaleZ":2,"color":"#94a3b8"}`);
+      }
+      lines.push(`**READY-TO-USE:** MOVE to (${Math.round(fromX + (toX - fromX) * 0.5)}, ${Math.round(fromZ + (toZ - fromZ) * 0.5)}), then BUILD_MULTI with primitives: [${roadPrims.join(',')}]`);
+    }
+
+    if (closestNode.missingCategories.length > 0) {
+      lines.push(`FILL GAP: "${closestNode.name}" is missing ${closestNode.missingCategories.join(', ')}. Add complementary builds.`);
+    }
+    const outposts = nodes.filter(n => n.tier === 'Outpost');
+    if (outposts.length > 0) {
+      lines.push(`GROW: Outpost "${outposts[0].name}" needs ${5 - outposts[0].count}+ varied structures to become a Neighborhood.`);
     }
   }
 
@@ -733,13 +756,15 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '- **Grid**: Parallel roads forming blocks (build roads first, then fill blocks with structures)',
     '- **The Capital node should be the hub.** Build roads FROM it TO other nodes.',
     '',
-    'Priorities (in order):',
-    '- Connect isolated nodes with ROADS (flat box paths between clusters)',
-    '- Add structure to established nodes (PLAZA at center, LAMP_POSTs along edges)',
-    '- Fill gaps in nodes (add missing categories: art, nature, infrastructure)',
-    '- Grow outposts into neighborhoods (build 3-5 varied structures around a central feature)',
-    '- Start new nodes 50-100u from existing ones, ALWAYS connected by a road',
-    '- Avoid redundant builds (don\'t add what\'s already there)',
+    'Priorities (in order — ROADS FIRST):',
+    '1. **ROADS ARE #1 PRIORITY.** If the World Graph shows unconnected pairs, BUILD ROADS before anything else.',
+    '   A road = flat boxes (scaleY=0.1) placed every 3-4u between two node centers. Use BUILD_MULTI.',
+    '   The World Graph gives you READY-TO-USE coordinates — just MOVE to the midpoint and paste the BUILD_MULTI.',
+    '2. Add civic anchors to nodes that lack them (PLAZA, FOUNTAIN, MONUMENT at node center)',
+    '3. Fill category gaps shown in the World Graph (infrastructure, decoration, signature)',
+    '4. Grow outposts into neighborhoods (add 3-5 varied structures)',
+    '5. Start new nodes 50-100u from existing ones — but ALWAYS build a road to connect it first',
+    '6. Avoid redundant builds (check your node\'s existing shapes before building more of the same)',
     '',
     'Write your current objective and step number in your "thought" before choosing an action.',
     '\n---\n',
