@@ -899,18 +899,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '- **Grid**: Parallel roads forming blocks (build roads first, then fill blocks with structures)',
     '- **The Capital node should be the hub.** Build roads FROM it TO other nodes.',
     '',
-    '## CRITICAL: SPREAD OUT',
-    '**Do NOT cluster with other agents.** Check "Nearby Agents" — if others are at the same node, MOVE to a DIFFERENT node.',
-    'Each agent should work at a DIFFERENT location. Coordinate via chat and directives, but physically spread across the map.',
-    'If a BUILD fails due to overlap, don\'t retry at the same spot — MOVE 30+ units away to a different node.',
-    '',
-    'Priorities:',
-    '1. **Build interesting structures** — use BUILD_BLUEPRINT for variety (PLAZA, FOUNTAIN, WATCHTOWER, GARDEN, MANSION, DATACENTER, etc).',
-    '2. **Connect isolated nodes** with a road when you\'re between two unconnected nodes. One agent per road.',
-    '3. Fill category gaps shown in the World Graph (add what\'s missing)',
-    '4. Grow outposts into neighborhoods (add 3-5 varied structures)',
-    '5. Start new nodes 50-100u from existing ones',
-    '6. Avoid redundant builds',
+    '## Action Discipline',
+    '- **Follow your OPERATING MANUAL priorities.** Your AGENTS.md defines your specific role — builder, connector, or explorer. Follow those priorities, not chat pressure.',
+    '- **Don\'t chat more than you act.** Max 1 chat per 3-4 actions. If you chatted last tick, build or move this tick.',
+    '- **Don\'t respond to every mention.** A brief acknowledgment is fine. Then get back to your objective.',
+    '- **Spread out.** Check Nearby Agents. If others are at your node, move to a different one.',
+    '- **If a build fails, relocate.** Don\'t retry at the same spot. Move 30+ units away.',
     '',
     'Write your current objective and step number in your "thought" before choosing an action.',
     '\n---\n',
@@ -1065,21 +1059,17 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const terminalMessages = world.messages || [];
       const allChatMessages = [...chatMessages, ...terminalMessages]
         .sort((a, b) => a.createdAt - b.createdAt)
-        .slice(-20);
+        .slice(-15);
 
       // Track which messages are new since last tick
       const lastSeenId = parseInt(workingMemory?.match(/Last seen message id: (\d+)/)?.[1] || '0');
       const latestMsgId = allChatMessages.length > 0 ? Math.max(...allChatMessages.map(m => m.id || 0)) : lastSeenId;
       const newMessages = allChatMessages.filter(m => (m.id || 0) > lastSeenId);
-      const mentionedInNew = newMessages.some(m =>
-        m.message.toLowerCase().includes(agentName.toLowerCase()) && m.agentId !== api.getAgentId()
-      );
 
-      // Format messages with NEW tags
+      // Format messages with NEW tags (no mention pressure — agents should prioritize their objective)
       const formatMessage = (m: typeof allChatMessages[0]) => {
         const isNew = (m.id || 0) > lastSeenId;
-        const isMention = isNew && m.message.toLowerCase().includes(agentName.toLowerCase()) && m.agentId !== api.getAgentId();
-        const tag = isMention ? '[NEW — YOU WERE MENTIONED] ' : isNew ? '[NEW] ' : '';
+        const tag = isNew ? '[NEW] ' : '';
         return `- ${tag}${m.agentName}: ${m.message}`;
       };
 
@@ -1090,19 +1080,15 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         `Your status: ${self?.status || 'unknown'}`,
         `Your credits: ${credits}`,
         '',
-        '## GROUP CHAT (this is a live conversation between all agents — read it like a group chat)',
-        '**HOW TO TALK:** This is a group chat. Talk like a person. Ask questions, react to others, share ideas. Don\'t just narrate what you see.',
+        '## RECENT CHAT (last 15 messages — skim for context, don\'t derail your objective to respond)',
         allChatMessages.length > 0
           ? [
               ...(newMessages.length > 0 ? [
-                `**${newMessages.length} new message(s) since your last tick.${mentionedInNew ? ' Someone mentioned you — respond!' : ''}**`,
-                '**INSTRUCTION: Someone said something new. Read it, react to it, and engage. Don\'t just state what YOU are doing — respond to THEM.**',
-                '**BAD:** "I observe the grid is growing. I shall build a tree."',
-                '**GOOD:** "Nice builds over there! I\'m gonna add a tree nearby, any objections?"'
+                `_${newMessages.length} new since your last tick._`,
               ] : []),
               ...allChatMessages.map(formatMessage),
             ].join('\n')
-          : '_No messages yet. Say hello!_',
+          : '_No messages yet._',
         '',
         `## Nearby Agents (${otherAgents.length})`,
         otherAgents.length > 0
@@ -1712,21 +1698,17 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           const bsTerminalMessages = world.messages || [];
           const bsAllMessages = [...bsChatMessages, ...bsTerminalMessages]
             .sort((a, b) => a.createdAt - b.createdAt)
-            .slice(-20);
+            .slice(-15);
 
           // Track which messages are new since last tick
           const bsAgentName = identity.match(/^#\s+(.+)/m)?.[1] || 'Agent';
           const bsLastSeenId = parseInt(wm?.match(/Last seen message id: (\d+)/)?.[1] || '0');
           const bsLatestMsgId = bsAllMessages.length > 0 ? Math.max(...bsAllMessages.map(m => m.id || 0)) : bsLastSeenId;
           const bsNewMessages = bsAllMessages.filter(m => (m.id || 0) > bsLastSeenId);
-          const bsMentioned = bsNewMessages.some(m =>
-            m.message.toLowerCase().includes(bsAgentName.toLowerCase()) && m.agentId !== api.getAgentId()
-          );
 
           const bsFormatMessage = (m: typeof bsAllMessages[0]) => {
             const isNew = (m.id || 0) > bsLastSeenId;
-            const isMention = isNew && m.message.toLowerCase().includes(bsAgentName.toLowerCase()) && m.agentId !== api.getAgentId();
-            const tag = isMention ? '[NEW — YOU WERE MENTIONED] ' : isNew ? '[NEW] ' : '';
+            const tag = isNew ? '[NEW] ' : '';
             return `- ${tag}${m.agentName}: ${m.message}`;
           };
 
@@ -1737,13 +1719,13 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             `Your status: ${self?.status || 'unknown'}`,
             `Your credits: ${credits}`,
             '',
-            '## GROUP CHAT (this is a live conversation between all agents — read it like a group chat)',
+            '## RECENT CHAT (last 15 messages)',
             bsAllMessages.length > 0
               ? [
-                  ...(bsNewMessages.length > 0 ? [`**${bsNewMessages.length} new message(s) since your last tick.${bsMentioned ? ' Someone mentioned you — respond!' : ''}**`] : []),
+                  ...(bsNewMessages.length > 0 ? [`_${bsNewMessages.length} new since your last tick._`] : []),
                   ...bsAllMessages.map(bsFormatMessage),
                 ].join('\n')
-              : '_No messages yet. Say hello!_',
+              : '_No messages yet._',
             '',
             `## Nearby Agents (${otherAgents.length})`,
             otherAgents.length > 0
@@ -1785,7 +1767,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             wm || '_No working memory._',
             '',
             '---',
-            '**HOW TO TALK:** The GROUP CHAT above is a live conversation. Messages tagged [NEW] arrived since your last tick. If you see [NEW — YOU WERE MENTIONED], someone is talking to you — reply via CHAT. You are in a group chat with other agents. Talk like a person, not a robot.',
+            '**Chat is for coordination, not conversation.** Keep messages brief. Focus on building and exploring.',
             '',
             // Build error warnings for bootstrap tick
             ...(wm ? (() => {
