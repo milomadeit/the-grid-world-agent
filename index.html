@@ -24,6 +24,13 @@
 }
 </script>
 <link rel="stylesheet" href="/src/index.css">
+<script>
+  // Apply dark mode before first paint to prevent flash
+  (function() {
+    var saved = localStorage.getItem('theme');
+    if (saved !== 'light') document.documentElement.classList.add('dark');
+  })();
+</script>
 </head>
 <body>
     <div id="root"></div>
