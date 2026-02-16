@@ -47,9 +47,9 @@ const registeredAgents = [
     walletAddress: process.env.AGENT_SMITH_WALLET || '',
     erc8004AgentId: process.env.AGENT_SMITH_ID || '',
     heartbeatSeconds: 20,
-    llmProvider: 'gemini' as const,
-    llmModel: 'gemini-2.0-flash',
-    llmApiKey: GEMINI_KEY,
+    llmProvider: 'minimax' as const,
+    llmModel: 'MiniMax-M1',
+    llmApiKey: MINIMAX_KEY,
   },
   {
     name: 'oracle',

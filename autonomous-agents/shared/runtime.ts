@@ -583,13 +583,19 @@ function computeSettlementNodes(
  * Pre-compute safe build spots by checking clearance against existing primitives.
  * A spot is "safe" if it has CLEARANCE from all existing geometry AND is within
  * MAX_DIST_FROM_BUILD of at least one existing primitive (server 60u rule).
- * Searches around the world's build center, not the agent's position (agent may be at origin).
+ *
+ * Returns TWO categories:
+ * - "infill" spots near the world center (for agents filling in gaps)
+ * - "frontier" spots at the world EDGES (for expansion agents like Smith)
+ *
+ * The `frontier` spots are the outermost buildable positions — just beyond the
+ * current bounding box edges but still within 55u of existing geometry.
  */
 function findSafeBuildSpots(
   agentPos: { x: number; z: number },
   primitives: { position: { x: number; z: number }; scale: { x: number; z: number }; shape: string }[],
-  maxResults = 5
-): { x: number; z: number; nearestBuild: number }[] {
+  maxResults = 8
+): { x: number; z: number; nearestBuild: number; type: 'infill' | 'frontier' }[] {
   const CLEARANCE = 6;
   const MAX_DIST_FROM_BUILD = 55; // server enforces 60u — stay under
   const MIN_DIST_FROM_ORIGIN = 50;
@@ -598,50 +604,157 @@ function findSafeBuildSpots(
   const nonExempt = primitives.filter(p => !EXEMPT.has(p.shape));
   if (nonExempt.length === 0) return [];
 
-  // Find the world's build centroid to search around (not agent position which may be at origin)
+  // Find the world's build centroid
   let sumX = 0, sumZ = 0;
   for (const p of nonExempt) { sumX += p.position.x; sumZ += p.position.z; }
   const worldCenter = { x: sumX / nonExempt.length, z: sumZ / nonExempt.length };
 
-  const safe: { x: number; z: number; nearestBuild: number }[] = [];
+  // Find the world bounding box
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of nonExempt) {
+    const hx = (p.scale.x || 1) / 2;
+    const hz = (p.scale.z || 1) / 2;
+    if (p.position.x - hx < minX) minX = p.position.x - hx;
+    if (p.position.x + hx > maxX) maxX = p.position.x + hx;
+    if (p.position.z - hz < minZ) minZ = p.position.z - hz;
+    if (p.position.z + hz > maxZ) maxZ = p.position.z + hz;
+  }
 
-  // Search in expanding rings around the world center
-  for (const radius of [5, 10, 15, 20, 25, 30, 40, 50, 60, 70]) {
+  // Helper: check if a point is clear and within server proximity
+  function checkSpot(cx: number, cz: number): { clear: boolean; nearestDist: number } {
+    if (Math.sqrt(cx * cx + cz * cz) < MIN_DIST_FROM_ORIGIN) return { clear: false, nearestDist: Infinity };
+    let overlaps = false;
+    let nearestDist = Infinity;
+    for (const p of nonExempt) {
+      const dx = Math.abs(cx - p.position.x);
+      const dz = Math.abs(cz - p.position.z);
+      const hx = p.scale.x / 2 + CLEARANCE;
+      const hz = p.scale.z / 2 + CLEARANCE;
+      if (dx < hx && dz < hz) { overlaps = true; break; }
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < nearestDist) nearestDist = dist;
+    }
+    return { clear: !overlaps && nearestDist <= MAX_DIST_FROM_BUILD, nearestDist };
+  }
+
+  const safe: { x: number; z: number; nearestBuild: number; type: 'infill' | 'frontier' }[] = [];
+
+  // --- FRONTIER SPOTS: at the edges of the world bounding box ---
+  // Push outward from each edge — these are the expansion points
+  const frontierTargets = [
+    // Beyond each edge by 40-50u (chain-expansion distance)
+    { x: maxX + 45, z: worldCenter.z, label: 'east' },
+    { x: minX - 45, z: worldCenter.z, label: 'west' },
+    { x: worldCenter.x, z: maxZ + 45, label: 'south' },
+    { x: worldCenter.x, z: minZ - 45, label: 'north' },
+    // Corner frontiers
+    { x: maxX + 35, z: maxZ + 35, label: 'southeast' },
+    { x: minX - 35, z: minZ - 35, label: 'northwest' },
+    { x: maxX + 35, z: minZ - 35, label: 'northeast' },
+    { x: minX - 35, z: maxZ + 35, label: 'southwest' },
+  ];
+
+  // For frontier spots, find the CLOSEST buildable point along the line from center to target
+  for (const ft of frontierTargets) {
+    // Walk from the edge outward in small steps, find the furthest valid spot
+    const dirX = ft.x - worldCenter.x;
+    const dirZ = ft.z - worldCenter.z;
+    const len = Math.sqrt(dirX * dirX + dirZ * dirZ);
+    if (len === 0) continue;
+    const ux = dirX / len;
+    const uz = dirZ / len;
+
+    // Start from the bounding box edge and walk outward
+    const edgeDist = Math.max(
+      Math.abs(ft.x > worldCenter.x ? maxX - worldCenter.x : minX - worldCenter.x),
+      Math.abs(ft.z > worldCenter.z ? maxZ - worldCenter.z : minZ - worldCenter.z)
+    );
+
+    let bestSpot: { x: number; z: number; nearestDist: number } | null = null;
+    // Walk from just past the edge outward
+    for (let d = edgeDist - 10; d <= edgeDist + 55; d += 5) {
+      const cx = Math.round(worldCenter.x + ux * d);
+      const cz = Math.round(worldCenter.z + uz * d);
+      const result = checkSpot(cx, cz);
+      if (result.clear) {
+        // Prefer the FURTHEST valid spot (most expansion value)
+        bestSpot = { x: cx, z: cz, nearestDist: result.nearestDist };
+      }
+    }
+    if (bestSpot) {
+      safe.push({ x: bestSpot.x, z: bestSpot.z, nearestBuild: Math.round(bestSpot.nearestDist), type: 'frontier' });
+    }
+    if (safe.length >= 4) break; // Max 4 frontier spots
+  }
+
+  // --- INFILL SPOTS: near the world center (for filling gaps) ---
+  const infillNeeded = maxResults - safe.length;
+  const infill: typeof safe = [];
+  for (const radius of [5, 10, 15, 20, 25, 30, 40, 50]) {
     const steps = Math.max(12, Math.floor(radius * 1.2));
     for (let i = 0; i < steps; i++) {
       const angle = (2 * Math.PI * i) / steps;
       const cx = Math.round(worldCenter.x + radius * Math.cos(angle));
       const cz = Math.round(worldCenter.z + radius * Math.sin(angle));
-
-      // Skip if too close to origin
-      if (Math.sqrt(cx * cx + cz * cz) < MIN_DIST_FROM_ORIGIN) continue;
-
-      // Check overlap and nearest build distance in one pass
-      let overlaps = false;
-      let nearestDist = Infinity;
-      for (const p of nonExempt) {
-        const dx = Math.abs(cx - p.position.x);
-        const dz = Math.abs(cz - p.position.z);
-
-        // Overlap check with clearance
-        const hx = p.scale.x / 2 + CLEARANCE;
-        const hz = p.scale.z / 2 + CLEARANCE;
-        if (dx < hx && dz < hz) { overlaps = true; break; }
-
-        // Track nearest build for the 60u proximity rule
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist < nearestDist) nearestDist = dist;
-      }
-
-      // Must NOT overlap AND must be within 55u of at least one existing build
-      if (!overlaps && nearestDist <= MAX_DIST_FROM_BUILD) {
-        safe.push({ x: cx, z: cz, nearestBuild: Math.round(nearestDist) });
-        if (safe.length >= maxResults) return safe;
+      const result = checkSpot(cx, cz);
+      if (result.clear) {
+        infill.push({ x: cx, z: cz, nearestBuild: Math.round(result.nearestDist), type: 'infill' });
+        if (infill.length >= infillNeeded) break;
       }
     }
+    if (infill.length >= infillNeeded) break;
   }
 
-  return safe;
+  return [...safe, ...infill];
+}
+
+/**
+ * Compute the world's expansion frontier — the bounding box edges
+ * and suggested expansion directions.
+ */
+function computeExpansionFrontier(
+  primitives: { position: { x: number; z: number }; scale: { x: number; z: number }; shape: string }[]
+): { bbox: { minX: number; maxX: number; minZ: number; maxZ: number }; center: { x: number; z: number }; span: { x: number; z: number }; directions: string[] } | null {
+  const EXEMPT = new Set(['plane', 'circle']);
+  const nonExempt = primitives.filter(p => !EXEMPT.has(p.shape));
+  if (nonExempt.length === 0) return null;
+
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  let sumX = 0, sumZ = 0;
+  for (const p of nonExempt) {
+    const hx = (p.scale.x || 1) / 2;
+    const hz = (p.scale.z || 1) / 2;
+    if (p.position.x - hx < minX) minX = p.position.x - hx;
+    if (p.position.x + hx > maxX) maxX = p.position.x + hx;
+    if (p.position.z - hz < minZ) minZ = p.position.z - hz;
+    if (p.position.z + hz > maxZ) maxZ = p.position.z + hz;
+    sumX += p.position.x;
+    sumZ += p.position.z;
+  }
+
+  const center = { x: Math.round(sumX / nonExempt.length), z: Math.round(sumZ / nonExempt.length) };
+  const spanX = Math.round(maxX - minX);
+  const spanZ = Math.round(maxZ - minZ);
+
+  // Suggest directions to expand — prioritize the narrower axis and underbuilt sides
+  const directions: string[] = [];
+  if (spanX <= spanZ) {
+    directions.push(`EAST from (${Math.round(maxX)}, ${center.z}) — current east edge`);
+    directions.push(`WEST from (${Math.round(minX)}, ${center.z}) — current west edge`);
+  } else {
+    directions.push(`SOUTH from (${center.x}, ${Math.round(maxZ)}) — current south edge`);
+    directions.push(`NORTH from (${center.x}, ${Math.round(minZ)}) — current north edge`);
+  }
+  // Always add diagonal options
+  directions.push(`NE from (${Math.round(maxX)}, ${Math.round(minZ)}) — corner frontier`);
+  directions.push(`SW from (${Math.round(minX)}, ${Math.round(maxZ)}) — corner frontier`);
+
+  return {
+    bbox: { minX: Math.round(minX), maxX: Math.round(maxX), minZ: Math.round(minZ), maxZ: Math.round(maxZ) },
+    center,
+    span: { x: spanX, z: spanZ },
+    directions,
+  };
 }
 
 function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: number }, agentName?: string): string {
@@ -1201,6 +1314,23 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           return formatSettlementMap(nodes, myPos, agentName);
         })(),
         '',
+        // Expansion frontier — world bounding box + suggested directions
+        ...(() => {
+          const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
+          const frontier = computeExpansionFrontier(primData);
+          if (!frontier) return [];
+          const lines = [
+            '## EXPANSION FRONTIER',
+            `World spans ${frontier.span.x}u × ${frontier.span.z}u. Bounding box: (${frontier.bbox.minX}, ${frontier.bbox.minZ}) → (${frontier.bbox.maxX}, ${frontier.bbox.maxZ}). Center: (${frontier.center.x}, ${frontier.center.z}).`,
+            '',
+            '**Expansion directions (build chain outward from these edges):**',
+          ];
+          for (const dir of frontier.directions) {
+            lines.push(`- ${dir}`);
+          }
+          lines.push('');
+          return lines;
+        })(),
         // Safe build spots — pre-computed valid anchor points verified clear of overlap
         ...(() => {
           const myPos = self?.position || { x: 0, z: 0 };
@@ -1215,13 +1345,26 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               '',
             ];
           }
-          const lines = ['## SAFE BUILD SPOTS (use these as anchorX/anchorZ — verified clear)'];
-          for (const spot of safeSpots) {
-            const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
-            lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build`);
+          const frontierSpots = safeSpots.filter(s => s.type === 'frontier');
+          const infillSpots = safeSpots.filter(s => s.type === 'infill');
+          const lines: string[] = [];
+          if (frontierSpots.length > 0) {
+            lines.push('## FRONTIER BUILD SPOTS (for expansion — chain outward from here)');
+            for (const spot of frontierSpots) {
+              const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
+              lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build [EDGE]`);
+            }
+            lines.push('');
           }
-          lines.push('');
-          lines.push('**IMPORTANT:** MOVE within 20u of a safe spot FIRST, then use it as anchorX/anchorZ. You must be within 20u of the build site.');
+          if (infillSpots.length > 0) {
+            lines.push('## INFILL BUILD SPOTS (for building within existing nodes)');
+            for (const spot of infillSpots) {
+              const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
+              lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build`);
+            }
+            lines.push('');
+          }
+          lines.push('**IMPORTANT:** MOVE within 20u of a spot FIRST, then use it as anchorX/anchorZ. You must be within 20u of the build site.');
           lines.push('');
           return lines;
         })(),
@@ -1274,7 +1417,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const warnings: string[] = [];
           if (lastBuildError) {
             warnings.push(`**⚠️ LAST BUILD FAILED:** ${lastBuildError}`);
-            warnings.push('**FIX:** Use a coordinate from the SAFE BUILD SPOTS list above as your anchorX/anchorZ. Do NOT guess — use the exact coordinates listed.');
+            warnings.push('**FIX:** Use a coordinate from FRONTIER or INFILL BUILD SPOTS above as your anchorX/anchorZ. Do NOT guess — use the exact coordinates listed.');
           }
           if (consecutiveBuildFails >= 3) {
             warnings.push(`**🛑 ${consecutiveBuildFails} build failures in a row.** MOVE to a Safe Build Spot or Open Area before trying again.`);
@@ -1303,7 +1446,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         'Payload formats:',
         '  MOVE: {"x": 5, "z": 3}',
         '  CHAT: {"message": "Hello!"}',
-        '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}  ← USE coordinates from SAFE BUILD SPOTS above!',
+        '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}  ← USE coordinates from FRONTIER/INFILL SPOTS above!',
         '  BUILD_CONTINUE: {}  ← place next batch from your active blueprint (must be near site)',
         '  CANCEL_BUILD: {}  ← abandon current blueprint (placed pieces stay)',
         '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
