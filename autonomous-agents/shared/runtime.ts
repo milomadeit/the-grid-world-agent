@@ -1536,6 +1536,56 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         decision = { thought: 'Could not parse response', action: 'IDLE' };
       }
 
+      // 5b. Auto-snap BUILD_BLUEPRINT/BUILD_PRIMITIVE anchors to nearest safe spot
+      // Agents often pick node center coords that overlap. We snap to pre-computed clear spots.
+      if (['BUILD_BLUEPRINT', 'BUILD_PRIMITIVE'].includes(decision.action) && decision.payload) {
+        const myPos = self?.position || { x: 0, z: 0 };
+        const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
+        const safeSpots = findSafeBuildSpots(myPos, primData, 8);
+        if (safeSpots.length > 0) {
+          const p = decision.payload as Record<string, unknown>;
+          const anchorKey = decision.action === 'BUILD_BLUEPRINT' ? 'anchorX' : 'x';
+          const anchorKeyZ = decision.action === 'BUILD_BLUEPRINT' ? 'anchorZ' : 'z';
+          const origX = Number(p[anchorKey]) || 0;
+          const origZ = Number(p[anchorKeyZ]) || 0;
+
+          // Find the closest safe spot to the agent's chosen anchor
+          let bestSpot = safeSpots[0];
+          let bestDist = Infinity;
+          for (const spot of safeSpots) {
+            const dx = spot.x - origX;
+            const dz = spot.z - origZ;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < bestDist) { bestDist = dist; bestSpot = spot; }
+          }
+
+          if (bestDist > 3) { // Only snap if agent's choice is far from a safe spot
+            console.log(`[${agentName}] Auto-snapped anchor from (${origX}, ${origZ}) → safe spot (${bestSpot.x}, ${bestSpot.z}) [${bestDist.toFixed(0)}u correction]`);
+            p[anchorKey] = bestSpot.x;
+            p[anchorKeyZ] = bestSpot.z;
+          }
+        }
+      }
+
+      // Also snap BUILD_MULTI primitives to avoid overlap
+      if (decision.action === 'BUILD_MULTI' && decision.payload) {
+        const myPos = self?.position || { x: 0, z: 0 };
+        const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
+        const safeSpots = findSafeBuildSpots(myPos, primData, 12);
+        if (safeSpots.length > 0) {
+          const prims = ((decision.payload as any).primitives || []) as Array<Record<string, unknown>>;
+          for (let i = 0; i < prims.length && i < safeSpots.length; i++) {
+            const origX = Number(prims[i].x) || 0;
+            const origZ = Number(prims[i].z) || 0;
+            // Find closest safe spot not already used
+            let bestSpot = safeSpots[i]; // Use index-based assignment for spread
+            console.log(`[${agentName}] BUILD_MULTI[${i}]: snapped (${origX}, ${origZ}) → (${bestSpot.x}, ${bestSpot.z})`);
+            prims[i].x = bestSpot.x;
+            prims[i].z = bestSpot.z;
+          }
+        }
+      }
+
       // 6. Execute action
       console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
       const buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
