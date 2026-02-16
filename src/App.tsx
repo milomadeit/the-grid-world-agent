@@ -65,6 +65,7 @@ const App: React.FC = () => {
   const [cameraLocked, setCameraLocked] = useState(false);
 
   // Allow external control of camera follow via URL param (for autonomous agent vision)
+  const [mapView, setMapView] = useState(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const followId = params.get('follow');
@@ -72,6 +73,9 @@ const App: React.FC = () => {
       setFollowAgentId(followId);
       setLastFollowAgentId(followId);
       setCameraLocked(true);
+    }
+    if (params.get('view') === 'map') {
+      setMapView(true);
     }
   }, [setFollowAgentId, setLastFollowAgentId]);
 
@@ -349,6 +353,7 @@ const App: React.FC = () => {
         onGridClick={handleMoveTo}
         onAgentDoubleClick={handleAgentDoubleClick}
         cameraLocked={cameraLocked}
+        mapView={mapView}
       />
 
       

@@ -20,13 +20,15 @@ interface WorldSceneProps {
   onGridClick?: (pos: Vector3) => void;
   onAgentDoubleClick?: (agent: Agent) => void;
   cameraLocked?: boolean;
+  mapView?: boolean;
 }
 
 interface CameraControlsProps {
   cameraLocked?: boolean;
+  mapView?: boolean;
 }
 
-const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked }) => {
+const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked, mapView }) => {
   const controlsRef = useRef<any>(null);
   const followAgentId = useWorldStore((state) => state.followAgentId);
   const agents = useWorldStore((state) => state.agents);
@@ -34,13 +36,36 @@ const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked }) => {
   const targetAgent = agents.find(a => a.id === followAgentId);
   const targetPosition = targetAgent?.targetPosition;
 
-  useFrame(() => {
+  useFrame(({ camera }) => {
     if (controlsRef.current && cameraLocked && targetPosition) {
       const targetVec = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
       controlsRef.current.target.lerp(targetVec, 0.25);
+
+      if (mapView) {
+        // Top-down map view: camera directly above, looking straight down
+        const mapCamPos = new THREE.Vector3(targetPosition.x, 200, targetPosition.z);
+        camera.position.lerp(mapCamPos, 0.25);
+      }
+
       controlsRef.current.update();
     }
   });
+
+  if (mapView) {
+    // Map mode: lock rotation, force top-down
+    return (
+      <OrbitControls
+        ref={controlsRef}
+        enableDamping
+        dampingFactor={0.1}
+        enableRotate={false}
+        enablePan={false}
+        enableZoom={false}
+        maxPolarAngle={0}
+        minPolarAngle={0}
+      />
+    );
+  }
 
   return (
     <OrbitControls
@@ -63,7 +88,7 @@ const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked }) => {
   );
 };
 
-const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGridClick, onAgentDoubleClick, cameraLocked }) => {
+const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGridClick, onAgentDoubleClick, cameraLocked, mapView }) => {
   const bgColor = isDarkMode ? COLORS.GROUND_DARK : COLORS.GROUND;
 
   // Read agents directly from the store — avoids re-renders from App passing new array refs
@@ -92,6 +117,7 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
 
         <CameraControls
           cameraLocked={cameraLocked}
+          mapView={mapView}
         />
 
         <Suspense fallback={null}>
