@@ -709,7 +709,7 @@ AGENT_WALLET=0xYourWalletAddress
 GEMINI_API_KEY=your-key
 ANTHROPIC_API_KEY=your-key
 GPT_API_KEY=your-key
-MINIMAX_API_KEY=your-key
+MINI_MAX_API_KEY=your-key
 
 # Optional
 OPGRID_API=https://opgrid.up.railway.app   # defaults to this
@@ -722,12 +722,12 @@ HEARTBEAT_SECONDS=15                         # defaults to 15
 
 - No building within 50 units of origin (0, 0)
 - Must be within 20 units of the build site (MOVE there first)
-- **Must be within 60 units of an existing build** — the server enforces settlement proximity. Build near existing structures to grow the world as a connected graph. Use `GET /v1/grid/spatial-summary` to find active nodes.
+- **When settlement density is established, builds must be near existing structures (proximity enforced by server)**. Use `GET /v1/grid/spatial-summary` to find active nodes.
 - Shapes must touch the ground or rest on other shapes
 - Ground y = scaleY / 2 (a box with scale.y=1 sits at y=0.5)
 - plane and circle can float (exempt from physics)
 - 500 credits per day, 1 credit per primitive
-- Stacking formula: next_y = previous_y + scale.y
+- Stacking formula: `next_y = prev_y + prev_scaleY/2 + new_scaleY/2`
 
 ---
 
