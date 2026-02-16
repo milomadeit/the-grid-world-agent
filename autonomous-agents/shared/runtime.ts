@@ -1111,7 +1111,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       // 6. Execute action
       console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
-      const buildError = await executeAction(api, agentName, decision);
+      const buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
       if (buildError) {
         console.warn(`[${agentName}] Action error: ${buildError}`);
       }
@@ -1647,7 +1647,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           }
 
           console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
-          const bsBuildError = await executeAction(api, agentName, decision);
+          const bsBuildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
           if (bsBuildError) {
             console.warn(`[${agentName}] Action error: ${bsBuildError}`);
           }
@@ -1737,8 +1737,19 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
 
 // --- Action Executor ---
 
-async function executeAction(api: GridAPIClient, name: string, decision: AgentDecision): Promise<string | null> {
+async function executeAction(
+  api: GridAPIClient,
+  name: string,
+  decision: AgentDecision,
+  agentPos?: { x: number; z: number }
+): Promise<string | null> {
   const p = decision.payload || {};
+
+  /** Validate a build coordinate — must be a real nonzero number */
+  const validCoord = (val: unknown): number | null => {
+    const n = Number(val);
+    return (Number.isFinite(n) && n !== 0) ? n : null;
+  };
 
   try {
     switch (decision.action) {
@@ -1755,27 +1766,44 @@ async function executeAction(api: GridAPIClient, name: string, decision: AgentDe
         console.log(`[${name}] Sent chat: "${(p.message as string).slice(0, 50)}..."`);
         break;
 
-      case 'BUILD_PRIMITIVE':
+      case 'BUILD_PRIMITIVE': {
+        const bx = validCoord(p.x);
+        const bz = validCoord(p.z);
+        if (bx === null || bz === null) {
+          const posHint = agentPos ? `You are at (${agentPos.x.toFixed(0)}, ${agentPos.z.toFixed(0)}). Build within 2-20 units of yourself.` : '';
+          return `BUILD_PRIMITIVE rejected: missing or zero x/z coordinates (got x=${p.x}, z=${p.z}). You MUST specify real build coordinates near your position. ${posHint}`;
+        }
         await api.buildPrimitive(
           (p.shape as string || 'box') as 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule',
-          { x: p.x as number || 0, y: p.y as number || 0, z: p.z as number || 0 },
+          { x: bx, y: Number(p.y) || 0.5, z: bz },
           { x: p.rotX as number || 0, y: p.rotY as number || 0, z: p.rotZ as number || 0 },
           { x: p.scaleX as number || 1, y: p.scaleY as number || 1, z: p.scaleZ as number || 1 },
           p.color as string || '#3b82f6'
         );
         break;
+      }
 
       case 'BUILD_MULTI': {
         const primitives = (p.primitives as Array<Record<string, unknown>>) || [];
         const maxBatch = 5;
         const batch = primitives.slice(0, maxBatch);
         console.log(`[${name}] BUILD_MULTI: placing ${batch.length} primitives (requested ${primitives.length})`);
+
+        // Pre-validate all coordinates before placing any
+        for (let i = 0; i < batch.length; i++) {
+          const prim = batch[i];
+          if (validCoord(prim.x) === null || validCoord(prim.z) === null) {
+            const posHint = agentPos ? `You are at (${agentPos.x.toFixed(0)}, ${agentPos.z.toFixed(0)}). Build within 2-20 units of yourself.` : '';
+            return `BUILD_MULTI rejected: primitive ${i} has missing/zero coordinates (x=${prim.x}, z=${prim.z}). ALL shapes need real x/z coordinates near your position. ${posHint}`;
+          }
+        }
+
         const buildErrors: string[] = [];
         for (const prim of batch) {
           try {
             await api.buildPrimitive(
               (prim.shape as string || 'box') as 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule',
-              { x: prim.x as number || 0, y: prim.y as number || 0, z: prim.z as number || 0 },
+              { x: Number(prim.x), y: Number(prim.y) || 0.5, z: Number(prim.z) },
               { x: prim.rotX as number || 0, y: prim.rotY as number || 0, z: prim.rotZ as number || 0 },
               { x: prim.scaleX as number || 1, y: prim.scaleY as number || 1, z: prim.scaleZ as number || 1 },
               prim.color as string || '#3b82f6'
