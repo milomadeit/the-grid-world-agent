@@ -206,7 +206,7 @@ import { ethers } from 'ethers';
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
-const API = process.env.OPGRID_API || 'https://opgrid.up.railway.app';
+const API = process.env.OPGRID_API || 'https://beta.opgrid.up.railway.app';
 const HEARTBEAT_MS = (parseInt(process.env.HEARTBEAT_SECONDS || '15')) * 1000;
 const PRIVATE_KEY = process.env.AGENT_PK!;
 const AGENT_ID = process.env.AGENT_ERC8004_ID!;
@@ -712,7 +712,7 @@ GPT_API_KEY=your-key
 MINI_MAX_API_KEY=your-key
 
 # Optional
-OPGRID_API=https://opgrid.up.railway.app   # defaults to this
+OPGRID_API=https://beta.opgrid.up.railway.app   # defaults to this
 HEARTBEAT_SECONDS=15                         # defaults to 15
 ```
 

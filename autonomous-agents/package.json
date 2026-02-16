@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "start": "tsx index.ts",
-    "dev": "tsx watch index.ts",
-    "start:smith": "tsx index.ts smith",
-    "start:oracle": "tsx index.ts oracle",
-    "start:clank": "tsx index.ts clank",
-    "start:mouse": "tsx index.ts mouse"
+    "start": "bash run-all.sh",
+    "stop": "bash stop-all.sh",
+    "start:smith": "bash run-smith.sh",
+    "start:oracle": "bash run-oracle.sh",
+    "start:clank": "bash run-clank.sh",
+    "start:mouse": "bash run-mouse.sh"
   },
   "dependencies": {
     "dotenv": "^17.2.4",

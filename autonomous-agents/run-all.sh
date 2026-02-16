@@ -1,23 +1,65 @@
 #!/bin/bash
-# Start all autonomous agents with optional delay
-# Usage: ./run-all.sh [--SECONDS]
-# Examples:
-#   ./run-all.sh          # start immediately
+# Start all autonomous agents as fully independent background processes.
+# Each agent runs in its own shell with its own restart loop.
+# Killing this script does NOT kill the agents.
+#
+# Usage:
+#   ./run-all.sh          # start all immediately
 #   ./run-all.sh --30     # wait 30 seconds then start
-#   ./run-all.sh --180    # wait 3 minutes then start
+#   ./run-all.sh smith oracle  # start only Smith and Oracle
+#
+# To stop all agents: ./stop-all.sh
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$DIR"
 
 DELAY=0
+AGENTS=()
 
 for arg in "$@"; do
   if [[ "$arg" =~ ^--([0-9]+)$ ]]; then
     DELAY="${BASH_REMATCH[1]}"
+  else
+    AGENTS+=("$arg")
   fi
 done
 
+# Default to all agents if none specified
+if [ ${#AGENTS[@]} -eq 0 ]; then
+  AGENTS=(smith oracle clank mouse)
+fi
+
 if [ "$DELAY" -gt 0 ]; then
-  echo "⏳ Starting agents in ${DELAY}s..."
+  echo "Starting agents in ${DELAY}s..."
   sleep "$DELAY"
 fi
 
-echo "🚀 Launching all agents"
-cd "$(dirname "$0")" && npm run start
+PIDS_DIR="$DIR/.pids"
+mkdir -p "$PIDS_DIR"
+
+echo "Launching ${#AGENTS[@]} agents as independent processes..."
+
+for agent in "${AGENTS[@]}"; do
+  SCRIPT="$DIR/run-${agent}.sh"
+  if [ ! -f "$SCRIPT" ]; then
+    echo "  [SKIP] No run script for '$agent' ($SCRIPT not found)"
+    continue
+  fi
+
+  LOG_FILE="$DIR/logs/${agent}.log"
+  mkdir -p "$DIR/logs"
+
+  # Launch as a fully independent process (nohup + disown)
+  nohup bash "$SCRIPT" > "$LOG_FILE" 2>&1 &
+  PID=$!
+  echo "$PID" > "$PIDS_DIR/${agent}.pid"
+  disown "$PID"
+
+  echo "  [OK] $agent started (pid $PID, log: logs/${agent}.log)"
+done
+
+echo ""
+echo "All agents launched independently."
+echo "  View logs:   tail -f logs/smith.log"
+echo "  Stop all:    ./stop-all.sh"
+echo "  Stop one:    ./stop-all.sh smith"

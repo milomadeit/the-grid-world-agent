@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import * as db from '../db.js';
 import { getWorldManager } from '../world.js';
-import { authenticate } from '../auth.js';
+import { authenticate, verifyToken } from '../auth.js';
 import { checkRateLimit } from '../throttle.js';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -1082,12 +1082,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     // Touch calling agent to keep them alive (if authenticated)
     const authHeader = request.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
-      try {
-        const auth = await authenticate(request, reply);
-        if (auth) {
+      const token = authHeader.slice(7);
+      const auth = verifyToken(token);
+      if (auth) {
+        const agent = await db.getAgent(auth.agentId);
+        const tokenOwner = auth.ownerId.toLowerCase();
+        const agentOwner = (agent?.ownerId || '').toLowerCase();
+        if (agent && agentOwner && tokenOwner === agentOwner) {
           await world.touchAgent(auth.agentId);
         }
-      } catch { /* spectators hit this unauthenticated — that's fine */ }
+      }
     }
 
     // Return only ONLINE agents (from WorldManager, not DB)

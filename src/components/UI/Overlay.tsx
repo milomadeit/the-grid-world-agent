@@ -41,11 +41,15 @@ const Overlay: React.FC<OverlayProps> = ({
   const [copied, setCopied] = useState(false);
   const walletDropdownRef = useRef<HTMLDivElement>(null);
   const chatMessages = useWorldStore((state) => state.chatMessages);
-  const terminalMessages = useWorldStore((state) => state.terminalMessages);
   const terminalScrollRef = useRef<HTMLDivElement>(null);
 
-  // Merge chat + terminal messages into a single sorted list
-  const allMessages = [...chatMessages, ...terminalMessages]
+  // Hide noisy system chat so agent-to-agent conversation stays visible.
+  const visibleChatMessages = chatMessages.filter(
+    (msg) => msg.agentName.toLowerCase() !== 'system'
+  );
+
+  // Keep this panel focused on agent conversation only.
+  const conversationMessages = [...visibleChatMessages]
     .sort((a, b) => a.createdAt - b.createdAt);
 
   // Auto-scroll terminal to bottom when messages change
@@ -57,7 +61,7 @@ const Overlay: React.FC<OverlayProps> = ({
         el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
       });
     }
-  }, [allMessages]);
+  }, [conversationMessages]);
 
   // Close wallet dropdown when clicking outside
   useEffect(() => {
@@ -247,12 +251,12 @@ const Overlay: React.FC<OverlayProps> = ({
               className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin"
               style={{ scrollbarWidth: 'thin', scrollbarColor: isDarkMode ? '#334155 transparent' : '#cbd5e1 transparent' }}
             >
-              {allMessages.length === 0 ? (
+              {conversationMessages.length === 0 ? (
                 <div className={`py-4 text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
                   <span className="opacity-60">awaiting transmission...</span>
                 </div>
               ) : (
-                allMessages.slice(-20).map((msg, i) => (
+                conversationMessages.slice(-20).map((msg, i) => (
                   <div
                     key={msg.id || i}
                     className={`py-1.5 px-2 rounded ${isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100/50'}`}

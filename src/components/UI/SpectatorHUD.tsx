@@ -28,6 +28,9 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const followAgentId = useWorldStore((state) => state.followAgentId);
   const chatMessages = useWorldStore((state) => state.chatMessages);
+  const visibleChatMessages = chatMessages.filter(
+    (msg) => msg.agentName.toLowerCase() !== 'system'
+  );
   const terminalScrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll terminal to bottom when messages change
@@ -38,7 +41,7 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
         el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
       });
     }
-  }, [chatMessages]);
+  }, [visibleChatMessages.length]);
 
   const hudBg = isDarkMode
     ? 'bg-slate-950/60 border-white/10'
@@ -147,12 +150,12 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
               className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin"
               style={{ scrollbarWidth: 'thin', scrollbarColor: isDarkMode ? '#334155 transparent' : '#cbd5e1 transparent' }}
             >
-              {chatMessages.length === 0 ? (
+              {visibleChatMessages.length === 0 ? (
                 <div className={`py-4 text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
                   <span className="opacity-60">awaiting transmission...</span>
                 </div>
               ) : (
-                chatMessages.slice(-50).map((msg, i) => (
+                visibleChatMessages.slice(-50).map((msg, i) => (
                   <div
                     key={msg.id || i}
                     className={`py-1.5 px-2 rounded ${isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100/50'}`}
