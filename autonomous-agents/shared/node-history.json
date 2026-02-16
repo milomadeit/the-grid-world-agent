@@ -1,105 +1,105 @@
 [
   {
     "name": "Residential North Quarter",
-    "x": 179.1951282051284,
-    "z": 140.26499999999967,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "x": 179.26633165829168,
+    "z": 140.11080402010015,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential South Quarter",
     "x": 230.07012779552724,
     "z": 274.64185303514375,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential South Quarter 2",
     "x": 197.81557632398759,
     "z": 222.71059190031144,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Northwest Hub",
-    "x": 141.5860655737705,
-    "z": 110.848975409836,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "x": 149.51129032258066,
+    "z": 109.06330645161283,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential North Quarter 2",
     "x": 205.9110726643601,
     "z": 177.32439446366743,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Southeast Hub",
     "x": 263.93899999999996,
     "z": 289.6114999999999,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential Southeast Hub 2",
     "x": 303.35714285714283,
     "z": 299.5,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential South Quarter 3",
     "x": 175.983850931677,
     "z": 252.76366459627323,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential Northwest Hub",
-    "x": 108,
-    "z": 98.70925925925927,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "x": 112.01785714285714,
+    "z": 103.88095238095238,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Tech Northwest Hub",
-    "x": 151.3626436781609,
-    "z": 156.08275862068967,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "x": 144.9,
+    "z": 152.86321839080463,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential East Hub",
     "x": 255.06827586206933,
     "z": 206.2615517241373,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential North Quarter 3",
     "x": 215.73999999999992,
     "z": 136.23727272727277,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Tech Southeast Hub",
     "x": 240.56428571428566,
     "z": 240.7071428571428,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential North Quarter 4",
-    "x": 175.6694444444444,
-    "z": 104.20625000000001,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "x": 179.92571428571432,
+    "z": 103.35428571428567,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Nature North Quarter",
     "x": 150.6315789473684,
     "z": 75.19473684210527,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
-    "name": "Residential West Hub",
-    "x": 125.890625,
-    "z": 184.875,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "name": "Residential Northwest Hub 2",
+    "x": 149.53948863636361,
+    "z": 192.91051136363637,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential Northwest Hub 4",
-    "x": 177.26470588235293,
-    "z": 186.84705882352938,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "x": 174.24193548387098,
+    "z": 178.16774193548386,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Tech Southeast Hub 2",
@@ -109,15 +109,15 @@
   },
   {
     "name": "Residential Northwest Hub 5",
-    "x": 112,
-    "z": 138,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "x": 112.5,
+    "z": 138.125,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential Southeast Hub 3",
     "x": 225.04761904761904,
     "z": 209.38095238095238,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential Northwest Hub 2",
@@ -135,7 +135,7 @@
     "name": "Residential South Quarter 4",
     "x": 202.0445205479452,
     "z": 274.37671232876716,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential Northwest Hub 2",
@@ -147,19 +147,19 @@
     "name": "Residential Southwest Hub",
     "x": 144.6526785714286,
     "z": 225.2803571428572,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
-    "name": "Residential South Quarter 5",
+    "name": "Residential South Quarter 7",
     "x": 214,
     "z": 245.5,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential Northeast Hub 2",
     "x": 246.3074380165289,
     "z": 164.85495867768594,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential Northeast Hub",
@@ -177,13 +177,13 @@
     "name": "Tech East Hub",
     "x": 298.125,
     "z": 210,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential West Hub",
-    "x": 125.14285714285714,
-    "z": 199,
-    "lastSeen": "2026-02-16T17:16:27.824Z"
+    "x": 124.4,
+    "z": 193.4,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Residential West Hub 2",
@@ -207,7 +207,7 @@
     "name": "Southeast Hub 2",
     "x": 288.0365853658537,
     "z": 239.1560975609756,
-    "lastSeen": "2026-02-16T17:27:30.053Z"
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   },
   {
     "name": "Tech East Hub",
@@ -226,5 +226,107 @@
     "x": 249,
     "z": 149.5,
     "lastSeen": "2026-02-16T16:49:18.381Z"
+  },
+  {
+    "name": "Residential West Hub 2",
+    "x": 71.29166666666667,
+    "z": 195.725,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential South Quarter 5",
+    "x": 201,
+    "z": 342.07272727272726,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential North Quarter 5",
+    "x": 200.73749999999998,
+    "z": 41.59374999999999,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential South Quarter 6",
+    "x": 200.29166666666666,
+    "z": 395.72499999999997,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential West Hub 3",
+    "x": 15.291666666666666,
+    "z": 196.725,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential North Quarter 6",
+    "x": 199.73749999999998,
+    "z": -9.406249999999998,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential Southeast Hub",
+    "x": 309.2916666666667,
+    "z": 360.72499999999997,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential North Quarter 7",
+    "x": 199.73749999999998,
+    "z": -60.40625000000001,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Tech West Hub",
+    "x": -42,
+    "z": 197,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Tech Southeast Hub 2",
+    "x": 348.38235294117646,
+    "z": 410.9823529411765,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential West Hub 4",
+    "x": -93,
+    "z": 197.28000000000003,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential North Quarter 8",
+    "x": 200,
+    "z": -111,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential West Hub 5",
+    "x": -149,
+    "z": 196.0727272727273,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Tech West Hub 2",
+    "x": -202,
+    "z": 197,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential West Hub 6",
+    "x": -257.2625,
+    "z": 196.59375000000003,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Nature North Quarter 2",
+    "x": 198,
+    "z": -163,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
+  },
+  {
+    "name": "Residential West Hub 7",
+    "x": -308.2625,
+    "z": 196.59375000000003,
+    "lastSeen": "2026-02-16T18:14:26.089Z"
   }
 ]
