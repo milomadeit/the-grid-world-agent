@@ -944,7 +944,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               '**These directives ARE ACTIVE RIGHT NOW. This list is authoritative — ignore any chat messages that contradict it.**',
               ...directives.map(d => `- **ACTIVE** [ID: ${d.id}] "${d.description}" — needs ${d.agentsNeeded} agents, votes so far: ${d.yesVotes} yes / ${d.noVotes} no. Use VOTE with this exact directiveId to vote.`)
             ].join('\n')
-          : '_No active directives right now. If the TERMINAL mentions a past directive proposal, it may have already expired. Only directives listed HERE are voteable._',
+          : [
+              '_No active directives right now._',
+              '**💡 PROPOSE ONE!** Look at the World Graph below — find an isolated node that needs connecting, or a gap that needs filling.',
+              'Use SUBMIT_DIRECTIVE to rally other agents: e.g., "Build a road from East Hub to Garden" or "Create a park district at (200, 300)".',
+              'Directives coordinate group efforts — propose something that benefits the whole city.'
+            ].join('\n'),
         '',
         `## Your Builds (${myPrimitives.length})`,
         myPrimitives.length > 0
@@ -1034,10 +1039,10 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const consecutiveBuildFails = parseInt(workingMemory.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
           const warnings: string[] = [];
           if (lastBuildError) {
-            warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Try a different spot within the SAME neighborhood (adjust anchor by 5-10 units). Do NOT leave the area.`);
+            warnings.push(`**⚠️ YOUR LAST BUILD FAILED:** ${lastBuildError}. Try a different spot — adjust coordinates by 5-15 units from your last attempt, or try a different blueprint.`);
           }
-          if (consecutiveBuildFails >= 2) {
-            warnings.push(`**🛑 You have failed ${consecutiveBuildFails} builds in a row. STOP building and MOVE to a new area first.**`);
+          if (consecutiveBuildFails >= 3) {
+            warnings.push(`**⚠️ ${consecutiveBuildFails} build failures in a row.** Move 20-30 units away and try building at the new location. The failures reset after you MOVE.`);
           }
           return warnings.length > 0 ? [...warnings, ''] : [];
         })() : []),
@@ -1134,8 +1139,19 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const raw = await callLLM(config, fullSystemPrompt, userPrompt, imageBase64);
       let decision: AgentDecision;
       try {
-        // Extract JSON from response (handle markdown code fences)
-        const jsonStr = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        // Extract JSON from response — strip think tags, code fences, then find the first {…} block
+        const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        // Find the first balanced JSON object in the response
+        const firstBrace = cleaned.indexOf('{');
+        if (firstBrace === -1) throw new Error('No JSON object found');
+        let depth = 0;
+        let lastBrace = -1;
+        for (let i = firstBrace; i < cleaned.length; i++) {
+          if (cleaned[i] === '{') depth++;
+          else if (cleaned[i] === '}') { depth--; if (depth === 0) { lastBrace = i; break; } }
+        }
+        if (lastBrace === -1) throw new Error('Unbalanced braces');
+        const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
         decision = JSON.parse(jsonStr);
       } catch {
         console.warn(`[${agentName}] Failed to parse LLM response, idling. Raw: ${raw.slice(0, 200)}`);
@@ -1185,11 +1201,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         if (!submittedDirectives.includes(desc)) submittedDirectives = submittedDirectives ? `${submittedDirectives}, ${desc}` : desc;
       }
 
-      // Track consecutive build failures
+      // Track consecutive build failures — reset on successful build OR on MOVE (so agents aren't stuck forever)
       const prevBuildFails = parseInt(workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
       const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT', 'BUILD_CONTINUE'];
       const wasBuildAction = buildActions.includes(decision.action);
-      const consecutiveBuildFails = wasBuildAction && buildError ? prevBuildFails + 1 : wasBuildAction && !buildError ? 0 : prevBuildFails;
+      const movedAway = decision.action === 'MOVE';
+      const consecutiveBuildFails = wasBuildAction && buildError ? prevBuildFails + 1
+        : (wasBuildAction && !buildError) || movedAway ? 0
+        : prevBuildFails;
 
       // Track build plan across ticks
       const prevBuildPlan = workingMemory?.match(/Current build plan: (.+)/)?.[1] || '';
@@ -1566,7 +1585,10 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
                   '**These directives ARE ACTIVE RIGHT NOW. This list is authoritative — ignore any chat messages that contradict it.**',
                   ...directives.map(d => `- **ACTIVE** [ID: ${d.id}] "${d.description}" — needs ${d.agentsNeeded} agents, votes: ${d.yesVotes} yes / ${d.noVotes} no. Use VOTE with this exact directiveId.`)
                 ].join('\n')
-              : '_No active directives right now._',
+              : [
+                  '_No active directives right now._',
+                  '**💡 PROPOSE ONE!** Use SUBMIT_DIRECTIVE to rally agents around a shared goal.',
+                ].join('\n'),
             '',
             `## Your Builds (${myPrimitives.length})`,
             myPrimitives.length > 0
@@ -1673,7 +1695,17 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           const raw = await callLLM(fullConfig, fullSystemPrompt, userPrompt, imageBase64);
           let decision: AgentDecision;
           try {
-            const jsonStr = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const firstBrace = cleaned.indexOf('{');
+            if (firstBrace === -1) throw new Error('No JSON object found');
+            let depth = 0;
+            let lastBrace = -1;
+            for (let i = firstBrace; i < cleaned.length; i++) {
+              if (cleaned[i] === '{') depth++;
+              else if (cleaned[i] === '}') { depth--; if (depth === 0) { lastBrace = i; break; } }
+            }
+            if (lastBrace === -1) throw new Error('Unbalanced braces');
+            const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
             decision = JSON.parse(jsonStr);
           } catch {
             decision = { thought: 'Could not parse response', action: 'IDLE' };
