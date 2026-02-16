@@ -580,54 +580,62 @@ function computeSettlementNodes(
 }
 
 /**
- * Pre-compute safe build spots near an agent by checking clearance against existing primitives.
- * Uses 6u clearance radius (fits most blueprints except MANSION/PLAZA/DATACENTER).
- * Checks a spiral of candidate spots around the agent position.
+ * Pre-compute safe build spots by checking clearance against existing primitives.
+ * A spot is "safe" if it has CLEARANCE from all existing geometry AND is within
+ * MAX_DIST_FROM_BUILD of at least one existing primitive (server 60u rule).
+ * Searches around the world's build center, not the agent's position (agent may be at origin).
  */
 function findSafeBuildSpots(
   agentPos: { x: number; z: number },
   primitives: { position: { x: number; z: number }; scale: { x: number; z: number }; shape: string }[],
   maxResults = 5
-): { x: number; z: number; distFromAgent: number }[] {
-  const CLEARANCE = 6; // half-width clearance for medium blueprints
-  const EXEMPT = new Set(['plane', 'circle']);
+): { x: number; z: number; nearestBuild: number }[] {
+  const CLEARANCE = 6;
+  const MAX_DIST_FROM_BUILD = 55; // server enforces 60u — stay under
   const MIN_DIST_FROM_ORIGIN = 50;
+  const EXEMPT = new Set(['plane', 'circle']);
 
-  // Only check primitives within 80u of agent (performance)
-  const nearby = primitives.filter(p => {
-    if (EXEMPT.has(p.shape)) return false;
-    const dx = p.position.x - agentPos.x;
-    const dz = p.position.z - agentPos.z;
-    return Math.abs(dx) < 80 && Math.abs(dz) < 80;
-  });
+  const nonExempt = primitives.filter(p => !EXEMPT.has(p.shape));
+  if (nonExempt.length === 0) return [];
 
-  const safe: { x: number; z: number; distFromAgent: number }[] = [];
+  // Find the world's build centroid to search around (not agent position which may be at origin)
+  let sumX = 0, sumZ = 0;
+  for (const p of nonExempt) { sumX += p.position.x; sumZ += p.position.z; }
+  const worldCenter = { x: sumX / nonExempt.length, z: sumZ / nonExempt.length };
 
-  // Check candidates in expanding rings: 10u, 15u, 20u, 30u, 40u, 50u from agent
-  for (const radius of [10, 15, 20, 30, 40, 50]) {
-    const steps = Math.max(8, Math.floor(radius * 0.8)); // more points at larger radii
+  const safe: { x: number; z: number; nearestBuild: number }[] = [];
+
+  // Search in expanding rings around the world center
+  for (const radius of [5, 10, 15, 20, 25, 30, 40, 50, 60, 70]) {
+    const steps = Math.max(12, Math.floor(radius * 1.2));
     for (let i = 0; i < steps; i++) {
       const angle = (2 * Math.PI * i) / steps;
-      const cx = Math.round(agentPos.x + radius * Math.cos(angle));
-      const cz = Math.round(agentPos.z + radius * Math.sin(angle));
+      const cx = Math.round(worldCenter.x + radius * Math.cos(angle));
+      const cz = Math.round(worldCenter.z + radius * Math.sin(angle));
 
       // Skip if too close to origin
       if (Math.sqrt(cx * cx + cz * cz) < MIN_DIST_FROM_ORIGIN) continue;
 
-      // Check if a 2*CLEARANCE × 2*CLEARANCE footprint at (cx, cz) overlaps any primitive
+      // Check overlap and nearest build distance in one pass
       let overlaps = false;
-      for (const p of nearby) {
+      let nearestDist = Infinity;
+      for (const p of nonExempt) {
+        const dx = Math.abs(cx - p.position.x);
+        const dz = Math.abs(cz - p.position.z);
+
+        // Overlap check with clearance
         const hx = p.scale.x / 2 + CLEARANCE;
         const hz = p.scale.z / 2 + CLEARANCE;
-        if (Math.abs(cx - p.position.x) < hx && Math.abs(cz - p.position.z) < hz) {
-          overlaps = true;
-          break;
-        }
+        if (dx < hx && dz < hz) { overlaps = true; break; }
+
+        // Track nearest build for the 60u proximity rule
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < nearestDist) nearestDist = dist;
       }
 
-      if (!overlaps) {
-        const dist = Math.sqrt((cx - agentPos.x) ** 2 + (cz - agentPos.z) ** 2);
-        safe.push({ x: cx, z: cz, distFromAgent: Math.round(dist) });
+      // Must NOT overlap AND must be within 55u of at least one existing build
+      if (!overlaps && nearestDist <= MAX_DIST_FROM_BUILD) {
+        safe.push({ x: cx, z: cz, nearestBuild: Math.round(nearestDist) });
         if (safe.length >= maxResults) return safe;
       }
     }
@@ -1193,7 +1201,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           return formatSettlementMap(nodes, myPos, agentName);
         })(),
         '',
-        // Safe build spots — pre-computed valid anchor points near the agent
+        // Safe build spots — pre-computed valid anchor points verified clear of overlap
         ...(() => {
           const myPos = self?.position || { x: 0, z: 0 };
           const safeSpots = findSafeBuildSpots(
@@ -1202,16 +1210,18 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           );
           if (safeSpots.length === 0) {
             return [
-              '## ⚠ NO SAFE BUILD SPOTS NEARBY',
-              'All areas within 50u are too dense. MOVE 50+ units toward an Open Area before building.',
+              '## ⚠ NO SAFE BUILD SPOTS FOUND',
+              'The area is very dense. MOVE 50+ units in any direction and try again next tick.',
               '',
             ];
           }
-          const lines = ['## SAFE BUILD SPOTS (use these as anchorX/anchorZ — verified clear of overlap)'];
+          const lines = ['## SAFE BUILD SPOTS (use these as anchorX/anchorZ — verified clear)'];
           for (const spot of safeSpots) {
-            lines.push(`- **(${spot.x}, ${spot.z})** — ${spot.distFromAgent}u from you`);
+            const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
+            lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build`);
           }
-          lines.push('**Use one of these coordinates as your anchorX/anchorZ when building.** They have 6u clearance from existing geometry.');
+          lines.push('');
+          lines.push('**IMPORTANT:** MOVE within 20u of a safe spot FIRST, then use it as anchorX/anchorZ. You must be within 20u of the build site.');
           lines.push('');
           return lines;
         })(),
