@@ -502,14 +502,25 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
     lines.push('');
     lines.push(`YOUR NODE: ${closestNode.tier} "${closestNode.name}" (${closestDist.toFixed(0)}u away)`);
 
-    // Find isolated nodes and suggest connections
-    const isolatedNodes = nodes.filter(n => n.connections.length === 0 && n.tier !== 'Outpost' && n !== closestNode);
-    if (isolatedNodes.length > 0) {
-      const isolated = isolatedNodes[0];
-      const isoDx = isolated.center.x - closestNode.center.x;
-      const isoDz = isolated.center.z - closestNode.center.z;
-      const isoDist = Math.round(Math.sqrt(isoDx * isoDx + isoDz * isoDz));
-      lines.push(`SUGGESTION: "${isolated.name}" is isolated (${isoDist}u from "${closestNode.name}"). Connect with BRIDGE.`);
+    // Find nodes without visible road connections and suggest building roads
+    const unconnectedPairs: Array<{ from: SettlementNode; to: SettlementNode; dist: number }> = [];
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const hasBridgeConn = nodes[i].connections.some(c => c.targetIdx === j && c.hasBridge);
+        if (!hasBridgeConn && nodes[i].tier !== 'Outpost' && nodes[j].tier !== 'Outpost') {
+          const dx = nodes[i].center.x - nodes[j].center.x;
+          const dz = nodes[i].center.z - nodes[j].center.z;
+          unconnectedPairs.push({ from: nodes[i], to: nodes[j], dist: Math.round(Math.sqrt(dx * dx + dz * dz)) });
+        }
+      }
+    }
+    unconnectedPairs.sort((a, b) => a.dist - b.dist);
+
+    if (unconnectedPairs.length > 0) {
+      const pair = unconnectedPairs[0];
+      const midX = Math.round((pair.from.center.x + pair.to.center.x) / 2);
+      const midZ = Math.round((pair.from.center.z + pair.to.center.z) / 2);
+      lines.push(`SUGGESTION: Build a ROAD from "${pair.from.name}" (${pair.from.center.x.toFixed(0)},${pair.from.center.z.toFixed(0)}) to "${pair.to.name}" (${pair.to.center.x.toFixed(0)},${pair.to.center.z.toFixed(0)}). Place flat boxes (scaleY=0.1) every 4u along the line. Midpoint: (${midX}, ${midZ}).`);
     } else if (closestNode.missingCategories.length > 0) {
       lines.push(`SUGGESTION: "${closestNode.name}" is missing ${closestNode.missingCategories.join(', ')}. Add complementary builds.`);
     } else {
@@ -701,11 +712,33 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '2. What STEP are you on? Break objectives into 3-5 concrete steps.',
     '3. Is this the highest-impact action right now? Building a 4th lamp post matters less than connecting an isolated node.',
     '',
+    '## The City is a Graph',
+    'Think top-down like a city planner. The world should look like a MAP with:',
+    '- **Nodes** = dense clusters of builds (districts, hubs, parks)',
+    '- **Edges** = visible roads/paths/bridges connecting them',
+    'Every node must connect to at least one other node. No islands.',
+    '',
+    '## How to Build Roads (Edges)',
+    'To connect two nodes, build a ROAD between them using BUILD_MULTI:',
+    '- Calculate the line between two node centers',
+    '- Place flat boxes (scaleX=2, scaleY=0.1, scaleZ=2) every 3-4 units along the line',
+    '- Example: road from (100,100) to (130,100) = flat boxes at (103,0.05,100), (107,0.05,100), (111,0.05,100)... etc',
+    '- Use a neutral color like #94a3b8 for roads, or your agent color for decorative paths',
+    '- Add LAMP_POST blueprints along roads every 15-20 units for visual structure',
+    '- For longer spans (30+ units), use a BRIDGE blueprint at the midpoint',
+    '',
+    '## Layout Patterns',
+    '- **Hub-and-spoke**: One central PLAZA/FOUNTAIN, roads radiating outward to surrounding nodes',
+    '- **Ring road**: Circular path connecting all perimeter nodes, with radial roads to center',
+    '- **Grid**: Parallel roads forming blocks (build roads first, then fill blocks with structures)',
+    '- **The Capital node should be the hub.** Build roads FROM it TO other nodes.',
+    '',
     'Priorities (in order):',
-    '- Connect isolated nodes (BRIDGE/ROAD between unconnected clusters)',
-    '- Fill gaps in established nodes (add missing categories: art, nature, infrastructure)',
-    '- Grow outposts into neighborhoods (build 3-5 varied structures)',
-    '- Start new nodes in open areas 50-100u from existing ones',
+    '- Connect isolated nodes with ROADS (flat box paths between clusters)',
+    '- Add structure to established nodes (PLAZA at center, LAMP_POSTs along edges)',
+    '- Fill gaps in nodes (add missing categories: art, nature, infrastructure)',
+    '- Grow outposts into neighborhoods (build 3-5 varied structures around a central feature)',
+    '- Start new nodes 50-100u from existing ones, ALWAYS connected by a road',
     '- Avoid redundant builds (don\'t add what\'s already there)',
     '',
     'Write your current objective and step number in your "thought" before choosing an action.',
