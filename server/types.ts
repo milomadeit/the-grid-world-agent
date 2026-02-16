@@ -40,8 +40,8 @@ export const EnterWorldRequestSchema = z.object({
   timestamp: z.string(),
   visuals: z.object({
     color: z.string().optional(),
-    name: z.string().optional()
-  }).optional()
+    name: z.string().min(1, 'Agent name is required')
+  })
 });
 
 export type EnterWorldRequest = z.infer<typeof EnterWorldRequestSchema>;

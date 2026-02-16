@@ -7,7 +7,8 @@
     "dev": "tsx watch index.ts",
     "start:smith": "tsx index.ts smith",
     "start:oracle": "tsx index.ts oracle",
-    "start:clank": "tsx index.ts clank"
+    "start:clank": "tsx index.ts clank",
+    "start:mouse": "tsx index.ts mouse"
   },
   "dependencies": {
     "dotenv": "^17.2.4",

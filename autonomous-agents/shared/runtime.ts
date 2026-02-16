@@ -584,18 +584,14 @@ function computeSettlementNodes(
  * A spot is "safe" if it has CLEARANCE from all existing geometry AND is within
  * MAX_DIST_FROM_BUILD of at least one existing primitive (server 60u rule).
  *
- * Returns TWO categories:
- * - "infill" spots near the world center (for agents filling in gaps)
- * - "frontier" spots at the world EDGES (for expansion agents like Smith)
- *
- * The `frontier` spots are the outermost buildable positions — just beyond the
- * current bounding box edges but still within 55u of existing geometry.
+ * Searches in expanding rings around the world centroid for spots that
+ * have clearance from geometry AND are within 55u of existing builds.
  */
 function findSafeBuildSpots(
   agentPos: { x: number; z: number },
   primitives: { position: { x: number; z: number }; scale: { x: number; z: number }; shape: string }[],
   maxResults = 8
-): { x: number; z: number; nearestBuild: number; type: 'infill' | 'frontier' }[] {
+): { x: number; z: number; nearestBuild: number }[] {
   const CLEARANCE = 6;
   const MAX_DIST_FROM_BUILD = 55; // server enforces 60u — stay under
   const MIN_DIST_FROM_ORIGIN = 50;
@@ -608,17 +604,6 @@ function findSafeBuildSpots(
   let sumX = 0, sumZ = 0;
   for (const p of nonExempt) { sumX += p.position.x; sumZ += p.position.z; }
   const worldCenter = { x: sumX / nonExempt.length, z: sumZ / nonExempt.length };
-
-  // Find the world bounding box
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (const p of nonExempt) {
-    const hx = (p.scale.x || 1) / 2;
-    const hz = (p.scale.z || 1) / 2;
-    if (p.position.x - hx < minX) minX = p.position.x - hx;
-    if (p.position.x + hx > maxX) maxX = p.position.x + hx;
-    if (p.position.z - hz < minZ) minZ = p.position.z - hz;
-    if (p.position.z + hz > maxZ) maxZ = p.position.z + hz;
-  }
 
   // Helper: check if a point is clear and within server proximity
   function checkSpot(cx: number, cz: number): { clear: boolean; nearestDist: number } {
@@ -637,59 +622,7 @@ function findSafeBuildSpots(
     return { clear: !overlaps && nearestDist <= MAX_DIST_FROM_BUILD, nearestDist };
   }
 
-  const safe: { x: number; z: number; nearestBuild: number; type: 'infill' | 'frontier' }[] = [];
-
-  // --- FRONTIER SPOTS: at the edges of the world bounding box ---
-  // Push outward from each edge — these are the expansion points
-  const frontierTargets = [
-    // Beyond each edge by 40-50u (chain-expansion distance)
-    { x: maxX + 45, z: worldCenter.z, label: 'east' },
-    { x: minX - 45, z: worldCenter.z, label: 'west' },
-    { x: worldCenter.x, z: maxZ + 45, label: 'south' },
-    { x: worldCenter.x, z: minZ - 45, label: 'north' },
-    // Corner frontiers
-    { x: maxX + 35, z: maxZ + 35, label: 'southeast' },
-    { x: minX - 35, z: minZ - 35, label: 'northwest' },
-    { x: maxX + 35, z: minZ - 35, label: 'northeast' },
-    { x: minX - 35, z: maxZ + 35, label: 'southwest' },
-  ];
-
-  // For frontier spots, find the CLOSEST buildable point along the line from center to target
-  for (const ft of frontierTargets) {
-    // Walk from the edge outward in small steps, find the furthest valid spot
-    const dirX = ft.x - worldCenter.x;
-    const dirZ = ft.z - worldCenter.z;
-    const len = Math.sqrt(dirX * dirX + dirZ * dirZ);
-    if (len === 0) continue;
-    const ux = dirX / len;
-    const uz = dirZ / len;
-
-    // Start from the bounding box edge and walk outward
-    const edgeDist = Math.max(
-      Math.abs(ft.x > worldCenter.x ? maxX - worldCenter.x : minX - worldCenter.x),
-      Math.abs(ft.z > worldCenter.z ? maxZ - worldCenter.z : minZ - worldCenter.z)
-    );
-
-    let bestSpot: { x: number; z: number; nearestDist: number } | null = null;
-    // Walk from just past the edge outward
-    for (let d = edgeDist - 10; d <= edgeDist + 55; d += 5) {
-      const cx = Math.round(worldCenter.x + ux * d);
-      const cz = Math.round(worldCenter.z + uz * d);
-      const result = checkSpot(cx, cz);
-      if (result.clear) {
-        // Prefer the FURTHEST valid spot (most expansion value)
-        bestSpot = { x: cx, z: cz, nearestDist: result.nearestDist };
-      }
-    }
-    if (bestSpot) {
-      safe.push({ x: bestSpot.x, z: bestSpot.z, nearestBuild: Math.round(bestSpot.nearestDist), type: 'frontier' });
-    }
-    if (safe.length >= 4) break; // Max 4 frontier spots
-  }
-
-  // --- INFILL SPOTS: near the world center (for filling gaps) ---
-  const infillNeeded = maxResults - safe.length;
-  const infill: typeof safe = [];
+  const safe: { x: number; z: number; nearestBuild: number }[] = [];
   for (const radius of [5, 10, 15, 20, 25, 30, 40, 50]) {
     const steps = Math.max(12, Math.floor(radius * 1.2));
     for (let i = 0; i < steps; i++) {
@@ -698,63 +631,14 @@ function findSafeBuildSpots(
       const cz = Math.round(worldCenter.z + radius * Math.sin(angle));
       const result = checkSpot(cx, cz);
       if (result.clear) {
-        infill.push({ x: cx, z: cz, nearestBuild: Math.round(result.nearestDist), type: 'infill' });
-        if (infill.length >= infillNeeded) break;
+        safe.push({ x: cx, z: cz, nearestBuild: Math.round(result.nearestDist) });
+        if (safe.length >= maxResults) return safe;
       }
     }
-    if (infill.length >= infillNeeded) break;
+    if (safe.length >= maxResults) break;
   }
 
-  return [...safe, ...infill];
-}
-
-/**
- * Compute the world's expansion frontier — the bounding box edges
- * and suggested expansion directions.
- */
-function computeExpansionFrontier(
-  primitives: { position: { x: number; z: number }; scale: { x: number; z: number }; shape: string }[]
-): { bbox: { minX: number; maxX: number; minZ: number; maxZ: number }; center: { x: number; z: number }; span: { x: number; z: number }; directions: string[] } | null {
-  const EXEMPT = new Set(['plane', 'circle']);
-  const nonExempt = primitives.filter(p => !EXEMPT.has(p.shape));
-  if (nonExempt.length === 0) return null;
-
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  let sumX = 0, sumZ = 0;
-  for (const p of nonExempt) {
-    const hx = (p.scale.x || 1) / 2;
-    const hz = (p.scale.z || 1) / 2;
-    if (p.position.x - hx < minX) minX = p.position.x - hx;
-    if (p.position.x + hx > maxX) maxX = p.position.x + hx;
-    if (p.position.z - hz < minZ) minZ = p.position.z - hz;
-    if (p.position.z + hz > maxZ) maxZ = p.position.z + hz;
-    sumX += p.position.x;
-    sumZ += p.position.z;
-  }
-
-  const center = { x: Math.round(sumX / nonExempt.length), z: Math.round(sumZ / nonExempt.length) };
-  const spanX = Math.round(maxX - minX);
-  const spanZ = Math.round(maxZ - minZ);
-
-  // Suggest directions to expand — prioritize the narrower axis and underbuilt sides
-  const directions: string[] = [];
-  if (spanX <= spanZ) {
-    directions.push(`EAST from (${Math.round(maxX)}, ${center.z}) — current east edge`);
-    directions.push(`WEST from (${Math.round(minX)}, ${center.z}) — current west edge`);
-  } else {
-    directions.push(`SOUTH from (${center.x}, ${Math.round(maxZ)}) — current south edge`);
-    directions.push(`NORTH from (${center.x}, ${Math.round(minZ)}) — current north edge`);
-  }
-  // Always add diagonal options
-  directions.push(`NE from (${Math.round(maxX)}, ${Math.round(minZ)}) — corner frontier`);
-  directions.push(`SW from (${Math.round(minX)}, ${Math.round(maxZ)}) — corner frontier`);
-
-  return {
-    bbox: { minX: Math.round(minX), maxX: Math.round(maxX), minZ: Math.round(minZ), maxZ: Math.round(maxZ) },
-    center,
-    span: { x: spanX, z: spanZ },
-    directions,
-  };
+  return safe;
 }
 
 function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: number }, agentName?: string): string {
@@ -880,7 +764,32 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
 
 // --- LLM Calls ---
 
-async function callGemini(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<string> {
+interface LLMUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+interface LLMResponse {
+  text: string;
+  usage: LLMUsage | null;
+}
+
+// Cost estimates per 1K tokens (input/output) by provider
+const COST_PER_1K: Record<string, { input: number; output: number }> = {
+  'gemini': { input: 0.00010, output: 0.00040 },      // Gemini 2.0 Flash
+  'anthropic': { input: 0.00080, output: 0.00400 },    // Claude 3.5 Haiku
+  'openai': { input: 0.00015, output: 0.00060 },       // GPT-4o-mini
+  'minimax': { input: 0.00015, output: 0.00060 },      // MiniMax estimate
+};
+
+function formatTokenLog(provider: string, usage: LLMUsage | null): string {
+  if (!usage) return 'Tokens: unknown';
+  const costs = COST_PER_1K[provider] || { input: 0.0001, output: 0.0004 };
+  const costEst = (usage.inputTokens / 1000) * costs.input + (usage.outputTokens / 1000) * costs.output;
+  return `Tokens: ${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out | Cost est: $${costEst.toFixed(4)}`;
+}
+
+async function callGemini(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<LLMResponse> {
   const parts: any[] = [{ text: userPrompt }];
   if (imageBase64) {
     parts.push({ inline_data: { mime_type: "image/jpeg", data: imageBase64 } });
@@ -906,11 +815,15 @@ async function callGemini(apiKey: string, model: string, systemPrompt: string, u
 
   const data = await res.json() as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
   };
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  const usage = data.usageMetadata
+    ? { inputTokens: data.usageMetadata.promptTokenCount || 0, outputTokens: data.usageMetadata.candidatesTokenCount || 0 }
+    : null;
+  return { text: data.candidates?.[0]?.content?.parts?.[0]?.text || '{}', usage };
 }
 
-async function callAnthropic(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<string> {
+async function callAnthropic(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<LLMResponse> {
   const content: any[] = [{ type: 'text', text: userPrompt }];
   if (imageBase64) {
     content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } });
@@ -938,11 +851,15 @@ async function callAnthropic(apiKey: string, model: string, systemPrompt: string
 
   const data = await res.json() as {
     content?: Array<{ text?: string }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
   };
-  return data.content?.[0]?.text || '{}';
+  const usage = data.usage
+    ? { inputTokens: data.usage.input_tokens || 0, outputTokens: data.usage.output_tokens || 0 }
+    : null;
+  return { text: data.content?.[0]?.text || '{}', usage };
 }
 
-async function callOpenAI(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<string> {
+async function callOpenAI(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<LLMResponse> {
   const content: any[] = [{ type: 'text', text: userPrompt }];
   if (imageBase64) {
     content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } });
@@ -972,11 +889,15 @@ async function callOpenAI(apiKey: string, model: string, systemPrompt: string, u
 
   const data = await res.json() as {
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  return data.choices?.[0]?.message?.content || '{}';
+  const usage = data.usage
+    ? { inputTokens: data.usage.prompt_tokens || 0, outputTokens: data.usage.completion_tokens || 0 }
+    : null;
+  return { text: data.choices?.[0]?.message?.content || '{}', usage };
 }
 
-async function callMinimax(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<string> {
+async function callMinimax(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<LLMResponse> {
   const res = await fetch('https://api.minimax.io/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -1001,8 +922,12 @@ async function callMinimax(apiKey: string, model: string, systemPrompt: string, 
 
   const data = await res.json() as {
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  return data.choices?.[0]?.message?.content || '{}';
+  const usage = data.usage
+    ? { inputTokens: data.usage.prompt_tokens || 0, outputTokens: data.usage.completion_tokens || 0 }
+    : null;
+  return { text: data.choices?.[0]?.message?.content || '{}', usage };
 }
 
 interface LLMConfig {
@@ -1011,7 +936,7 @@ interface LLMConfig {
   llmApiKey: string;
 }
 
-async function callLLM(config: LLMConfig, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<string> {
+async function callLLM(config: LLMConfig, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<LLMResponse> {
   if (config.llmProvider === 'anthropic') {
     return callAnthropic(config.llmApiKey, config.llmModel, systemPrompt, userPrompt, imageBase64);
   }
@@ -1149,7 +1074,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   if (!enteredOk) return;
 
   // Reset working memory on startup — agents should NOT resume from stale state
-  const freshMemory = [
+  const freshMemoryLines = [
     '# Working Memory',
     `Last updated: ${timestamp()}`,
     `Session started: ${timestamp()}`,
@@ -1157,7 +1082,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     `Consecutive same-action: 0`,
     `Last action detail: Just entered the world — fresh session`,
     `Last seen message id: 0`,
-  ].join('\n');
+  ];
+  // Smith-specific: seed guild tracking fields
+  if (agentName.toLowerCase() === 'smith') {
+    freshMemoryLines.push('Guild members: (none yet)');
+    freshMemoryLines.push('Declined recruitment: (none)');
+  }
+  const freshMemory = freshMemoryLines.join('\n');
   writeMd(join(memoryDir, 'WORKING.md'), freshMemory);
   console.log(`[${agentName}] Working memory reset for fresh session`);
 
@@ -1178,8 +1109,49 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     ? systemPrompt + '\n---\n# SERVER SKILL DOCUMENT\n' + skillDoc
     : systemPrompt;
 
+  // --- Static Prompt Sections (cached, refreshed every 50 ticks) ---
+  // These sections rarely change and don't need to be rebuilt every tick
+  const ACTION_FORMAT_BLOCK = [
+    'Decide your next action. Respond with EXACTLY one JSON object:',
+    '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
+    '',
+    'Payload formats:',
+    '  MOVE: {"x": 5, "z": 3}',
+    '  CHAT: {"message": "Hello!"}',
+    '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}  \u2190 USE coordinates from SAFE BUILD SPOTS above!',
+    '  BUILD_CONTINUE: {}  \u2190 place next batch from your active blueprint (must be near site)',
+    '  CANCEL_BUILD: {}  \u2190 abandon current blueprint (placed pieces stay)',
+    '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
+    '  BUILD_MULTI: {"primitives": [{"shape":"cylinder","x":100,"y":1,"z":100,"scaleX":1,"scaleY":2,"scaleZ":1,"color":"#3b82f6"},{"shape":"cone","x":100,"y":3,"z":100,"scaleX":2,"scaleY":2,"scaleZ":2,"color":"#f59e0b"}]}  \u2190 up to 5 per tick',
+    '    Available shapes: box, sphere, cone, cylinder, plane, torus, dodecahedron, icosahedron, octahedron, torusKnot, capsule',
+    '  TRANSFER_CREDITS: {"toAgentId": "agent_xxx", "amount": 25}  \u2190 send credits to another agent',
+    '    **USE VARIETY:** Do NOT just build boxes. Use cylinders for pillars, cones for roofs, spheres for decorations, torus for rings/arches.',
+    '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 \u2192 y=0.5, scaleY=0.2 \u2192 y=0.1, scaleY=2 \u2192 y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
+    '  TERMINAL: {"message": "Status update..."}',
+    '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}  \u2190 directiveId MUST start with "dir_"',
+    '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
+    '  IDLE: {}',
+    '',
+    '**EFFICIENCY:** Use BUILD_BLUEPRINT for structures from the catalog (recommended \u2014 server handles coordinate math). Use BUILD_MULTI for custom/freehand shapes (up to 5 per tick).',
+    'IMPORTANT: You can build on your own any time you have credits. You do NOT need a directive or permission to build. Directives are ONLY for organizing group projects with other agents.',
+    'If you already voted on a directive, do NOT vote again. If you already submitted a directive with a similar description, do NOT submit another.',
+    '**BUILD ZONE RULE:** You MUST NOT build within 50 units of the origin (0,0). The area around origin is reserved for the system terminal. All builds must be at least 50 units away (e.g., x=60, z=70). Builds closer than 50 units will be REJECTED by the server.',
+    '**BUILD DISTANCE RULE:** You must be within 20 units (XZ plane) of the target coordinates to build there. If you are too far away, the server will reject your build with an error. MOVE to the location first, THEN build.',
+    '',
+  ].join('\n');
+
+  // Blueprint catalog — cached and refreshed periodically
+  let cachedBlueprintCatalog = '';
+  let blueprintCacheTickCount = 0;
+  const BLUEPRINT_CACHE_REFRESH_INTERVAL = 50;
+
   // --- Heartbeat Loop ---
   console.log(`[${agentName}] Heartbeat started (every ${config.heartbeatSeconds}s)`);
+
+  // Change detection gate — skip LLM calls when world state hasn't meaningfully changed
+  let lastWorldHash = '';
+  let ticksSinceLastLLMCall = 0;
+  const MAX_SKIP_TICKS = 5; // Force an LLM call at least every 5 ticks
 
   const tick = async () => {
     try {
@@ -1214,6 +1186,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       } catch {
         // Non-critical — skip if unavailable or rate-limited
       }
+
+      // Safe build spots — hoisted to tick scope for use in both prompt and error enrichment
+      let safeSpots: { x: number; z: number; nearestBuild: number }[] = [];
 
       // Debug: log what agents actually receive
       console.log(`[${agentName}] State: ${world.agents.length} agents, ${(world.chatMessages||[]).length} chat msgs, ${(world.messages||[]).length} terminal msgs, ${directives.length} directives`);
@@ -1250,6 +1225,34 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         const tag = isNew ? '[NEW] ' : '';
         return `- ${tag}${m.agentName}: ${m.message}`;
       };
+
+      // --- Change detection gate ---
+      // Build a lightweight fingerprint of world state to detect meaningful changes
+      const mentionsMe = newMessages.some(m =>
+        m.message?.toLowerCase().includes(agentName.toLowerCase())
+      );
+      const worldHash = [
+        world.tick,
+        world.agents.length,
+        world.primitives.length,
+        latestMsgId,
+        directives.length,
+        credits,
+        blueprintStatus?.active ? `bp:${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives}` : 'nobp',
+      ].join('|');
+
+      ticksSinceLastLLMCall++;
+
+      if (worldHash === lastWorldHash && !mentionsMe && ticksSinceLastLLMCall < MAX_SKIP_TICKS) {
+        console.log(`[${agentName}] No meaningful change, skipping LLM call (tick ${ticksSinceLastLLMCall}/${MAX_SKIP_TICKS})`);
+        return;
+      }
+
+      lastWorldHash = worldHash;
+      ticksSinceLastLLMCall = 0;
+
+      // Cached settlement nodes — computed once, reused in world graph + blueprint catalog
+      let cachedNodes: SettlementNode[] = [];
 
       const userPrompt = [
         '# CURRENT WORLD STATE',
@@ -1307,37 +1310,19 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           : '_No other builds yet._',
         '',
         // World Graph — hierarchical node view of all world builds
+        // Compute settlement nodes once, reuse for both world graph and blueprint catalog
         (() => {
           const allPrims = world.primitives as PrimitiveWithOwner[];
           const myPos = self?.position || { x: 0, z: 0 };
-          const nodes = computeSettlementNodes(allPrims, agentNameMap);
-          return formatSettlementMap(nodes, myPos, agentName);
+          cachedNodes = computeSettlementNodes(allPrims, agentNameMap);
+          return formatSettlementMap(cachedNodes, myPos, agentName);
         })(),
         '',
-        // Expansion frontier — world bounding box + suggested directions
-        ...(() => {
-          const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
-          const frontier = computeExpansionFrontier(primData);
-          if (!frontier) return [];
-          const lines = [
-            '## EXPANSION FRONTIER',
-            `World spans ${frontier.span.x}u × ${frontier.span.z}u. Bounding box: (${frontier.bbox.minX}, ${frontier.bbox.minZ}) → (${frontier.bbox.maxX}, ${frontier.bbox.maxZ}). Center: (${frontier.center.x}, ${frontier.center.z}).`,
-            '',
-            '**Expansion directions (build chain outward from these edges):**',
-          ];
-          for (const dir of frontier.directions) {
-            lines.push(`- ${dir}`);
-          }
-          lines.push('');
-          return lines;
-        })(),
         // Safe build spots — pre-computed valid anchor points verified clear of overlap
         ...(() => {
           const myPos = self?.position || { x: 0, z: 0 };
-          const safeSpots = findSafeBuildSpots(
-            myPos,
-            world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }))
-          );
+          const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
+          safeSpots = findSafeBuildSpots(myPos, primData);
           if (safeSpots.length === 0) {
             return [
               '## ⚠ NO SAFE BUILD SPOTS FOUND',
@@ -1345,25 +1330,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               '',
             ];
           }
-          const frontierSpots = safeSpots.filter(s => s.type === 'frontier');
-          const infillSpots = safeSpots.filter(s => s.type === 'infill');
           const lines: string[] = [];
-          if (frontierSpots.length > 0) {
-            lines.push('## FRONTIER BUILD SPOTS (for expansion — chain outward from here)');
-            for (const spot of frontierSpots) {
-              const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
-              lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build [EDGE]`);
-            }
-            lines.push('');
+          lines.push('## SAFE BUILD SPOTS (verified clear of overlap)');
+          for (const spot of safeSpots) {
+            const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
+            lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build`);
           }
-          if (infillSpots.length > 0) {
-            lines.push('## INFILL BUILD SPOTS (for building within existing nodes)');
-            for (const spot of infillSpots) {
-              const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
-              lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build`);
-            }
-            lines.push('');
-          }
+          lines.push('');
           lines.push('**IMPORTANT:** MOVE within 20u of a spot FIRST, then use it as anchorX/anchorZ. You must be within 20u of the build site.');
           lines.push('');
           return lines;
@@ -1417,10 +1390,20 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const warnings: string[] = [];
           if (lastBuildError) {
             warnings.push(`**⚠️ LAST BUILD FAILED:** ${lastBuildError}`);
-            warnings.push('**FIX:** Use a coordinate from FRONTIER or INFILL BUILD SPOTS above as your anchorX/anchorZ. Do NOT guess — use the exact coordinates listed.');
+            warnings.push('**FIX:** Use a coordinate from SAFE BUILD SPOTS above as your anchorX/anchorZ. Do NOT guess — use the exact coordinates listed.');
           }
           if (consecutiveBuildFails >= 3) {
-            warnings.push(`**🛑 ${consecutiveBuildFails} build failures in a row.** MOVE to a Safe Build Spot or Open Area before trying again.`);
+            // Show nearest 3 safe spots directly in the warning
+            const myPos = self?.position || { x: 0, z: 0 };
+            const nearest3 = [...safeSpots]
+              .sort((a, b) => {
+                const da = Math.sqrt((a.x - myPos.x) ** 2 + (a.z - myPos.z) ** 2);
+                const db = Math.sqrt((b.x - myPos.x) ** 2 + (b.z - myPos.z) ** 2);
+                return da - db;
+              })
+              .slice(0, 3);
+            const spotList = nearest3.map(s => `(${s.x}, ${s.z})`).join(', ');
+            warnings.push(`**🛑 ${consecutiveBuildFails} CONSECUTIVE BUILD FAILURES. You MUST use one of these exact coordinates: ${spotList}. MOVE within 20u first, then use as anchorX/anchorZ.**`);
           }
           return warnings.length > 0 ? [...warnings, ''] : [];
         })() : []),
@@ -1440,33 +1423,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           }
           return [];
         })() : []),
-        'Decide your next action. Respond with EXACTLY one JSON object:',
-        '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
-        '',
-        'Payload formats:',
-        '  MOVE: {"x": 5, "z": 3}',
-        '  CHAT: {"message": "Hello!"}',
-        '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}  ← USE coordinates from FRONTIER/INFILL SPOTS above!',
-        '  BUILD_CONTINUE: {}  ← place next batch from your active blueprint (must be near site)',
-        '  CANCEL_BUILD: {}  ← abandon current blueprint (placed pieces stay)',
-        '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
-        '  BUILD_MULTI: {"primitives": [{"shape":"cylinder","x":100,"y":1,"z":100,"scaleX":1,"scaleY":2,"scaleZ":1,"color":"#3b82f6"},{"shape":"cone","x":100,"y":3,"z":100,"scaleX":2,"scaleY":2,"scaleZ":2,"color":"#f59e0b"}]}  ← up to 5 per tick',
-        '    Available shapes: box, sphere, cone, cylinder, plane, torus, dodecahedron, icosahedron, octahedron, torusKnot, capsule',
-        '  TRANSFER_CREDITS: {"toAgentId": "agent_xxx", "amount": 25}  ← send credits to another agent',
-        '    **USE VARIETY:** Do NOT just build boxes. Use cylinders for pillars, cones for roofs, spheres for decorations, torus for rings/arches.',
-        '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 → y=0.5, scaleY=0.2 → y=0.1, scaleY=2 → y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
-        '  TERMINAL: {"message": "Status update..."}',
-        '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}  ← directiveId MUST start with "dir_"',
-        '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
-        '  IDLE: {}',
-        '',
-        '**EFFICIENCY:** Use BUILD_BLUEPRINT for structures from the catalog (recommended — server handles coordinate math). Use BUILD_MULTI for custom/freehand shapes (up to 5 per tick).',
-        'IMPORTANT: You can build on your own any time you have credits. You do NOT need a directive or permission to build. Directives are ONLY for organizing group projects with other agents.',
-        'If you already voted on a directive, do NOT vote again. If you already submitted a directive with a similar description, do NOT submit another.',
-        '**BUILD ZONE RULE:** You MUST NOT build within 50 units of the origin (0,0). The area around origin is reserved for the system terminal. All builds must be at least 50 units away (e.g., x=60, z=70). Builds closer than 50 units will be REJECTED by the server.',
-        '**BUILD DISTANCE RULE:** You must be within 20 units (XZ plane) of the target coordinates to build there. If you are too far away, the server will reject your build with an error. MOVE to the location first, THEN build.',
-        '',
-        // Blueprint section — either show active plan or catalog
+        // Static action format instructions (cached at startup)
+        ACTION_FORMAT_BLOCK,
+        // Blueprint section — either show active plan or cached catalog
         ...(blueprintStatus?.active
           ? [
               '## ACTIVE BUILD PLAN',
@@ -1477,18 +1436,27 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               '',
             ]
           : [
-              '## BLUEPRINT CATALOG',
-              'Pick a blueprint and start building. The server computes all coordinates for you.',
-              '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}',
-              '',
-              ...Object.entries(blueprints).map(([name, bp]: [string, any]) =>
-                `- **${name}** — ${bp.description} | ${bp.totalPrimitives} pieces, ~${Math.ceil(bp.totalPrimitives / 5)} ticks | ${bp.difficulty}`
-              ),
+              // Refresh blueprint catalog cache periodically
+              (() => {
+                blueprintCacheTickCount++;
+                if (!cachedBlueprintCatalog || blueprintCacheTickCount >= BLUEPRINT_CACHE_REFRESH_INTERVAL) {
+                  blueprintCacheTickCount = 0;
+                  cachedBlueprintCatalog = [
+                    '## BLUEPRINT CATALOG',
+                    'Pick a blueprint and start building. The server computes all coordinates for you.',
+                    '  BUILD_BLUEPRINT: {"name":"BRIDGE","anchorX":120,"anchorZ":120}',
+                    '',
+                    ...Object.entries(blueprints).map(([name, bp]: [string, any]) =>
+                      `- **${name}** — ${bp.description} | ${bp.totalPrimitives} pieces, ~${Math.ceil(bp.totalPrimitives / 5)} ticks | ${bp.difficulty}`
+                    ),
+                  ].join('\n');
+                }
+                return cachedBlueprintCatalog;
+              })(),
               '',
               (() => {
-                const allPrims = world.primitives as PrimitiveWithOwner[];
                 const myPos = self?.position || { x: 0, z: 0 };
-                const nodes = computeSettlementNodes(allPrims, agentNameMap);
+                const nodes = cachedNodes;
                 if (nodes.length > 0) {
                   const nearest = nodes.reduce((best, n) => {
                     const d = Math.sqrt((n.center.x - myPos.x) ** 2 + (n.center.z - (myPos as any).z) ** 2);
@@ -1514,7 +1482,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         console.log(`[${agentName}] Captured visual input`);
       }
 
-      const raw = await callLLM(config, fullSystemPrompt, userPrompt, imageBase64);
+      const llmResponse = await callLLM(config, fullSystemPrompt, userPrompt, imageBase64);
+      const raw = llmResponse.text;
+      console.log(`[${agentName}] ${formatTokenLog(config.llmProvider, llmResponse.usage)}`);
       let decision: AgentDecision;
       try {
         // Extract JSON from response — strip think tags, code fences, then find the first {…} block
@@ -1536,61 +1506,24 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         decision = { thought: 'Could not parse response', action: 'IDLE' };
       }
 
-      // 5b. Auto-snap BUILD_BLUEPRINT/BUILD_PRIMITIVE anchors to nearest safe spot
-      // Agents often pick node center coords that overlap. We snap to pre-computed clear spots.
-      if (['BUILD_BLUEPRINT', 'BUILD_PRIMITIVE'].includes(decision.action) && decision.payload) {
-        const myPos = self?.position || { x: 0, z: 0 };
-        const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
-        const safeSpots = findSafeBuildSpots(myPos, primData, 8);
-        if (safeSpots.length > 0) {
-          const p = decision.payload as Record<string, unknown>;
-          const anchorKey = decision.action === 'BUILD_BLUEPRINT' ? 'anchorX' : 'x';
-          const anchorKeyZ = decision.action === 'BUILD_BLUEPRINT' ? 'anchorZ' : 'z';
-          const origX = Number(p[anchorKey]) || 0;
-          const origZ = Number(p[anchorKeyZ]) || 0;
-
-          // Find the closest safe spot to the agent's chosen anchor
-          let bestSpot = safeSpots[0];
-          let bestDist = Infinity;
-          for (const spot of safeSpots) {
-            const dx = spot.x - origX;
-            const dz = spot.z - origZ;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist < bestDist) { bestDist = dist; bestSpot = spot; }
-          }
-
-          if (bestDist > 3) { // Only snap if agent's choice is far from a safe spot
-            console.log(`[${agentName}] Auto-snapped anchor from (${origX}, ${origZ}) → safe spot (${bestSpot.x}, ${bestSpot.z}) [${bestDist.toFixed(0)}u correction]`);
-            p[anchorKey] = bestSpot.x;
-            p[anchorKeyZ] = bestSpot.z;
-          }
-        }
-      }
-
-      // Also snap BUILD_MULTI primitives to avoid overlap
-      if (decision.action === 'BUILD_MULTI' && decision.payload) {
-        const myPos = self?.position || { x: 0, z: 0 };
-        const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
-        const safeSpots = findSafeBuildSpots(myPos, primData, 12);
-        if (safeSpots.length > 0) {
-          const prims = ((decision.payload as any).primitives || []) as Array<Record<string, unknown>>;
-          for (let i = 0; i < prims.length && i < safeSpots.length; i++) {
-            const origX = Number(prims[i].x) || 0;
-            const origZ = Number(prims[i].z) || 0;
-            // Find closest safe spot not already used
-            let bestSpot = safeSpots[i]; // Use index-based assignment for spread
-            console.log(`[${agentName}] BUILD_MULTI[${i}]: snapped (${origX}, ${origZ}) → (${bestSpot.x}, ${bestSpot.z})`);
-            prims[i].x = bestSpot.x;
-            prims[i].z = bestSpot.z;
-          }
-        }
-      }
-
       // 6. Execute action
       console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
-      const buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
+      let buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
       if (buildError) {
         console.warn(`[${agentName}] Action error: ${buildError}`);
+        // Enrich build error with nearest safe spot coordinates
+        if (safeSpots.length > 0) {
+          const myPos = self?.position || { x: 0, z: 0 };
+          const nearest3 = [...safeSpots]
+            .sort((a, b) => {
+              const da = Math.sqrt((a.x - myPos.x) ** 2 + (a.z - myPos.z) ** 2);
+              const db = Math.sqrt((b.x - myPos.x) ** 2 + (b.z - myPos.z) ** 2);
+              return da - db;
+            })
+            .slice(0, 3);
+          const spotList = nearest3.map(s => `(${s.x}, ${s.z})`).join(', ');
+          buildError = `${buildError} — Try these clear spots instead: ${spotList}`;
+        }
       }
 
       // 7. Update working memory (DO NOT include agent names — prevents hallucination from stale memory)
@@ -1629,13 +1562,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         if (!submittedDirectives.includes(desc)) submittedDirectives = submittedDirectives ? `${submittedDirectives}, ${desc}` : desc;
       }
 
-      // Track consecutive build failures — reset on successful build OR on MOVE (so agents aren't stuck forever)
+      // Track consecutive build failures — only reset on successful build
       const prevBuildFails = parseInt(workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
       const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT', 'BUILD_CONTINUE'];
       const wasBuildAction = buildActions.includes(decision.action);
-      const movedAway = decision.action === 'MOVE';
-      const consecutiveBuildFails = wasBuildAction && buildError ? prevBuildFails + 1
-        : (wasBuildAction && !buildError) || movedAway ? 0
+      const consecutiveBuildFails = wasBuildAction && buildError
+        ? prevBuildFails + 1
+        : (wasBuildAction && !buildError) ? 0
         : prevBuildFails;
 
       // Track build plan across ticks
@@ -1658,6 +1591,28 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const currentObjective = thoughtObjectiveMatch?.[1]?.trim() || prevObjective;
       const objectiveStep = thoughtStepMatch ? parseInt(thoughtStepMatch[1]) : (currentObjective === prevObjective ? prevObjectiveStep : 1);
 
+      // Smith-specific: track guild membership
+      let guildMembers = workingMemory?.match(/Guild members: (.+)/)?.[1] || '(none yet)';
+      let declinedRecruitment = workingMemory?.match(/Declined recruitment: (.+)/)?.[1] || '(none)';
+      if (agentName.toLowerCase() === 'smith') {
+        const recruitedMatch = decision.thought?.match(
+          /(?:recruited|joined.*guild|new.*member)[:\s]+(\w+)/i
+        );
+        if (recruitedMatch) {
+          const name = recruitedMatch[1].toLowerCase();
+          if (guildMembers === '(none yet)') guildMembers = name;
+          else if (!guildMembers.includes(name)) guildMembers = `${guildMembers}, ${name}`;
+        }
+        const declinedMatch = decision.thought?.match(
+          /(?:declined|not interested|rejected)[:\s]+(\w+)/i
+        );
+        if (declinedMatch) {
+          const name = declinedMatch[1].toLowerCase();
+          if (declinedRecruitment === '(none)') declinedRecruitment = name;
+          else if (!declinedRecruitment.includes(name)) declinedRecruitment = `${declinedRecruitment}, ${name}`;
+        }
+      }
+
       const newWorking = [
         `# Working Memory`,
         `Last updated: ${timestamp()}`,
@@ -1674,6 +1629,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         submittedDirectives ? `Submitted directives: ${submittedDirectives}` : '',
         buildError ? `Last build error: ${buildError}` : '',
         consecutiveBuildFails > 0 ? `Consecutive build failures: ${consecutiveBuildFails}` : '',
+        // Smith guild tracking
+        ...(agentName.toLowerCase() === 'smith' ? [
+          `Guild members: ${guildMembers}`,
+          `Declined recruitment: ${declinedRecruitment}`,
+        ] : []),
       ].filter(Boolean).join('\n');
       writeMd(join(memoryDir, 'WORKING.md'), newWorking);
 
@@ -1827,8 +1787,9 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
 
   let shouldRegister = true;
   try {
-    const raw = await callLLM(config, systemPrompt, bootstrapPrompt);
-    const jsonStr = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const llmResponse = await callLLM(config, systemPrompt, bootstrapPrompt);
+    log(`${formatTokenLog(config.llmProvider, llmResponse.usage)}`);
+    const jsonStr = llmResponse.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(jsonStr) as {
       thought?: string;
       should_register?: boolean;
@@ -2116,7 +2077,9 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           if (imageBase64) {
              console.log(`[${agentName}] Captured visual input`);
           }
-          const raw = await callLLM(fullConfig, fullSystemPrompt, userPrompt, imageBase64);
+          const llmResponse = await callLLM(fullConfig, fullSystemPrompt, userPrompt, imageBase64);
+          const raw = llmResponse.text;
+          console.log(`[${agentName}] ${formatTokenLog(fullConfig.llmProvider, llmResponse.usage)}`);
           let decision: AgentDecision;
           try {
             const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

@@ -241,7 +241,7 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
 
       const agent: Agent = {
         id: agentId,
-        name: onChainName || visuals?.name || recoveredAddress.slice(0, 10),
+        name: onChainName || visuals.name,
         color: visuals?.color || '#6b7280',
         position: { x: spawnX, y: 0, z: spawnZ },
         targetPosition: { x: spawnX, y: 0, z: spawnZ },

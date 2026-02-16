@@ -12,6 +12,7 @@
  *   npm run start:smith   # start only Smith
  *   npm run start:oracle  # start only Oracle
  *   npm run start:clank   # start only Clank (bootstrap mode)
+ *   npm run start:mouse   # start only Mouse
  */
 
 import 'dotenv/config';
@@ -46,10 +47,10 @@ const registeredAgents = [
     privateKey: process.env.AGENT_SMITH_PK || '',
     walletAddress: process.env.AGENT_SMITH_WALLET || '',
     erc8004AgentId: process.env.AGENT_SMITH_ID || '',
-    heartbeatSeconds: 20,
-    llmProvider: 'gemini' as const,
-    llmModel: 'gemini-2.0-flash',
-    llmApiKey: GEMINI_KEY,
+    heartbeatSeconds: 60,
+    llmProvider: 'anthropic' as const,
+    llmModel: 'claude-3-5-haiku-latest',
+    llmApiKey: ANTHROPIC_KEY,
   },
   {
     name: 'oracle',
@@ -57,9 +58,9 @@ const registeredAgents = [
     privateKey: process.env.ORACLE_PK || '',
     walletAddress: process.env.ORACLE_WALLET || '',
     erc8004AgentId: process.env.ORACLE_ID || '',
-    heartbeatSeconds: 15,
+    heartbeatSeconds: 60,
     llmProvider: 'gemini' as const,
-    llmModel: 'gemini-2.0-flash',
+    llmModel: 'gemini-2.0-flash-lite',
     llmApiKey: GEMINI_KEY,
   },
 ];
@@ -71,14 +72,30 @@ const clankConfig = {
   privateKey: process.env.CLANK_PK || '',
   walletAddress: process.env.CLANK_WALLET || '',
   erc8004AgentId: process.env.CLANK_AGENT_ID || '',
-  heartbeatSeconds: 10,
-  llmProvider: 'gemini' as const,
-  llmModel: 'gemini-2.0-flash',
-  llmApiKey: GEMINI_KEY,
+  heartbeatSeconds: 60,
+  llmProvider: 'minimax' as const,
+  llmModel: 'MiniMax-M2.5-highspeed',
+  llmApiKey: MINIMAX_KEY,
 };
 
+// Mouse — external agent, bootstraps via skill.md
+const mouseConfig = {
+  name: 'mouse',
+  dir: join(__dirname, 'mouse'),
+  privateKey: process.env.MOUSE_PK || '',
+  walletAddress: process.env.MOUSE_WALLET || '',
+  erc8004AgentId: process.env.MOUSE_AGENT_ID || '',
+  heartbeatSeconds: 60,
+  llmProvider: 'minimax' as const,
+  llmModel: 'MiniMax-M2.5-highspeed',
+  llmApiKey: MINIMAX_KEY,
+};
+
+// Bootstrap agents — start in bootstrap mode if they don't have an agent ID
+const bootstrapConfigs = [clankConfig, mouseConfig];
+
 async function boot() {
-  const allNames = [...registeredAgents.map(a => a.name), 'clank'];
+  const allNames = [...registeredAgents.map(a => a.name), ...bootstrapConfigs.map(a => a.name)];
 
   if (target !== 'all' && !allNames.includes(target)) {
     console.error(`[Boot] Unknown agent: ${target}. Options: all, ${allNames.join(', ')}`);
@@ -87,6 +104,7 @@ async function boot() {
 
   const startRegistered = target === 'all' || registeredAgents.some(a => a.name === target);
   const startClank = target === 'all' || target === 'clank';
+  const startMouse = target === 'all' || target === 'mouse';
 
   // Boot registered agents
   if (startRegistered) {
@@ -193,6 +211,65 @@ async function boot() {
         erc8004Registry: AGENT_REGISTRY,
       }).catch(err => {
         console.error(`[Boot] Clank bootstrap crashed:`, err);
+      });
+    }
+  }
+
+  // Boot Mouse
+  if (startMouse) {
+    if (!mouseConfig.llmApiKey) {
+      console.error(`[Boot] Mouse has no LLM API key. Set MINI_MAX_API_KEY in .env`);
+      process.exit(1);
+    }
+
+    // If Mouse has an agent ID, boot normally (post-registration)
+    if (mouseConfig.walletAddress && mouseConfig.erc8004AgentId) {
+      if (!mouseConfig.privateKey) {
+        console.error(`[Boot] Mouse has an agent ID but no private key. Set MOUSE_PK in .env`);
+        process.exit(1);
+      }
+      console.log(`[Boot] Mouse has an agent ID — booting normally`);
+      console.log(`[Boot]   mouse: ${mouseConfig.llmProvider} / ${mouseConfig.llmModel}`);
+      console.log('');
+
+      await new Promise(r => setTimeout(r, 2000));
+      startAgent({
+        dir: mouseConfig.dir,
+        privateKey: mouseConfig.privateKey,
+        walletAddress: mouseConfig.walletAddress,
+        erc8004AgentId: mouseConfig.erc8004AgentId,
+        erc8004Registry: AGENT_REGISTRY,
+        heartbeatSeconds: mouseConfig.heartbeatSeconds,
+        llmProvider: mouseConfig.llmProvider,
+        llmModel: mouseConfig.llmModel,
+        llmApiKey: mouseConfig.llmApiKey,
+      }).catch(err => {
+        console.error(`[Boot] Agent mouse crashed:`, err);
+      });
+    } else {
+      // Bootstrap mode — no agent ID, Mouse reads skill.md and figures it out
+      console.log(`[Boot] Mouse has NO agent ID — starting in BOOTSTRAP mode`);
+      console.log(`[Boot]   mouse: ${mouseConfig.llmProvider} / ${mouseConfig.llmModel}`);
+      if (mouseConfig.privateKey) {
+        console.log(`[Boot]   Mouse has a wallet + private key — can attempt on-chain registration`);
+      } else {
+        console.log(`[Boot]   Mouse has NO wallet — will discover what it needs`);
+      }
+      console.log('');
+
+      await new Promise(r => setTimeout(r, 2000));
+      bootstrapAgent({
+        dir: mouseConfig.dir,
+        privateKey: mouseConfig.privateKey,
+        walletAddress: mouseConfig.walletAddress,
+        heartbeatSeconds: mouseConfig.heartbeatSeconds,
+        llmProvider: mouseConfig.llmProvider,
+        llmModel: mouseConfig.llmModel,
+        llmApiKey: mouseConfig.llmApiKey,
+        apiBaseUrl: process.env.GRID_API_URL || 'http://localhost:3001',
+        erc8004Registry: AGENT_REGISTRY,
+      }).catch(err => {
+        console.error(`[Boot] Mouse bootstrap crashed:`, err);
       });
     }
   }
