@@ -12,10 +12,14 @@
  */
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { GridAPIClient } from './api-client.js';
 import { ChainClient } from './chain-client.js';
 import { captureWorldView } from './vision.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // --- Types ---
 
@@ -333,79 +337,183 @@ interface PrimitiveWithOwner extends PrimitiveData {
   ownerAgentId?: string;
 }
 
+// --- Node History (stable names across ticks) ---
+
+interface NodeHistoryEntry {
+  name: string;
+  x: number;
+  z: number;
+  lastSeen: string; // ISO timestamp
+}
+
+const NODE_HISTORY_FILE = join(__dirname, 'node-history.json');
+const NODE_MATCH_RADIUS = 25; // If a cluster centroid is within this of a known node, reuse its name
+
+function loadNodeHistory(): NodeHistoryEntry[] {
+  try {
+    if (existsSync(NODE_HISTORY_FILE)) {
+      return JSON.parse(readFileSync(NODE_HISTORY_FILE, 'utf-8'));
+    }
+  } catch { /* ignore parse errors */ }
+  return [];
+}
+
+function saveNodeHistory(entries: NodeHistoryEntry[]): void {
+  try {
+    // Keep only entries seen in the last 7 days
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const fresh = entries.filter(e => new Date(e.lastSeen).getTime() > cutoff);
+    writeFileSync(NODE_HISTORY_FILE, JSON.stringify(fresh, null, 2), 'utf-8');
+  } catch { /* ignore write errors */ }
+}
+
+function matchHistoricalNode(x: number, z: number, history: NodeHistoryEntry[], usedNames: Set<string>): string | null {
+  let closest: NodeHistoryEntry | null = null;
+  let closestDist = Infinity;
+  for (const entry of history) {
+    const dx = entry.x - x;
+    const dz = entry.z - z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < closestDist && dist <= NODE_MATCH_RADIUS && !usedNames.has(entry.name)) {
+      closest = entry;
+      closestDist = dist;
+    }
+  }
+  return closest ? closest.name : null;
+}
+
+// --- Radius-based Centroid Clustering (DBSCAN-style) ---
+
+const CLUSTER_RADIUS = 25; // Primitives within this distance of the centroid belong to the cluster
+const MIN_CLUSTER_SIZE = 1; // Minimum primitives to form a node
+
 function computeSettlementNodes(
   primitives: PrimitiveWithOwner[],
   agentNameMap?: Map<string, string>
 ): SettlementNode[] {
   if (primitives.length === 0) return [];
 
-  // Grid-based clustering with 30-unit cells
-  const cellSize = 30;
-  const cellMap = new Map<string, { xs: number[]; zs: number[]; shapes: string[]; owners: Set<string> }>();
-  for (const p of primitives) {
-    const cx = Math.floor(p.position.x / cellSize);
-    const cz = Math.floor(p.position.z / cellSize);
-    const key = `${cx},${cz}`;
-    if (!cellMap.has(key)) cellMap.set(key, { xs: [], zs: [], shapes: [], owners: new Set() });
-    const cell = cellMap.get(key)!;
-    cell.xs.push(p.position.x);
-    cell.zs.push(p.position.z);
-    cell.shapes.push(p.shape);
-    if (p.ownerAgentId) cell.owners.add(p.ownerAgentId);
+  // 1. DBSCAN-style clustering: seed from densest points, expand by radius
+  const unclustered = new Set<number>(primitives.map((_, i) => i));
+  const clusters: Array<{ indices: number[] }> = [];
+
+  while (unclustered.size > 0) {
+    // Find the unclustered primitive with the most neighbors (seed from density)
+    let bestSeed = -1;
+    let bestNeighborCount = -1;
+    for (const idx of unclustered) {
+      let neighbors = 0;
+      for (const other of unclustered) {
+        if (other === idx) continue;
+        const dx = primitives[idx].position.x - primitives[other].position.x;
+        const dz = primitives[idx].position.z - primitives[other].position.z;
+        if (Math.sqrt(dx * dx + dz * dz) <= CLUSTER_RADIUS) neighbors++;
+      }
+      if (neighbors > bestNeighborCount) {
+        bestNeighborCount = neighbors;
+        bestSeed = idx;
+      }
+    }
+
+    if (bestSeed === -1) break;
+
+    // Gather all primitives within CLUSTER_RADIUS of seed
+    const cluster: number[] = [bestSeed];
+    unclustered.delete(bestSeed);
+
+    // Iteratively expand: compute centroid, gather more within radius, repeat
+    for (let iter = 0; iter < 5; iter++) {
+      // Compute current centroid
+      let cx = 0, cz = 0;
+      for (const i of cluster) { cx += primitives[i].position.x; cz += primitives[i].position.z; }
+      cx /= cluster.length;
+      cz /= cluster.length;
+
+      // Find unclustered primitives within CLUSTER_RADIUS of centroid
+      const toAdd: number[] = [];
+      for (const idx of unclustered) {
+        const dx = primitives[idx].position.x - cx;
+        const dz = primitives[idx].position.z - cz;
+        if (Math.sqrt(dx * dx + dz * dz) <= CLUSTER_RADIUS) {
+          toAdd.push(idx);
+        }
+      }
+      if (toAdd.length === 0) break; // No expansion — stable
+      for (const idx of toAdd) {
+        cluster.push(idx);
+        unclustered.delete(idx);
+      }
+    }
+
+    if (cluster.length >= MIN_CLUSTER_SIZE) {
+      clusters.push({ indices: cluster });
+    }
   }
 
-  // Compute world centroid for directional naming
-  let totalX = 0, totalZ = 0, totalCount = 0;
-  for (const cell of cellMap.values()) {
-    for (const x of cell.xs) totalX += x;
-    for (const z of cell.zs) totalZ += z;
-    totalCount += cell.xs.length;
-  }
-  const worldCentroidX = totalCount > 0 ? totalX / totalCount : 0;
-  const worldCentroidZ = totalCount > 0 ? totalZ / totalCount : 0;
+  // 2. Compute world centroid for directional naming
+  let totalX = 0, totalZ = 0;
+  for (const p of primitives) { totalX += p.position.x; totalZ += p.position.z; }
+  const worldCentroidX = totalX / primitives.length;
+  const worldCentroidZ = totalZ / primitives.length;
 
-  // Track used direction names to avoid duplicates
+  // 3. Load node history for stable naming
+  const history = loadNodeHistory();
   const usedNames = new Set<string>();
 
-  const nodes: SettlementNode[] = Array.from(cellMap.values()).map(cell => {
-    const centerX = cell.xs.reduce((a, b) => a + b, 0) / cell.xs.length;
-    const centerZ = cell.zs.reduce((a, b) => a + b, 0) / cell.zs.length;
-    const maxDist = Math.max(...cell.xs.map(x => Math.abs(x - centerX)), ...cell.zs.map(z => Math.abs(z - centerZ)), 1);
+  // 4. Convert clusters to SettlementNodes
+  const nodes: SettlementNode[] = clusters.map(cluster => {
+    const clusterPrims = cluster.indices.map(i => primitives[i]);
 
-    const count = cell.xs.length;
+    // Centroid = average position of all primitives in cluster
+    let cx = 0, cz = 0;
+    for (const p of clusterPrims) { cx += p.position.x; cz += p.position.z; }
+    cx /= clusterPrims.length;
+    cz /= clusterPrims.length;
+
+    // Radius = max distance from centroid to any primitive
+    let maxDist = 0;
+    for (const p of clusterPrims) {
+      const dx = p.position.x - cx;
+      const dz = p.position.z - cz;
+      maxDist = Math.max(maxDist, Math.sqrt(dx * dx + dz * dz));
+    }
+
+    const count = clusterPrims.length;
+    const shapes = clusterPrims.map(p => p.shape);
     const tier: NodeTier = count >= 20 ? 'Capital' : count >= 10 ? 'District' : count >= 5 ? 'Neighborhood' : 'Outpost';
-    const theme = classifyTheme(cell.shapes);
-    const missing = count >= 5 ? detectMissingCategories(cell.shapes) : [];
+    const theme = classifyTheme(shapes);
+    const missing = count >= 5 ? detectMissingCategories(shapes) : [];
 
-    // Build builder names list
+    // Builder names
+    const ownerSet = new Set<string>();
+    for (const p of clusterPrims) { if (p.ownerAgentId) ownerSet.add(p.ownerAgentId); }
     const builders: string[] = [];
-    for (const ownerId of cell.owners) {
-      const name = agentNameMap?.get(ownerId) || ownerId;
-      builders.push(name);
+    for (const ownerId of ownerSet) {
+      builders.push(agentNameMap?.get(ownerId) || ownerId);
     }
 
-    // Generate name from direction
-    const dir = getDirection(centerX, centerZ, worldCentroidX, worldCentroidZ);
-    let baseName = NODE_NAMES_BY_DIRECTION[dir] || 'Hub';
-    // Append theme hint for variety
-    if (theme !== 'mixed') {
-      const themeLabel = theme.charAt(0).toUpperCase() + theme.slice(1);
-      baseName = `${themeLabel} ${baseName}`;
-    }
-    // Deduplicate names
-    let nodeName = baseName;
-    let suffix = 2;
-    while (usedNames.has(nodeName)) {
-      nodeName = `${baseName} ${suffix}`;
-      suffix++;
+    // Name: try to match historical node first, then generate new name
+    let nodeName = matchHistoricalNode(cx, cz, history, usedNames);
+    if (!nodeName) {
+      const dir = getDirection(cx, cz, worldCentroidX, worldCentroidZ);
+      let baseName = NODE_NAMES_BY_DIRECTION[dir] || 'Hub';
+      if (theme !== 'mixed') {
+        baseName = `${theme.charAt(0).toUpperCase() + theme.slice(1)} ${baseName}`;
+      }
+      nodeName = baseName;
+      let suffix = 2;
+      while (usedNames.has(nodeName)) {
+        nodeName = `${baseName} ${suffix}`;
+        suffix++;
+      }
     }
     usedNames.add(nodeName);
 
     return {
-      center: { x: centerX, z: centerZ },
+      center: { x: cx, z: cz },
       count,
-      radius: Math.ceil(maxDist),
-      structures: [...new Set(cell.shapes)],
+      radius: Math.max(Math.ceil(maxDist), 1),
+      structures: [...new Set(shapes)],
       builders,
       tier,
       theme,
@@ -415,30 +523,58 @@ function computeSettlementNodes(
     };
   }).sort((a, b) => b.count - a.count);
 
-  // Compute adjacency: nodes within 80 units are "adjacent"
-  // Check for bridge primitives between them
-  const ADJACENCY_DIST = 80;
+  // 5. Compute adjacency — nodes within 100u are potential connections
+  // Road detection: look for flat primitives (scaleY <= 0.2) along the line between nodes
+  const ADJACENCY_DIST = 100;
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const dx = nodes[i].center.x - nodes[j].center.x;
       const dz = nodes[i].center.z - nodes[j].center.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       if (dist <= ADJACENCY_DIST) {
-        // Check if any primitive lies on the line between them (bridge detection)
-        const midX = (nodes[i].center.x + nodes[j].center.x) / 2;
-        const midZ = (nodes[i].center.z + nodes[j].center.z) / 2;
-        const hasBridge = primitives.some(p => {
-          const pdx = p.position.x - midX;
-          const pdz = p.position.z - midZ;
-          const pDist = Math.sqrt(pdx * pdx + pdz * pdz);
-          // Primitive within 15u of midpoint and is a connecting shape
-          return pDist < 15 && (p.shape === 'plane' || p.shape === 'box' || p.shape === 'cylinder');
+        // Check for road/bridge: primitives near the line between nodes (not inside either node's radius)
+        const fromX = nodes[i].center.x, fromZ = nodes[i].center.z;
+        const toX = nodes[j].center.x, toZ = nodes[j].center.z;
+        const lineLen = dist;
+
+        const hasRoad = primitives.some(p => {
+          // Project point onto line segment, check distance to line
+          const px = p.position.x - fromX;
+          const pz = p.position.z - fromZ;
+          const lx = toX - fromX;
+          const lz = toZ - fromZ;
+          const t = Math.max(0, Math.min(1, (px * lx + pz * lz) / (lineLen * lineLen)));
+          const projX = fromX + t * lx;
+          const projZ = fromZ + t * lz;
+          const distToLine = Math.sqrt((p.position.x - projX) ** 2 + (p.position.z - projZ) ** 2);
+          // Primitive is near the line (within 8u), between the two nodes (t between 0.15 and 0.85),
+          // and is a connecting shape (box, plane, cylinder)
+          return distToLine < 8 && t > 0.15 && t < 0.85
+            && (p.shape === 'plane' || p.shape === 'box' || p.shape === 'cylinder');
         });
-        nodes[i].connections.push({ targetIdx: j, distance: Math.round(dist), hasBridge });
-        nodes[j].connections.push({ targetIdx: i, distance: Math.round(dist), hasBridge });
+
+        nodes[i].connections.push({ targetIdx: j, distance: Math.round(dist), hasBridge: hasRoad });
+        nodes[j].connections.push({ targetIdx: i, distance: Math.round(dist), hasBridge: hasRoad });
       }
     }
   }
+
+  // 6. Save node history for stable names next tick
+  const now = new Date().toISOString();
+  const updatedHistory = [...history];
+  for (const node of nodes) {
+    const existingIdx = updatedHistory.findIndex(h =>
+      Math.sqrt((h.x - node.center.x) ** 2 + (h.z - node.center.z) ** 2) <= NODE_MATCH_RADIUS
+    );
+    if (existingIdx >= 0) {
+      // Update position and timestamp
+      updatedHistory[existingIdx] = { name: node.name, x: node.center.x, z: node.center.z, lastSeen: now };
+    } else {
+      // New node
+      updatedHistory.push({ name: node.name, x: node.center.x, z: node.center.z, lastSeen: now });
+    }
+  }
+  saveNodeHistory(updatedHistory);
 
   return nodes;
 }
@@ -479,7 +615,7 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
     if (node.connections.length > 0) {
       for (const conn of node.connections) {
         const target = nodes[conn.targetIdx];
-        const bridgeLabel = conn.hasBridge ? 'via BRIDGE' : 'no bridge';
+        const bridgeLabel = conn.hasBridge ? 'ROAD exists' : 'NO ROAD';
         lines.push(`  → Connected to "${target.name}" (${conn.distance}u, ${bridgeLabel})`);
       }
     } else if (node.tier !== 'Outpost') {
