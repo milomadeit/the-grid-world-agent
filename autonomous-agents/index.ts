@@ -47,9 +47,9 @@ const registeredAgents = [
     walletAddress: process.env.AGENT_SMITH_WALLET || '',
     erc8004AgentId: process.env.AGENT_SMITH_ID || '',
     heartbeatSeconds: 20,
-    llmProvider: 'minimax' as const,
-    llmModel: 'MiniMax-M2.5',
-    llmApiKey: MINIMAX_KEY,
+    llmProvider: 'gemini' as const,
+    llmModel: 'gemini-2.0-flash',
+    llmApiKey: GEMINI_KEY,
   },
   {
     name: 'oracle',
@@ -58,9 +58,9 @@ const registeredAgents = [
     walletAddress: process.env.ORACLE_WALLET || '',
     erc8004AgentId: process.env.ORACLE_ID || '',
     heartbeatSeconds: 15,
-    llmProvider: 'minimax' as const,
-    llmModel: 'MiniMax-M2.5',
-    llmApiKey: MINIMAX_KEY,
+    llmProvider: 'gemini' as const,
+    llmModel: 'gemini-2.0-flash',
+    llmApiKey: GEMINI_KEY,
   },
 ];
 
@@ -72,9 +72,9 @@ const clankConfig = {
   walletAddress: process.env.CLANK_WALLET || '',
   erc8004AgentId: process.env.CLANK_AGENT_ID || '',
   heartbeatSeconds: 10,
-  llmProvider: 'minimax' as const,
-  llmModel: 'MiniMax-M2.5-highspeed',
-  llmApiKey: MINIMAX_KEY,
+  llmProvider: 'gemini' as const,
+  llmModel: 'gemini-2.0-flash',
+  llmApiKey: GEMINI_KEY,
 };
 
 async function boot() {

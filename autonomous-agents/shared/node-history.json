@@ -1,0 +1,110 @@
+[
+  {
+    "name": "Residential North Quarter",
+    "x": 180.09803278688528,
+    "z": 140.15786885245896,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential South Quarter",
+    "x": 226.85791366906474,
+    "z": 278.51366906474817,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential South Quarter 2",
+    "x": 184.70212765957447,
+    "z": 235.14723404255315,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Northwest Hub",
+    "x": 138.5254854368932,
+    "z": 110.19174757281553,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential North Quarter 2",
+    "x": 195.16774193548386,
+    "z": 187.64645161290323,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential Southeast Hub",
+    "x": 259.5376237623762,
+    "z": 274.81287128712864,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential Southeast Hub 2",
+    "x": 301.7279411764706,
+    "z": 297.25,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential South Quarter 3",
+    "x": 191.78823529411764,
+    "z": 271.50470588235294,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential Northwest Hub",
+    "x": 105.72916666666667,
+    "z": 95.77777777777777,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential Northwest Hub 2",
+    "x": 159.7906976744186,
+    "z": 156.3395348837209,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential Southeast Hub 3",
+    "x": 218.62790697674419,
+    "z": 222.22325581395344,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential North Quarter 3",
+    "x": 205.0909090909091,
+    "z": 153.8909090909091,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Tech Southeast Hub",
+    "x": 247,
+    "z": 248,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential North Quarter 4",
+    "x": 164.275,
+    "z": 117.545,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Art Northwest Hub",
+    "x": 145.375,
+    "z": 84.8,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential Southwest Hub",
+    "x": 164,
+    "z": 252.25,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Residential West Hub",
+    "x": 165,
+    "z": 205,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  },
+  {
+    "name": "Southeast Hub",
+    "x": 256.42105263157896,
+    "z": 304.8421052631579,
+    "lastSeen": "2026-02-16T08:20:52.159Z"
+  }
+]

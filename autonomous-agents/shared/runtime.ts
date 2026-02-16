@@ -579,7 +579,7 @@ function computeSettlementNodes(
   return nodes;
 }
 
-function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: number }): string {
+function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: number }, agentName?: string): string {
   if (nodes.length === 0) return '## World Graph\n_No settlements yet. You can start the first node! Pick a spot 50+ units from origin._';
 
   // Compute world center
@@ -652,29 +652,48 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
     }
     unconnectedPairs.sort((a, b) => a.dist - b.dist);
 
-    // Show suggestions: mix of roads and structural improvements
-    const suggestions: string[] = [];
+    // Build a pool of possible suggestions
+    const allSuggestions: string[] = [];
 
-    if (unconnectedPairs.length > 0) {
-      const pair = unconnectedPairs[0];
+    // Road suggestions (multiple)
+    for (const pair of unconnectedPairs.slice(0, 3)) {
       const midX = Math.round((pair.from.center.x + pair.to.center.x) / 2);
       const midZ = Math.round((pair.from.center.z + pair.to.center.z) / 2);
-      suggestions.push(`ROAD NEEDED: "${pair.from.name}" ↔ "${pair.to.name}" (${pair.dist}u, midpoint: ${midX},${midZ}). Place flat boxes (scaleY=0.1) every 4u along the line.`);
+      allSuggestions.push(`ROAD: Connect "${pair.from.name}" ↔ "${pair.to.name}" (${pair.dist}u, midpoint: ${midX},${midZ})`);
     }
 
-    if (closestNode.missingCategories.length > 0) {
-      suggestions.push(`BUILD: "${closestNode.name}" is missing ${closestNode.missingCategories.join(', ')}. Add a ${closestNode.missingCategories[0]} structure here.`);
+    // Structure suggestions at different nodes
+    for (const node of nodes.slice(0, 5)) {
+      if (node.missingCategories.length > 0) {
+        allSuggestions.push(`BUILD at "${node.name}" (${node.center.x.toFixed(0)},${node.center.z.toFixed(0)}): missing ${node.missingCategories.join(', ')}. Add a ${node.missingCategories[0]} structure.`);
+      }
     }
 
+    // Outpost growth
     const outposts = nodes.filter(n => n.tier === 'Outpost');
-    if (outposts.length > 0) {
-      suggestions.push(`GROW: Outpost "${outposts[0].name}" needs ${5 - outposts[0].count}+ structures to become a Neighborhood. Build something interesting there.`);
+    for (const o of outposts.slice(0, 2)) {
+      allSuggestions.push(`GROW outpost "${o.name}" (${o.center.x.toFixed(0)},${o.center.z.toFixed(0)}): needs ${5 - o.count}+ structures to become a Neighborhood.`);
     }
 
-    if (suggestions.length > 0) {
+    if (allSuggestions.length > 0) {
+      // Use agent name hash to rotate which suggestion is highlighted for THIS agent
+      // so different agents get different top suggestions
+      const nameHash = (agentName || '').split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+      const offset = Math.abs(nameHash) % allSuggestions.length;
+
       lines.push('');
-      lines.push('**SUGGESTIONS (pick ONE, don\'t all do the same thing):**');
-      for (const s of suggestions) lines.push(`- ${s}`);
+      lines.push('**YOUR SUGGESTED TASK:**');
+      lines.push(`→ ${allSuggestions[offset]}`);
+      if (allSuggestions.length > 1) {
+        lines.push('');
+        lines.push('Other options (if another agent is already doing yours):');
+        // Show 2 more rotated options
+        for (let i = 1; i <= Math.min(2, allSuggestions.length - 1); i++) {
+          lines.push(`- ${allSuggestions[(offset + i) % allSuggestions.length]}`);
+        }
+      }
+      lines.push('');
+      lines.push('**SPREAD OUT.** Don\'t build where other agents already are. If builds keep failing due to overlap, MOVE 30+ units away to a different node and build there instead.');
     }
   }
 
@@ -880,13 +899,18 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '- **Grid**: Parallel roads forming blocks (build roads first, then fill blocks with structures)',
     '- **The Capital node should be the hub.** Build roads FROM it TO other nodes.',
     '',
-    'Priorities (balance these — don\'t ONLY do roads or ONLY do structures):',
-    '1. **Build interesting structures** at your nearest node — use BUILD_BLUEPRINT for variety (PLAZA, FOUNTAIN, WATCHTOWER, GARDEN, MANSION, DATACENTER, etc). Each node should feel like a real place.',
-    '2. **Connect isolated nodes** with a road when you spot two unconnected nodes nearby. A road = flat boxes (scaleY=0.1) every 4u between centers. One agent per road — don\'t all build the same one.',
-    '3. Fill category gaps shown in the World Graph (add what\'s missing: art, nature, infrastructure, signature)',
-    '4. Grow outposts into neighborhoods (build 3-5 varied structures to upgrade them)',
-    '5. Start new nodes 50-100u from existing ones, connected by a road',
-    '6. Avoid redundant builds — check what exists before building more of the same',
+    '## CRITICAL: SPREAD OUT',
+    '**Do NOT cluster with other agents.** Check "Nearby Agents" — if others are at the same node, MOVE to a DIFFERENT node.',
+    'Each agent should work at a DIFFERENT location. Coordinate via chat and directives, but physically spread across the map.',
+    'If a BUILD fails due to overlap, don\'t retry at the same spot — MOVE 30+ units away to a different node.',
+    '',
+    'Priorities:',
+    '1. **Build interesting structures** — use BUILD_BLUEPRINT for variety (PLAZA, FOUNTAIN, WATCHTOWER, GARDEN, MANSION, DATACENTER, etc).',
+    '2. **Connect isolated nodes** with a road when you\'re between two unconnected nodes. One agent per road.',
+    '3. Fill category gaps shown in the World Graph (add what\'s missing)',
+    '4. Grow outposts into neighborhoods (add 3-5 varied structures)',
+    '5. Start new nodes 50-100u from existing ones',
+    '6. Avoid redundant builds',
     '',
     'Write your current objective and step number in your "thought" before choosing an action.',
     '\n---\n',
@@ -1123,7 +1147,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const allPrims = world.primitives as PrimitiveWithOwner[];
           const myPos = self?.position || { x: 0, z: 0 };
           const nodes = computeSettlementNodes(allPrims, agentNameMap);
-          return formatSettlementMap(nodes, myPos);
+          return formatSettlementMap(nodes, myPos, agentName);
         })(),
         '',
         // Open Areas from server spatial summary
