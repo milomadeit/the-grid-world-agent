@@ -25,6 +25,10 @@ const HOST = process.env.HOST || '0.0.0.0';
 async function main() {
   console.log('[Server] Starting OpGrid Backend...');
 
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is required. Refusing to start without authentication secret.');
+  }
+
   // Initialize Fastify with server factory for Socket.io compatibility
   const fastify = Fastify({
     logger: {

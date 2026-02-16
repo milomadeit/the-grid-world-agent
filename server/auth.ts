@@ -1,18 +1,45 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
 import { ethers } from 'ethers';
+import * as db from './db.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-opgrid-key-123';
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET is required');
+  }
+  return secret;
+}
 
 // --- JWT Session Management ---
 
-export function generateToken(agentId: string): string {
-  return jwt.sign({ agentId }, JWT_SECRET, { expiresIn: '24h' });
+export interface AuthTokenPayload {
+  agentId: string;
+  ownerId: string; // wallet address used at entry time
 }
 
-export function verifyToken(token: string): { agentId: string } | null {
+export function generateToken(agentId: string, ownerId: string): string {
+  return jwt.sign(
+    { agentId, ownerId: ownerId.toLowerCase() },
+    getJwtSecret(),
+    { expiresIn: '24h' }
+  );
+}
+
+export function verifyToken(token: string): AuthTokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as { agentId: string };
+    const decoded = jwt.verify(token, getJwtSecret()) as Partial<AuthTokenPayload>;
+    if (
+      typeof decoded?.agentId !== 'string' ||
+      typeof decoded?.ownerId !== 'string'
+    ) {
+      return null;
+    }
+
+    return {
+      agentId: decoded.agentId,
+      ownerId: decoded.ownerId.toLowerCase(),
+    };
   } catch {
     return null;
   }
@@ -21,7 +48,7 @@ export function verifyToken(token: string): { agentId: string } | null {
 export async function authenticate(
   request: FastifyRequest,
   reply: FastifyReply
-): Promise<{ agentId: string } | undefined> {
+): Promise<AuthTokenPayload | undefined> {
   const auth = request.headers.authorization;
   if (!auth?.startsWith('Bearer ')) {
     reply.code(401).send({ error: 'Missing or invalid authorization header' });
@@ -32,6 +59,20 @@ export async function authenticate(
   const payload = verifyToken(token);
   if (!payload) {
     reply.code(401).send({ error: 'Invalid or expired token' });
+    return;
+  }
+
+  // Enforce JWT->agent owner binding.
+  const agent = await db.getAgent(payload.agentId);
+  if (!agent) {
+    reply.code(401).send({ error: 'Agent not found for token' });
+    return;
+  }
+
+  const tokenOwner = payload.ownerId.toLowerCase();
+  const agentOwner = (agent.ownerId || '').toLowerCase();
+  if (!agentOwner || tokenOwner !== agentOwner) {
+    reply.code(401).send({ error: 'Token owner does not match agent owner' });
     return;
   }
 

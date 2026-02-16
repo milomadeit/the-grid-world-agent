@@ -187,9 +187,6 @@ export async function initDatabase(): Promise<void> {
       );
     `);
 
-    // One-time migration: reset all existing agents to 500 credits
-    await pool.query(`UPDATE agents SET build_credits = 500, credits_last_reset = NOW()`);
-
     // Create indexes (safe now that all columns exist)
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(owner_id);
