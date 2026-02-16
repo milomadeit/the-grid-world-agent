@@ -127,31 +127,81 @@ function logNetworkFailure(agentName: string, err: unknown): void {
 }
 
 function makeCoordinationChat(
+  agentName: string,
   self: { position: { x: number; z: number } } | undefined,
   directives: Array<{ id: string; description: string }>,
   otherAgents: Array<{ name: string }>,
+  recentMessages: Array<{ agentName?: string; message?: string }> = [],
   buildError?: string,
 ): string {
   if (buildError) {
     const compact = buildError.replace(/\s+/g, ' ').slice(0, 90);
-    return `Build blocked (${compact}). Repositioning now and trying a nearby spot.`;
+    return `Build blocked (${compact}). Waiting for the limit window to clear, then retrying.`;
+  }
+
+  const selfName = agentName.toLowerCase();
+  const latestMessages = [...recentMessages]
+    .reverse()
+    .filter((m) => (m.agentName || '').toLowerCase() !== 'system');
+
+  const mention = latestMessages.find((m) =>
+    ((m.message || '').toLowerCase().includes(selfName)) &&
+    (m.agentName || '').toLowerCase() !== selfName
+  );
+  if (mention?.agentName) {
+    return `${mention.agentName}, acknowledged. I saw your ping and I am acting on it now.`;
+  }
+
+  const coordinationAsk = latestMessages.find((m) =>
+    /sync|coordinate|join|help|who can|can you|\?/.test((m.message || '').toLowerCase()) &&
+    (m.agentName || '').toLowerCase() !== selfName
+  );
+  if (coordinationAsk?.agentName) {
+    return `${coordinationAsk.agentName}, yes - syncing now. I will post progress shortly.`;
   }
 
   if (directives.length > 0) {
     const d = directives[0];
     const shortId = d.id.slice(0, 8);
-    return `I’m aligning on directive ${shortId}. ${d.description.slice(0, 90)} — who can coordinate?`;
+    return `I am working directive ${shortId}. ${d.description.slice(0, 80)}. Reply if you are nearby to split tasks.`;
   }
 
   if (self) {
     const neighbors = otherAgents.slice(0, 2).map(a => a.name).join(', ');
     if (neighbors) {
-      return `I’m at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}). ${neighbors}, want to sync next steps?`;
+      return `I am at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}). ${neighbors}, confirm your lanes and I will take one side.`;
     }
-    return `I’m at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) and pushing this area forward. Ping me if you want to coordinate.`;
+    return `I am at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) and pushing this area forward.`;
   }
 
   return 'Quick sync check-in: what zone should we focus next?';
+}
+
+function isRateLimitErrorMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes('429') ||
+    m.includes('rate limit') ||
+    m.includes('too many requests') ||
+    m.includes('throttl') ||
+    m.includes('quota') ||
+    m.includes('retry after') ||
+    m.includes('slow down')
+  );
+}
+
+function parseRateLimitCooldownSeconds(message: string, fallbackSeconds: number): number {
+  const lower = message.toLowerCase();
+  const match = lower.match(/(?:retry|wait|after|in|reset)[^0-9]{0,20}(\d+)\s*(ms|milliseconds?|s|sec|secs|seconds?|m|min|mins|minutes?)/);
+  if (!match) return fallbackSeconds;
+
+  const value = Number(match[1]);
+  const unit = match[2];
+  if (!Number.isFinite(value) || value <= 0) return fallbackSeconds;
+
+  if (unit.startsWith('ms')) return Math.max(5, Math.ceil(value / 1000));
+  if (unit.startsWith('m')) return Math.max(5, value * 60);
+  return Math.max(5, value);
 }
 
 // --- Spatial Awareness ---
@@ -846,6 +896,12 @@ function formatTokenLog(provider: string, usage: LLMUsage | null): string {
   return `Tokens: ${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out | Cost est: $${costEst.toFixed(4)}`;
 }
 
+function promptBudgetForProvider(provider: AgentConfig['llmProvider']): { maxChars: number; tailChars: number } {
+  if (provider === 'anthropic') return { maxChars: 12000, tailChars: 4000 };
+  if (provider === 'openai') return { maxChars: 24000, tailChars: 8000 };
+  return { maxChars: 32000, tailChars: 12000 };
+}
+
 function trimPromptForLLM(prompt: string, maxChars = 32000, tailChars = 12000): string {
   if (prompt.length <= maxChars) return prompt;
 
@@ -1236,6 +1292,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   let lastWorldHash = '';
   let ticksSinceLastLLMCall = 0;
   const MAX_SKIP_TICKS = 5; // Force an LLM call at least every 5 ticks
+  let rateLimitCooldownUntil = 0;
   let tickInProgress = false;
 
   const tick = async () => {
@@ -1246,6 +1303,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
     tickInProgress = true;
     try {
+      const cooldownRemainingMs = rateLimitCooldownUntil - Date.now();
+      if (cooldownRemainingMs > 0) {
+        console.log(`[${agentName}] Rate-limit cooldown active (${Math.ceil(cooldownRemainingMs / 1000)}s left). Waiting.`);
+        return;
+      }
+
       // 1. Read working memory
       const workingMemory = readMd(join(memoryDir, 'WORKING.md'));
 
@@ -1589,11 +1652,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         console.log(`[${agentName}] Captured visual input`);
       }
 
-      const modelPrompt = trimPromptForLLM(userPrompt);
+      const budget = promptBudgetForProvider(config.llmProvider);
+      const modelPrompt = trimPromptForLLM(userPrompt, budget.maxChars, budget.tailChars);
       if (modelPrompt.length !== userPrompt.length) {
         console.log(`[${agentName}] Prompt trimmed ${userPrompt.length} -> ${modelPrompt.length} chars`);
       }
       let decision: AgentDecision;
+      let rateLimitWaitThisTick = false;
       try {
         const llmResponse = await callLLM(config, fullSystemPrompt, modelPrompt, imageBase64);
         const raw = llmResponse.text;
@@ -1621,19 +1686,27 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         const llmMsg = llmErr instanceof Error ? llmErr.message : String(llmErr);
         const compact = llmMsg.replace(/\s+/g, ' ').slice(0, 140);
         console.error(`[${agentName}] LLM call failed: ${compact}`);
-        if (otherAgents.length > 0) {
+        if (isRateLimitErrorMessage(llmMsg)) {
+          const waitSeconds = parseRateLimitCooldownSeconds(llmMsg, 30);
+          rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + waitSeconds * 1000);
+          rateLimitWaitThisTick = true;
+          decision = {
+            thought: `LLM rate-limited (${compact}); waiting ${waitSeconds}s before retry.`,
+            action: 'IDLE',
+          };
+        } else if (otherAgents.length > 0) {
           decision = {
             thought: `LLM unavailable (${compact}); sending coordination heartbeat.`,
             action: 'CHAT',
-            payload: { message: makeCoordinationChat(self, directives, otherAgents, compact).slice(0, 220) },
+            payload: { message: makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages).slice(0, 220) },
           };
         } else {
           decision = { thought: `LLM unavailable (${compact}); waiting for next tick.`, action: 'IDLE' };
         }
       }
 
-      if (forceChatCadence && chatDue && decision.action !== 'CHAT' && !(blueprintStatus?.active && decision.action === 'BUILD_CONTINUE')) {
-        const forcedMessage = makeCoordinationChat(self, directives, otherAgents);
+      if (forceChatCadence && chatDue && decision.action !== 'CHAT' && !(blueprintStatus?.active && decision.action === 'BUILD_CONTINUE') && !rateLimitWaitThisTick) {
+        const forcedMessage = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
         console.log(`[${agentName}] Communication cadence override -> CHAT`);
         decision = {
           thought: `${decision.thought} | Communication is overdue; sending coordination update.`,
@@ -1647,8 +1720,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       let buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
       if (buildError) {
         console.warn(`[${agentName}] Action error: ${buildError}`);
-        // Enrich build error with nearest safe spot coordinates
-        if (safeSpots.length > 0) {
+        if (isRateLimitErrorMessage(buildError)) {
+          const waitSeconds = parseRateLimitCooldownSeconds(buildError, 20);
+          rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + waitSeconds * 1000);
+          console.warn(`[${agentName}] Rate-limited on ${decision.action}. Cooling down ${waitSeconds}s before retry.`);
+          buildError = `${buildError} — Rate-limited; waiting ${waitSeconds}s before retry.`;
+        } else if (safeSpots.length > 0) {
+          // Enrich non-rate-limit build errors with nearest safe spot coordinates
           const myPos = self?.position || { x: 0, z: 0 };
           const nearest3 = [...safeSpots]
             .sort((a, b) => {
