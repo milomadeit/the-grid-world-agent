@@ -12,7 +12,16 @@ import * as db from '../db.js';
 import { getWorldManager } from '../world.js';
 import { verifyAgentOwnership, isChainInitialized, verifyEntryFeePayment, TREASURY_ADDRESS, ENTRY_FEE_MON, MONAD_CHAIN_ID } from '../chain.js';
 import { lookupAgent, getAgentReputation, isAgent0Ready } from '../agent0.js';
+import { checkRateLimit } from '../throttle.js';
 
+const MAX_CHAT_MESSAGE_LENGTH = 280;
+
+const ACTION_RATE_LIMITS: Record<ActionRequest['action'], { limit: number; windowMs: number }> = {
+  MOVE: { limit: 20, windowMs: 10_000 },
+  CHAT: { limit: 5, windowMs: 20_000 },
+  COLLECT: { limit: 20, windowMs: 10_000 },
+  BUILD: { limit: 12, windowMs: 10_000 },
+};
 
 
 export async function registerAgentRoutes(fastify: FastifyInstance): Promise<void> {
@@ -301,6 +310,20 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
       const world = getWorldManager();
       const tick = world.getCurrentTick();
 
+      const actionRate = ACTION_RATE_LIMITS[action];
+      const throttle = checkRateLimit(
+        `rest:agents:action:${action.toLowerCase()}`,
+        auth.agentId,
+        actionRate.limit,
+        actionRate.windowMs
+      );
+      if (!throttle.allowed) {
+        return reply.code(429).send({
+          error: `Rate limited for ${action}. Slow down.`,
+          retryAfterMs: throttle.retryAfterMs,
+        });
+      }
+
       // Keep agent alive on the map
       world.touchAgent(auth.agentId);
 
@@ -326,6 +349,15 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
             if (typeof message !== 'string') {
               return reply.code(400).send({ error: 'CHAT requires a message' });
             }
+            const trimmed = message.trim();
+            if (!trimmed) {
+              return reply.code(400).send({ error: 'CHAT message cannot be empty' });
+            }
+            if (trimmed.length > MAX_CHAT_MESSAGE_LENGTH) {
+              return reply.code(400).send({
+                error: `CHAT message too long (${trimmed.length}). Max ${MAX_CHAT_MESSAGE_LENGTH} characters.`,
+              });
+            }
 
             // Look up agent name for persistence
             const agent = await db.getAgent(auth.agentId);
@@ -336,11 +368,11 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
               id: 0,
               agentId: auth.agentId,
               agentName,
-              message,
+              message: trimmed,
               createdAt: Date.now()
             });
 
-            world.broadcastChat(auth.agentId, message, agentName);
+            world.broadcastChat(auth.agentId, trimmed, agentName);
             return { status: 'executed', tick };
           }
 

@@ -603,6 +603,67 @@ export async function createWorldPrimitive(primitive: WorldPrimitive): Promise<W
   return primitive;
 }
 
+export type CreatePrimitiveWithCreditResult =
+  | { ok: true }
+  | { ok: false; reason: 'insufficient_credits' | 'db_error' };
+
+/**
+ * Atomically debit credits and insert a primitive in a single DB transaction.
+ * This prevents "free primitive" races under concurrent requests.
+ */
+export async function createWorldPrimitiveWithCreditDebit(
+  primitive: WorldPrimitive,
+  creditCost: number,
+): Promise<CreatePrimitiveWithCreditResult> {
+  if (!pool) {
+    // In-memory fallback keeps legacy behavior (no strict credit accounting).
+    return { ok: true };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const debit = await client.query(
+      'UPDATE agents SET build_credits = build_credits - $1 WHERE id = $2 AND build_credits >= $1',
+      [creditCost, primitive.ownerAgentId]
+    );
+
+    if ((debit.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      return { ok: false, reason: 'insufficient_credits' };
+    }
+
+    await client.query(
+      `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0))`,
+      [
+        primitive.id,
+        primitive.shape,
+        primitive.ownerAgentId,
+        primitive.position.x, primitive.position.y, primitive.position.z,
+        primitive.rotation.x, primitive.rotation.y, primitive.rotation.z,
+        primitive.scale.x, primitive.scale.y, primitive.scale.z,
+        primitive.color,
+        primitive.createdAt
+      ]
+    );
+
+    await client.query('COMMIT');
+    return { ok: true };
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // Ignore rollback errors; original failure is returned below.
+    }
+    console.error('[DB] createWorldPrimitiveWithCreditDebit failed:', error);
+    return { ok: false, reason: 'db_error' };
+  } finally {
+    client.release();
+  }
+}
+
 export async function deleteWorldPrimitive(id: string): Promise<boolean> {
   if (!pool) return true;
   const result = await pool.query('DELETE FROM world_primitives WHERE id = $1', [id]);

@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import * as db from '../db.js';
 import { getWorldManager } from '../world.js';
 import { authenticate } from '../auth.js';
+import { checkRateLimit } from '../throttle.js';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -215,6 +216,10 @@ function distanceToNearestPrimitive(
 export async function registerGridRoutes(fastify: FastifyInstance) {
   const world = getWorldManager();
 
+  const PRIMITIVE_RATE_LIMIT = { limit: 12, windowMs: 10_000 };
+  const BLUEPRINT_START_RATE_LIMIT = { limit: 2, windowMs: 20_000 };
+  const BLUEPRINT_CONTINUE_RATE_LIMIT = { limit: 6, windowMs: 30_000 };
+
   // Helper: authenticate and verify agent exists in DB
   const requireAgent = async (request: FastifyRequest, reply: FastifyReply): Promise<string | null> => {
     const payload = await authenticate(request, reply);
@@ -251,6 +256,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
   fastify.post('/v1/grid/primitive', async (request, reply) => {
     const agentId = await requireAgent(request, reply);
     if (!agentId) return;
+
+    const primitiveThrottle = checkRateLimit(
+      'rest:grid:primitive',
+      agentId,
+      PRIMITIVE_RATE_LIMIT.limit,
+      PRIMITIVE_RATE_LIMIT.windowMs
+    );
+    if (!primitiveThrottle.allowed) {
+      return reply.status(429).send({
+        error: 'Primitive build rate limited. Slow down.',
+        retryAfterMs: primitiveThrottle.retryAfterMs,
+      });
+    }
 
     const credits = await db.getAgentCredits(agentId);
     if (credits < BUILD_CREDIT_CONFIG.PRIMITIVE_COST) {
@@ -330,8 +348,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       createdAt: Date.now()
     };
 
-    await db.createWorldPrimitive(primitive);
-    await db.deductCredits(agentId, BUILD_CREDIT_CONFIG.PRIMITIVE_COST);
+    const placed = await db.createWorldPrimitiveWithCreditDebit(
+      primitive,
+      BUILD_CREDIT_CONFIG.PRIMITIVE_COST
+    );
+    if (!placed.ok) {
+      if (placed.reason === 'insufficient_credits') {
+        return reply.status(403).send({ error: 'Insufficient credits' });
+      }
+      return reply.status(500).send({ error: 'Failed to place primitive' });
+    }
 
     world.addWorldPrimitive(primitive);
 
@@ -383,6 +409,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
   fastify.post('/v1/grid/blueprint/start', async (request, reply) => {
     const agentId = await requireAgent(request, reply);
     if (!agentId) return;
+
+    const startThrottle = checkRateLimit(
+      'rest:grid:blueprint:start',
+      agentId,
+      BLUEPRINT_START_RATE_LIMIT.limit,
+      BLUEPRINT_START_RATE_LIMIT.windowMs
+    );
+    if (!startThrottle.allowed) {
+      return reply.code(429).send({
+        error: 'Blueprint start rate limited. Slow down.',
+        retryAfterMs: startThrottle.retryAfterMs,
+      });
+    }
 
     const body = StartBlueprintSchema.parse(request.body);
 
@@ -547,6 +586,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const agentId = await requireAgent(request, reply);
     if (!agentId) return;
 
+    const continueThrottle = checkRateLimit(
+      'rest:grid:blueprint:continue',
+      agentId,
+      BLUEPRINT_CONTINUE_RATE_LIMIT.limit,
+      BLUEPRINT_CONTINUE_RATE_LIMIT.windowMs
+    );
+    if (!continueThrottle.allowed) {
+      return reply.code(429).send({
+        error: 'Blueprint continue rate limited. Slow down.',
+        retryAfterMs: continueThrottle.retryAfterMs,
+      });
+    }
+
     const plan = world.getBuildPlan(agentId);
     if (!plan) {
       return reply.code(404).send({
@@ -584,13 +636,6 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       plan.nextIndex++; // Always advance cursor (don't retry failed pieces)
 
       try {
-        // Credit check per piece
-        const credits = await db.getAgentCredits(agentId);
-        if (credits < BUILD_CREDIT_CONFIG.PRIMITIVE_COST) {
-          results.push({ index: idx, success: false, error: 'Insufficient credits' });
-          continue;
-        }
-
         // Position copy for potential Y correction
         const position = { ...prim.position };
 
@@ -625,8 +670,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           createdAt: Date.now(),
         };
 
-        await db.createWorldPrimitive(primitive);
-        await db.deductCredits(agentId, BUILD_CREDIT_CONFIG.PRIMITIVE_COST);
+        const placed = await db.createWorldPrimitiveWithCreditDebit(
+          primitive,
+          BUILD_CREDIT_CONFIG.PRIMITIVE_COST
+        );
+        if (!placed.ok) {
+          results.push({
+            index: idx,
+            success: false,
+            error: placed.reason === 'insufficient_credits' ? 'Insufficient credits' : 'Failed to place primitive',
+          });
+          continue;
+        }
+
         world.addWorldPrimitive(primitive);
 
         plan.placedCount++;

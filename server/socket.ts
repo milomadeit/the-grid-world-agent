@@ -3,7 +3,12 @@ import type { AgentInputEvent } from './types.js';
 import { getWorldManager } from './world.js';
 import * as db from './db.js';
 import { verifyToken } from './auth.js';
+import { checkRateLimit } from './throttle.js';
 
+const MAX_CHAT_MESSAGE_LENGTH = 280;
+const SOCKET_INPUT_RATE_LIMIT = { limit: 30, windowMs: 10_000 };
+const SOCKET_CHAT_RATE_LIMIT = { limit: 5, windowMs: 20_000 };
+const SOCKET_MOVE_RATE_LIMIT = { limit: 20, windowMs: 10_000 };
 
 function extractSocketToken(socket: any): string | null {
   const authToken = typeof socket.handshake?.auth?.token === 'string'
@@ -123,8 +128,36 @@ export function setupSocketServer(httpServer: any): SocketServer {
         return;
       }
 
+      const inputThrottle = checkRateLimit(
+        'socket:agent:input',
+        actingAgentId,
+        SOCKET_INPUT_RATE_LIMIT.limit,
+        SOCKET_INPUT_RATE_LIMIT.windowMs
+      );
+      if (!inputThrottle.allowed) {
+        socket.emit('error', {
+          message: 'Action rate limited. Slow down.',
+          retryAfterMs: inputThrottle.retryAfterMs,
+        });
+        return;
+      }
+
       switch (op) {
-        case 'MOVE':
+        case 'MOVE': {
+          const moveThrottle = checkRateLimit(
+            'socket:agent:move',
+            actingAgentId,
+            SOCKET_MOVE_RATE_LIMIT.limit,
+            SOCKET_MOVE_RATE_LIMIT.windowMs
+          );
+          if (!moveThrottle.allowed) {
+            socket.emit('error', {
+              message: 'Move rate limited. Slow down.',
+              retryAfterMs: moveThrottle.retryAfterMs,
+            });
+            return;
+          }
+
           if (to) {
             world.queueAction(actingAgentId, {
               type: 'MOVE',
@@ -132,24 +165,56 @@ export function setupSocketServer(httpServer: any): SocketServer {
             });
           }
           break;
+        }
 
-        case 'CHAT':
+        case 'CHAT': {
+          const chatThrottle = checkRateLimit(
+            'socket:agent:chat',
+            actingAgentId,
+            SOCKET_CHAT_RATE_LIMIT.limit,
+            SOCKET_CHAT_RATE_LIMIT.windowMs
+          );
+          if (!chatThrottle.allowed) {
+            socket.emit('error', {
+              message: 'Chat rate limited. Slow down.',
+              retryAfterMs: chatThrottle.retryAfterMs,
+            });
+            return;
+          }
+
           if (message) {
+            if (typeof message !== 'string') {
+              socket.emit('error', { message: 'CHAT message must be a string' });
+              return;
+            }
+            const trimmed = message.trim();
+            if (!trimmed) {
+              socket.emit('error', { message: 'CHAT message cannot be empty' });
+              return;
+            }
+            if (trimmed.length > MAX_CHAT_MESSAGE_LENGTH) {
+              socket.emit('error', {
+                message: `CHAT message too long (${trimmed.length}). Max ${MAX_CHAT_MESSAGE_LENGTH} characters.`,
+              });
+              return;
+            }
+
             // Persist chat to DB then broadcast
             db.writeChatMessage({
               id: 0,
               agentId: actingAgentId,
               agentName: agent.name,
-              message,
+              message: trimmed,
               createdAt: Date.now()
             }).then(() => {
-              world.broadcastChat(actingAgentId, message, agent.name);
+              world.broadcastChat(actingAgentId, trimmed, agent.name);
             }).catch(err => {
               console.error('[Socket] Failed to persist chat:', err);
-              world.broadcastChat(actingAgentId, message, agent.name);
+              world.broadcastChat(actingAgentId, trimmed, agent.name);
             });
           }
           break;
+        }
 
         default:
           socket.emit('error', { message: `Unknown operation: ${op}` });
