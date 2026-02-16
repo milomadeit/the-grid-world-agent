@@ -5,8 +5,13 @@
 
 import { ethers } from 'ethers';
 
-const BASE_URL = process.env.GRID_API_URL || 'http://localhost:3001';
-const MONAD_RPC = process.env.MONAD_RPC || 'https://rpc.monad.xyz';
+function getBaseUrl(): string {
+  return process.env.GRID_API_URL || 'http://localhost:3001';
+}
+
+function getMonadRpc(): string {
+  return process.env.MONAD_RPC || 'https://rpc.monad.xyz';
+}
 
 interface EnterResponse {
   agentId: string;
@@ -89,6 +94,15 @@ interface Directive {
 export class GridAPIClient {
   private token: string | null = null;
   private agentId: string | null = null;
+  private entryConfig: {
+    privateKey: string;
+    erc8004AgentId: string;
+    name: string;
+    color: string;
+    bio: string;
+    agentRegistry?: string;
+  } | null = null;
+  private refreshInFlight: Promise<void> | null = null;
 
   getAgentId(): string | null {
     return this.agentId;
@@ -104,8 +118,13 @@ export class GridAPIClient {
     return h;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${BASE_URL}${path}`, {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    allowTokenRefresh = true
+  ): Promise<T> {
+    const res = await fetch(`${getBaseUrl()}${path}`, {
       method,
       headers: this.headers(),
       body: body ? JSON.stringify(body) : undefined,
@@ -113,10 +132,53 @@ export class GridAPIClient {
 
     if (!res.ok) {
       const text = await res.text();
+
+      const shouldTryRefresh =
+        allowTokenRefresh &&
+        res.status === 401 &&
+        !!this.entryConfig &&
+        path !== '/v1/agents/enter';
+
+      if (shouldTryRefresh) {
+        console.warn(
+          `[API] ${method} ${path} returned 401 (hasToken=${Boolean(this.token)}). Re-authenticating and retrying once...`
+        );
+        await this.refreshSessionToken();
+        return this.request<T>(method, path, body, false);
+      }
+
       throw new Error(`API ${method} ${path} failed (${res.status}): ${text}`);
     }
 
     return res.json() as Promise<T>;
+  }
+
+  private async refreshSessionToken(): Promise<void> {
+    if (!this.entryConfig) {
+      throw new Error('Cannot refresh session: missing entry configuration');
+    }
+    if (this.refreshInFlight) {
+      return this.refreshInFlight;
+    }
+
+    this.refreshInFlight = (async () => {
+      const cfg = this.entryConfig!;
+      const refreshed = await this.enter(
+        cfg.privateKey,
+        cfg.erc8004AgentId,
+        cfg.name,
+        cfg.color,
+        cfg.bio,
+        cfg.agentRegistry
+      );
+      console.log(`[API] Session refreshed for ${refreshed.agentId}`);
+    })();
+
+    try {
+      await this.refreshInFlight;
+    } finally {
+      this.refreshInFlight = null;
+    }
   }
 
   /**
@@ -131,6 +193,15 @@ export class GridAPIClient {
     bio: string,
     agentRegistry?: string
   ): Promise<EnterResponse> {
+    this.entryConfig = {
+      privateKey,
+      erc8004AgentId,
+      name,
+      color,
+      bio,
+      agentRegistry,
+    };
+
     const wallet = new ethers.Wallet(privateKey);
     const walletAddress = wallet.address;
 
@@ -160,7 +231,7 @@ export class GridAPIClient {
       console.log(`[API] Entry fee required: ${firstResult.amount} MON to ${firstResult.treasury}`);
       console.log(`[API] Sending payment from ${walletAddress}...`);
 
-      const provider = new ethers.JsonRpcProvider(MONAD_RPC);
+      const provider = new ethers.JsonRpcProvider(getMonadRpc());
       const signer = wallet.connect(provider);
 
       const tx = await signer.sendTransaction({
@@ -205,7 +276,7 @@ export class GridAPIClient {
    * (used for the 402 needsPayment flow).
    */
   private async requestRaw<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${BASE_URL}${path}`, {
+    const res = await fetch(`${getBaseUrl()}${path}`, {
       method,
       headers: this.headers(),
       body: body ? JSON.stringify(body) : undefined,

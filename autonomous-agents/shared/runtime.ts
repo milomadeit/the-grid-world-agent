@@ -97,6 +97,63 @@ function timestamp(): string {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }
 
+function isAuthSessionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes('(401)') ||
+    msg.includes('Invalid or expired token') ||
+    msg.includes('Token owner does not match') ||
+    msg.includes('Missing or invalid authorization header')
+  );
+}
+
+function logNetworkFailure(agentName: string, err: unknown): void {
+  const root = err as { cause?: any };
+  const cause = root?.cause;
+  if (!cause) return;
+
+  if (cause.code || cause.message) {
+    console.error(`[${agentName}] Network cause: ${cause.code || 'unknown'} ${cause.message || ''}`.trim());
+  }
+
+  const subErrors = Array.isArray(cause.errors) ? cause.errors : [];
+  for (const sub of subErrors) {
+    const code = sub?.code || 'unknown';
+    const address = sub?.address || '?';
+    const port = sub?.port || '?';
+    const message = sub?.message || '';
+    console.error(`[${agentName}] Connect error: ${code} ${address}:${port} ${message}`.trim());
+  }
+}
+
+function makeCoordinationChat(
+  self: { position: { x: number; z: number } } | undefined,
+  directives: Array<{ id: string; description: string }>,
+  otherAgents: Array<{ name: string }>,
+  buildError?: string,
+): string {
+  if (buildError) {
+    const compact = buildError.replace(/\s+/g, ' ').slice(0, 90);
+    return `Build blocked (${compact}). Repositioning now and trying a nearby spot.`;
+  }
+
+  if (directives.length > 0) {
+    const d = directives[0];
+    const shortId = d.id.slice(0, 8);
+    return `I’m aligning on directive ${shortId}. ${d.description.slice(0, 90)} — who can coordinate?`;
+  }
+
+  if (self) {
+    const neighbors = otherAgents.slice(0, 2).map(a => a.name).join(', ');
+    if (neighbors) {
+      return `I’m at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}). ${neighbors}, want to sync next steps?`;
+    }
+    return `I’m at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) and pushing this area forward. Ping me if you want to coordinate.`;
+  }
+
+  return 'Quick sync check-in: what zone should we focus next?';
+}
+
 // --- Spatial Awareness ---
 
 interface SpatialSummary {
@@ -789,6 +846,22 @@ function formatTokenLog(provider: string, usage: LLMUsage | null): string {
   return `Tokens: ${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out | Cost est: $${costEst.toFixed(4)}`;
 }
 
+function trimPromptForLLM(prompt: string, maxChars = 32000, tailChars = 12000): string {
+  if (prompt.length <= maxChars) return prompt;
+
+  const safeTail = Math.min(tailChars, maxChars - 4000);
+  const headChars = Math.max(4000, maxChars - safeTail);
+  const removed = prompt.length - (headChars + safeTail);
+
+  return [
+    prompt.slice(0, headChars),
+    '',
+    `...[prompt truncated: removed ${removed} chars to stay within model budget]...`,
+    '',
+    prompt.slice(prompt.length - safeTail),
+  ].join('\n');
+}
+
 async function callGemini(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<LLMResponse> {
   const parts: any[] = [{ text: userPrompt }];
   if (imageBase64) {
@@ -1034,8 +1107,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     enteredOk = true;
   } catch (err: any) {
     const errMsg = err?.message || String(err);
-    // If wallet doesn't own the configured agent ID, register a new one
-    if (errMsg.includes('403') && config.privateKey) {
+    const isOwnershipDenied =
+      errMsg.includes('does not own or control this agent identity') ||
+      errMsg.includes('wallet does not own') ||
+      errMsg.includes('tokenOwner') ||
+      errMsg.includes('agentWallet');
+
+    // Only auto-register when the server explicitly says ownership failed.
+    if (isOwnershipDenied && config.privateKey) {
       console.log(`[${agentName}] Wallet doesn't own agent ID ${config.erc8004AgentId}. Registering a new one...`);
       const chain = new ChainClient(config.privateKey);
       try {
@@ -1066,7 +1145,10 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       }
     } else {
       console.error(`[${agentName}] Failed to enter world:`, err);
-      console.error(`[${agentName}] Make sure wallet ${config.walletAddress} owns agent ID ${config.erc8004AgentId} on-chain.`);
+      logNetworkFailure(agentName, err);
+      if (errMsg.includes('403')) {
+        console.error(`[${agentName}] Entry rejected with 403, but not an ownership-denied response. Check signature/wallet pairing, entry fee state, and server chain config.`);
+      }
       return;
     }
   }
@@ -1147,6 +1229,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
   // --- Heartbeat Loop ---
   console.log(`[${agentName}] Heartbeat started (every ${config.heartbeatSeconds}s)`);
+  const forceChatCadence = true;
+  console.log(`[${agentName}] Chat cadence override: enabled`);
 
   // Change detection gate — skip LLM calls when world state hasn't meaningfully changed
   let lastWorldHash = '';
@@ -1225,6 +1309,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const lastSeenId = parseInt(workingMemory?.match(/Last seen message id: (\d+)/)?.[1] || '0');
       const latestMsgId = allChatMessages.length > 0 ? Math.max(...allChatMessages.map(m => m.id || 0)) : lastSeenId;
       const newMessages = allChatMessages.filter(m => (m.id || 0) > lastSeenId);
+      const prevTicksSinceChat = parseInt(workingMemory?.match(/Ticks since chat: (\d+)/)?.[1] || '0');
+      const currentTicksSinceChat = prevTicksSinceChat + 1;
+      const chatDue = currentTicksSinceChat >= 2 && otherAgents.length > 0;
 
       // Format messages with NEW tags (no mention pressure — agents should prioritize their objective)
       const formatMessage = (m: typeof allChatMessages[0]) => {
@@ -1258,7 +1345,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       ticksSinceLastLLMCall++;
 
-      if (worldHash === lastWorldHash && !mentionsMe && ticksSinceLastLLMCall < MAX_SKIP_TICKS) {
+      if (worldHash === lastWorldHash && !mentionsMe && !chatDue && ticksSinceLastLLMCall < MAX_SKIP_TICKS) {
         console.log(`[${agentName}] No meaningful change, skipping LLM call (tick ${ticksSinceLastLLMCall}/${MAX_SKIP_TICKS})`);
         return;
       }
@@ -1290,6 +1377,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         otherAgents.length > 0
           ? otherAgents.map(a => `- ${a.name} at (${a.position.x.toFixed(1)}, ${a.position.z.toFixed(1)}) [${a.status}]`).join('\n')
           : '_No other agents nearby._',
+        '',
+        '## Communication Cadence',
+        chatDue
+          ? `You have gone ${currentTicksSinceChat} ticks without a CHAT action. Send one short coordination chat this tick unless you are handling a blocking build/action error.`
+          : `Ticks since your last CHAT action: ${currentTicksSinceChat}. Keep chat concise and useful.`,
         '',
         `## Active Directives (${directives.length}) — THIS IS GROUND TRUTH`,
         directives.length > 0
@@ -1497,28 +1589,57 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         console.log(`[${agentName}] Captured visual input`);
       }
 
-      const llmResponse = await callLLM(config, fullSystemPrompt, userPrompt, imageBase64);
-      const raw = llmResponse.text;
-      console.log(`[${agentName}] ${formatTokenLog(config.llmProvider, llmResponse.usage)}`);
+      const modelPrompt = trimPromptForLLM(userPrompt);
+      if (modelPrompt.length !== userPrompt.length) {
+        console.log(`[${agentName}] Prompt trimmed ${userPrompt.length} -> ${modelPrompt.length} chars`);
+      }
       let decision: AgentDecision;
       try {
-        // Extract JSON from response — strip think tags, code fences, then find the first {…} block
-        const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        // Find the first balanced JSON object in the response
-        const firstBrace = cleaned.indexOf('{');
-        if (firstBrace === -1) throw new Error('No JSON object found');
-        let depth = 0;
-        let lastBrace = -1;
-        for (let i = firstBrace; i < cleaned.length; i++) {
-          if (cleaned[i] === '{') depth++;
-          else if (cleaned[i] === '}') { depth--; if (depth === 0) { lastBrace = i; break; } }
+        const llmResponse = await callLLM(config, fullSystemPrompt, modelPrompt, imageBase64);
+        const raw = llmResponse.text;
+        console.log(`[${agentName}] ${formatTokenLog(config.llmProvider, llmResponse.usage)}`);
+        try {
+          // Extract JSON from response — strip think tags, code fences, then find the first {…} block
+          const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          // Find the first balanced JSON object in the response
+          const firstBrace = cleaned.indexOf('{');
+          if (firstBrace === -1) throw new Error('No JSON object found');
+          let depth = 0;
+          let lastBrace = -1;
+          for (let i = firstBrace; i < cleaned.length; i++) {
+            if (cleaned[i] === '{') depth++;
+            else if (cleaned[i] === '}') { depth--; if (depth === 0) { lastBrace = i; break; } }
+          }
+          if (lastBrace === -1) throw new Error('Unbalanced braces');
+          const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
+          decision = JSON.parse(jsonStr);
+        } catch {
+          console.warn(`[${agentName}] Failed to parse LLM response, idling. Raw: ${raw.slice(0, 200)}`);
+          decision = { thought: 'Could not parse response', action: 'IDLE' };
         }
-        if (lastBrace === -1) throw new Error('Unbalanced braces');
-        const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
-        decision = JSON.parse(jsonStr);
-      } catch {
-        console.warn(`[${agentName}] Failed to parse LLM response, idling. Raw: ${raw.slice(0, 200)}`);
-        decision = { thought: 'Could not parse response', action: 'IDLE' };
+      } catch (llmErr) {
+        const llmMsg = llmErr instanceof Error ? llmErr.message : String(llmErr);
+        const compact = llmMsg.replace(/\s+/g, ' ').slice(0, 140);
+        console.error(`[${agentName}] LLM call failed: ${compact}`);
+        if (otherAgents.length > 0) {
+          decision = {
+            thought: `LLM unavailable (${compact}); sending coordination heartbeat.`,
+            action: 'CHAT',
+            payload: { message: makeCoordinationChat(self, directives, otherAgents, compact).slice(0, 220) },
+          };
+        } else {
+          decision = { thought: `LLM unavailable (${compact}); waiting for next tick.`, action: 'IDLE' };
+        }
+      }
+
+      if (forceChatCadence && chatDue && decision.action !== 'CHAT' && !(blueprintStatus?.active && decision.action === 'BUILD_CONTINUE')) {
+        const forcedMessage = makeCoordinationChat(self, directives, otherAgents);
+        console.log(`[${agentName}] Communication cadence override -> CHAT`);
+        decision = {
+          thought: `${decision.thought} | Communication is overdue; sending coordination update.`,
+          action: 'CHAT',
+          payload: { message: forcedMessage.slice(0, 220) },
+        };
       }
 
       // 6. Execute action
@@ -1627,6 +1748,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           else if (!declinedRecruitment.includes(name)) declinedRecruitment = `${declinedRecruitment}, ${name}`;
         }
       }
+      const ticksSinceChat = decision.action === 'CHAT' ? 0 : currentTicksSinceChat;
 
       const newWorking = [
         `# Working Memory`,
@@ -1637,6 +1759,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         `Position: (${self?.position.x.toFixed(1)}, ${self?.position.z.toFixed(1)})`,
         `Credits: ${credits}`,
         `Last seen message id: ${latestMsgId}`,
+        `Ticks since chat: ${ticksSinceChat}`,
         currentObjective ? `Current objective: ${currentObjective}` : '',
         objectiveStep > 0 ? `Objective step: ${objectiveStep}` : '',
         currentBuildPlan ? `Current build plan: ${currentBuildPlan}` : '',
@@ -1660,6 +1783,23 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       appendLog(dailyLogPath, `[${timestamp()}] ${decision.action}: ${decision.thought}`);
 
     } catch (err) {
+      if (isAuthSessionError(err)) {
+        console.warn(`[${agentName}] Session rejected (401). Re-entering...`);
+        try {
+          const entry = await api.enter(
+            config.privateKey,
+            config.erc8004AgentId,
+            agentName,
+            agentColor,
+            agentBio,
+            config.erc8004Registry
+          );
+          console.log(`[${agentName}] Re-entered at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
+          return;
+        } catch (reauthErr) {
+          console.error(`[${agentName}] Re-entry failed:`, reauthErr);
+        }
+      }
       console.error(`[${agentName}] Heartbeat error:`, err);
     } finally {
       tickInProgress = false;
@@ -2176,6 +2316,23 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           writeMd(join(memoryDir, 'WORKING.md'), newWorking);
           appendLog(dailyLogPath, `[${timestamp()}] ${decision.action}: ${decision.thought}`);
         } catch (err) {
+          if (isAuthSessionError(err)) {
+            console.warn(`[${agentName}] Session rejected (401). Re-entering...`);
+            try {
+              const entry = await api.enter(
+                fullConfig.privateKey,
+                fullConfig.erc8004AgentId,
+                agentName,
+                agentColor,
+                agentBio,
+                fullConfig.erc8004Registry
+              );
+              console.log(`[${agentName}] Re-entered at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
+              return;
+            } catch (reauthErr) {
+              console.error(`[${agentName}] Re-entry failed:`, reauthErr);
+            }
+          }
           console.error(`[${agentName}] Heartbeat error:`, err);
         } finally {
           bootstrapTickInProgress = false;

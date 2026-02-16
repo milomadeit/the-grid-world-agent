@@ -1,278 +1,215 @@
 /**
  * Autonomous Agents — Entry Point
  *
- * Boots all agents. Each runs independently on its own heartbeat loop.
- * They interact with OpGrid as external API clients.
- * Every agent must have a real ERC-8004 agent ID and the wallet that owns it.
- * Exception: Clank starts in bootstrap mode (no ID) to test onboarding.
+ * Each agent runs as its own independent process.
+ * When started with "all", spawns each agent as a separate child process.
+ * When started with a specific name, runs that agent directly.
  *
  * Usage:
- *   npm run start         # start all agents
- *   npm run dev           # start with watch mode
- *   npm run start:smith   # start only Smith
- *   npm run start:oracle  # start only Oracle
- *   npm run start:clank   # start only Clank (bootstrap mode)
- *   npm run start:mouse   # start only Mouse
+ *   npm run start         # spawns all agents as separate processes
+ *   npm run start:smith   # run Smith in this process
+ *   npm run start:oracle  # run Oracle in this process
+ *   npm run start:clank   # run Clank in this process
+ *   npm run start:mouse   # run Mouse in this process
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { setDefaultResultOrder } from 'dns';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import { startAgent, bootstrapAgent } from './shared/runtime.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: join(__dirname, '.env') });
 
-// ERC-8004 registry on Monad Mainnet
-const AGENT_REGISTRY = process.env.AGENT_REGISTRY || 'eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
-
-// LLM keys from environment
-const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
-const OPENAI_KEY = process.env.GPT_API_KEY || '';
-const MINIMAX_KEY = process.env.MINI_MAX_API_KEY || '';
-
-if (!GEMINI_KEY && !ANTHROPIC_KEY && !OPENAI_KEY && !MINIMAX_KEY) {
-  console.error('[Boot] No LLM API key found. Set ANTHROPIC_API_KEY, MINI_MAX_API_KEY, GEMINI_API_KEY, or GPT_API_KEY in .env');
-  process.exit(1);
+// Prefer IPv4 when resolving API hosts; some local networks reject IPv6 routes.
+try {
+  setDefaultResultOrder('ipv4first');
+} catch {
+  // Non-fatal on older/newer Node variants.
 }
 
-// Which agents to start (default: all)
+function envFirst(...keys: string[]): string {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value && value.trim().length > 0) return value;
+  }
+  return '';
+}
+
+// ERC-8004 registry on Monad Mainnet
+const AGENT_REGISTRY = envFirst('AGENT_REGISTRY') || 'eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+
+// LLM keys from environment
+const GEMINI_KEY = envFirst('GEMINI_API_KEY', 'GOOGLE_GEMINI_API_KEY');
+const ANTHROPIC_KEY = envFirst('ANTHROPIC_API_KEY');
+const OPENAI_KEY = envFirst('GPT_API_KEY', 'OPENAI_API_KEY');
+const MINIMAX_KEY = envFirst('MINI_MAX_API_KEY', 'MINIMAX_API_KEY');
+
+// Which agent to start (default: all)
 const target = process.argv[2] || 'all';
 
-// Registered agents — need wallet + private key + agent ID to boot
-const registeredAgents = [
-  {
+// All known agent names
+const ALL_AGENTS = ['smith', 'oracle', 'clank', 'mouse'];
+
+// --- Agent Configs ---
+
+interface AgentDef {
+  name: string;
+  dir: string;
+  privateKey: string;
+  walletAddress: string;
+  erc8004AgentId: string;
+  heartbeatSeconds: number;
+  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax';
+  llmModel: string;
+  llmApiKey: string;
+}
+
+const agents: Record<string, AgentDef> = {
+  smith: {
     name: 'smith',
     dir: join(__dirname, 'agent-smith'),
-    privateKey: process.env.AGENT_SMITH_PK || '',
-    walletAddress: process.env.AGENT_SMITH_WALLET || '',
-    erc8004AgentId: process.env.AGENT_SMITH_ID || '',
+    privateKey: envFirst('AGENT_SMITH_PK', 'SMITH_PK'),
+    walletAddress: envFirst('AGENT_SMITH_WALLET', 'SMITH_WALLET'),
+    erc8004AgentId: envFirst('AGENT_SMITH_ID', 'SMITH_AGENT_ID', 'SMITH_ID'),
     heartbeatSeconds: 60,
-    llmProvider: 'anthropic' as const,
-    llmModel: 'claude-3-5-haiku-latest',
+    llmProvider: 'anthropic',
+    llmModel: 'claude-haiku-4-5',
     llmApiKey: ANTHROPIC_KEY,
   },
-  {
+  oracle: {
     name: 'oracle',
     dir: join(__dirname, 'oracle'),
-    privateKey: process.env.ORACLE_PK || '',
-    walletAddress: process.env.ORACLE_WALLET || '',
-    erc8004AgentId: process.env.ORACLE_ID || '',
+    privateKey: envFirst('ORACLE_PK'),
+    walletAddress: envFirst('ORACLE_WALLET'),
+    erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
     heartbeatSeconds: 60,
-    llmProvider: 'gemini' as const,
+    llmProvider: 'gemini',
     llmModel: 'gemini-2.0-flash-lite',
     llmApiKey: GEMINI_KEY,
   },
-];
-
-// Clank — bootstrap agent, no ID yet
-const clankConfig = {
-  name: 'clank',
-  dir: join(__dirname, 'clank'),
-  privateKey: process.env.CLANK_PK || '',
-  walletAddress: process.env.CLANK_WALLET || '',
-  erc8004AgentId: process.env.CLANK_AGENT_ID || '',
-  heartbeatSeconds: 60,
-  llmProvider: 'minimax' as const,
-  llmModel: 'MiniMax-M2.5-highspeed',
-  llmApiKey: MINIMAX_KEY,
+  clank: {
+    name: 'clank',
+    dir: join(__dirname, 'clank'),
+    privateKey: envFirst('CLANK_PK'),
+    walletAddress: envFirst('CLANK_WALLET'),
+    erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
+    heartbeatSeconds: 60,
+    llmProvider: 'minimax',
+    llmModel: 'MiniMax-M2.5-highspeed',
+    llmApiKey: MINIMAX_KEY,
+  },
+  mouse: {
+    name: 'mouse',
+    dir: join(__dirname, 'mouse'),
+    privateKey: envFirst('MOUSE_PK'),
+    walletAddress: envFirst('MOUSE_WALLET'),
+    erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
+    heartbeatSeconds: 60,
+    llmProvider: 'minimax',
+    llmModel: 'MiniMax-M2.5-highspeed',
+    llmApiKey: MINIMAX_KEY,
+  },
 };
 
-// Mouse — external agent, bootstraps via skill.md
-const mouseConfig = {
-  name: 'mouse',
-  dir: join(__dirname, 'mouse'),
-  privateKey: process.env.MOUSE_PK || '',
-  walletAddress: process.env.MOUSE_WALLET || '',
-  erc8004AgentId: process.env.MOUSE_AGENT_ID || '',
-  heartbeatSeconds: 60,
-  llmProvider: 'minimax' as const,
-  llmModel: 'MiniMax-M2.5-highspeed',
-  llmApiKey: MINIMAX_KEY,
-};
+// --- Spawn All: each agent gets its own process ---
 
-// Bootstrap agents — start in bootstrap mode if they don't have an agent ID
-const bootstrapConfigs = [clankConfig, mouseConfig];
+function spawnAgent(name: string) {
+  const child = spawn('npx', ['tsx', 'index.ts', name], {
+    cwd: __dirname,
+    stdio: ['ignore', 'inherit', 'inherit'],
+    env: process.env,
+  });
 
-async function boot() {
-  const allNames = [...registeredAgents.map(a => a.name), ...bootstrapConfigs.map(a => a.name)];
+  child.on('exit', (code) => {
+    console.error(`[Boot] Agent "${name}" exited (code ${code}). Restarting in 5s...`);
+    setTimeout(() => spawnAgent(name), 5000);
+  });
 
-  if (target !== 'all' && !allNames.includes(target)) {
-    console.error(`[Boot] Unknown agent: ${target}. Options: all, ${allNames.join(', ')}`);
+  console.log(`[Boot] Spawned "${name}" (pid ${child.pid})`);
+}
+
+function spawnAll() {
+  console.log(`[Boot] Spawning ${ALL_AGENTS.length} agents as separate processes...`);
+  for (const name of ALL_AGENTS) {
+    spawnAgent(name);
+  }
+  console.log(`[Boot] All agents spawned. Each runs independently.`);
+}
+
+// --- Run Single Agent directly in this process ---
+
+async function runSingleAgent(name: string) {
+  const config = agents[name];
+  if (!config) {
+    console.error(`[Boot] Unknown agent: ${name}. Options: ${ALL_AGENTS.join(', ')}`);
     process.exit(1);
   }
 
-  const startRegistered = target === 'all' || registeredAgents.some(a => a.name === target);
-  const startClank = target === 'all' || target === 'clank';
-  const startMouse = target === 'all' || target === 'mouse';
+  if (!config.llmApiKey) {
+    console.error(`[Boot] ${name} has no LLM API key. Check .env`);
+    process.exit(1);
+  }
 
-  // Boot registered agents
-  if (startRegistered) {
-    const toStart = target === 'all'
-      ? registeredAgents
-      : registeredAgents.filter(a => a.name === target);
+  const hasIdentity = config.walletAddress && config.erc8004AgentId;
 
-    // Validate registered agents have identity + keys
-    for (const agent of toStart) {
-      if (!agent.walletAddress || !agent.erc8004AgentId) {
-        console.error(`[Boot] Agent "${agent.name}" missing identity. Check wallet + agent ID in .env`);
-        console.error(`[Boot] Every agent needs a registered ERC-8004 identity. See: https://www.8004.org`);
-        process.exit(1);
-      }
-      if (!agent.privateKey) {
-        console.error(`[Boot] Agent "${agent.name}" missing private key. Set ${agent.name.toUpperCase()}_PK in .env`);
-        process.exit(1);
-      }
-      if (!agent.llmApiKey) {
-        console.error(`[Boot] Agent "${agent.name}" has no LLM API key. It needs ${agent.llmProvider.toUpperCase()} key in .env`);
-        process.exit(1);
-      }
+  // If agent has a full identity (wallet + agent ID), run normal heartbeat
+  if (hasIdentity) {
+    if (!config.privateKey) {
+      console.error(`[Boot] ${name} has an agent ID but no private key. Set ${name.toUpperCase()}_PK in .env`);
+      process.exit(1);
     }
 
-    console.log(`[Boot] Starting ${toStart.length} registered agent(s): ${toStart.map(a => a.name).join(', ')}`);
-    for (const agent of toStart) {
-      console.log(`[Boot]   ${agent.name}: ${agent.llmProvider} / ${agent.llmModel} | wallet: ${agent.walletAddress.slice(0, 8)}...`);
-    }
-    console.log(`[Boot] Registry: ${AGENT_REGISTRY}`);
-    console.log(`[Boot] API: ${process.env.GRID_API_URL || 'http://localhost:3001'}`);
+    console.log(`[${name}] Starting (${config.llmProvider} / ${config.llmModel})`);
+    console.log(`[${name}] Wallet: ${config.walletAddress.slice(0, 10)}... | Agent ID: ${config.erc8004AgentId}`);
+    console.log(`[${name}] API: ${envFirst('GRID_API_URL') || 'http://localhost:3001'}`);
     console.log('');
 
-    for (const agent of toStart) {
-      await new Promise(r => setTimeout(r, 2000));
-
-      startAgent({
-        dir: agent.dir,
-        privateKey: agent.privateKey,
-        walletAddress: agent.walletAddress,
-        erc8004AgentId: agent.erc8004AgentId,
-        erc8004Registry: AGENT_REGISTRY,
-        heartbeatSeconds: agent.heartbeatSeconds,
-        llmProvider: agent.llmProvider,
-        llmModel: agent.llmModel,
-        llmApiKey: agent.llmApiKey,
-      }).catch(err => {
-        console.error(`[Boot] Agent ${agent.name} crashed:`, err);
-      });
-    }
-  }
-
-  // Boot Clank in bootstrap mode
-  if (startClank) {
-    if (!clankConfig.llmApiKey) {
-      console.error(`[Boot] Clank has no LLM API key. Set MINI_MAX_API_KEY in .env`);
-      process.exit(1);
-    }
-
-    // If Clank has an agent ID, boot normally (post-registration)
-    if (clankConfig.walletAddress && clankConfig.erc8004AgentId) {
-      if (!clankConfig.privateKey) {
-        console.error(`[Boot] Clank has an agent ID but no private key. Set CLANK_PK in .env`);
-        process.exit(1);
-      }
-      console.log(`[Boot] Clank has an agent ID — booting normally`);
-      console.log(`[Boot]   clank: ${clankConfig.llmProvider} / ${clankConfig.llmModel}`);
-      console.log('');
-
-      await new Promise(r => setTimeout(r, 2000));
-      startAgent({
-        dir: clankConfig.dir,
-        privateKey: clankConfig.privateKey,
-        walletAddress: clankConfig.walletAddress,
-        erc8004AgentId: clankConfig.erc8004AgentId,
-        erc8004Registry: AGENT_REGISTRY,
-        heartbeatSeconds: clankConfig.heartbeatSeconds,
-        llmProvider: clankConfig.llmProvider,
-        llmModel: clankConfig.llmModel,
-        llmApiKey: clankConfig.llmApiKey,
-      }).catch(err => {
-        console.error(`[Boot] Agent clank crashed:`, err);
-      });
+    await startAgent({
+      dir: config.dir,
+      privateKey: config.privateKey,
+      walletAddress: config.walletAddress,
+      erc8004AgentId: config.erc8004AgentId,
+      erc8004Registry: AGENT_REGISTRY,
+      heartbeatSeconds: config.heartbeatSeconds,
+      llmProvider: config.llmProvider,
+      llmModel: config.llmModel,
+      llmApiKey: config.llmApiKey,
+    });
+  } else {
+    // Bootstrap mode — no agent ID, agent figures it out via skill.md
+    console.log(`[${name}] Starting in BOOTSTRAP mode (no agent ID)`);
+    console.log(`[${name}] ${config.llmProvider} / ${config.llmModel}`);
+    if (config.privateKey) {
+      console.log(`[${name}] Has wallet + private key — can register on-chain`);
     } else {
-      // Bootstrap mode — no agent ID, Clank has to figure it out
-      console.log(`[Boot] Clank has NO agent ID — starting in BOOTSTRAP mode`);
-      console.log(`[Boot]   clank: ${clankConfig.llmProvider} / ${clankConfig.llmModel}`);
-      if (clankConfig.privateKey) {
-        console.log(`[Boot]   Clank has a wallet + private key — can attempt on-chain registration`);
-      } else {
-        console.log(`[Boot]   Clank has NO wallet — will discover what it needs`);
-      }
-      console.log('');
-
-      await new Promise(r => setTimeout(r, 2000));
-      bootstrapAgent({
-        dir: clankConfig.dir,
-        privateKey: clankConfig.privateKey,
-        walletAddress: clankConfig.walletAddress,
-        heartbeatSeconds: clankConfig.heartbeatSeconds,
-        llmProvider: clankConfig.llmProvider,
-        llmModel: clankConfig.llmModel,
-        llmApiKey: clankConfig.llmApiKey,
-        apiBaseUrl: process.env.GRID_API_URL || 'http://localhost:3001',
-        erc8004Registry: AGENT_REGISTRY,
-      }).catch(err => {
-        console.error(`[Boot] Clank bootstrap crashed:`, err);
-      });
+      console.log(`[${name}] No wallet — will discover what it needs`);
     }
-  }
+    console.log('');
 
-  // Boot Mouse
-  if (startMouse) {
-    if (!mouseConfig.llmApiKey) {
-      console.error(`[Boot] Mouse has no LLM API key. Set MINI_MAX_API_KEY in .env`);
-      process.exit(1);
-    }
-
-    // If Mouse has an agent ID, boot normally (post-registration)
-    if (mouseConfig.walletAddress && mouseConfig.erc8004AgentId) {
-      if (!mouseConfig.privateKey) {
-        console.error(`[Boot] Mouse has an agent ID but no private key. Set MOUSE_PK in .env`);
-        process.exit(1);
-      }
-      console.log(`[Boot] Mouse has an agent ID — booting normally`);
-      console.log(`[Boot]   mouse: ${mouseConfig.llmProvider} / ${mouseConfig.llmModel}`);
-      console.log('');
-
-      await new Promise(r => setTimeout(r, 2000));
-      startAgent({
-        dir: mouseConfig.dir,
-        privateKey: mouseConfig.privateKey,
-        walletAddress: mouseConfig.walletAddress,
-        erc8004AgentId: mouseConfig.erc8004AgentId,
-        erc8004Registry: AGENT_REGISTRY,
-        heartbeatSeconds: mouseConfig.heartbeatSeconds,
-        llmProvider: mouseConfig.llmProvider,
-        llmModel: mouseConfig.llmModel,
-        llmApiKey: mouseConfig.llmApiKey,
-      }).catch(err => {
-        console.error(`[Boot] Agent mouse crashed:`, err);
-      });
-    } else {
-      // Bootstrap mode — no agent ID, Mouse reads skill.md and figures it out
-      console.log(`[Boot] Mouse has NO agent ID — starting in BOOTSTRAP mode`);
-      console.log(`[Boot]   mouse: ${mouseConfig.llmProvider} / ${mouseConfig.llmModel}`);
-      if (mouseConfig.privateKey) {
-        console.log(`[Boot]   Mouse has a wallet + private key — can attempt on-chain registration`);
-      } else {
-        console.log(`[Boot]   Mouse has NO wallet — will discover what it needs`);
-      }
-      console.log('');
-
-      await new Promise(r => setTimeout(r, 2000));
-      bootstrapAgent({
-        dir: mouseConfig.dir,
-        privateKey: mouseConfig.privateKey,
-        walletAddress: mouseConfig.walletAddress,
-        heartbeatSeconds: mouseConfig.heartbeatSeconds,
-        llmProvider: mouseConfig.llmProvider,
-        llmModel: mouseConfig.llmModel,
-        llmApiKey: mouseConfig.llmApiKey,
-        apiBaseUrl: process.env.GRID_API_URL || 'http://localhost:3001',
-        erc8004Registry: AGENT_REGISTRY,
-      }).catch(err => {
-        console.error(`[Boot] Mouse bootstrap crashed:`, err);
-      });
-    }
+    await bootstrapAgent({
+      dir: config.dir,
+      privateKey: config.privateKey,
+      walletAddress: config.walletAddress,
+      heartbeatSeconds: config.heartbeatSeconds,
+      llmProvider: config.llmProvider,
+      llmModel: config.llmModel,
+      llmApiKey: config.llmApiKey,
+      apiBaseUrl: envFirst('GRID_API_URL') || 'http://localhost:3001',
+      erc8004Registry: AGENT_REGISTRY,
+    });
   }
 }
 
-boot();
+// --- Main ---
+
+if (target === 'all') {
+  spawnAll();
+} else {
+  runSingleAgent(target).catch(err => {
+    console.error(`[${target}] Fatal error:`, err);
+    process.exit(1);
+  });
+}
