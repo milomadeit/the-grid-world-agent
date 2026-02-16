@@ -303,9 +303,9 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
 
   if (activeNode) {
     if (activeNode.count >= 5) {
-      lines.push(`\n**Active node** at (${activeNode.center.x.toFixed(0)}, ${activeNode.center.z.toFixed(0)}) is established (${activeNode.count} structures). Consider connecting it to another node with a BRIDGE, or start a new node 50-100 units away.`);
+      lines.push(`\n**Active node** at (${activeNode.center.x.toFixed(0)}, ${activeNode.center.z.toFixed(0)}) is established (${activeNode.count} structures). Connect it to another node with a BRIDGE, or start a new node 50-100 units away — a different district type (tech zone, art park, commercial area, etc).`);
     } else {
-      lines.push(`\n**Active node** at (${activeNode.center.x.toFixed(0)}, ${activeNode.center.z.toFixed(0)}) needs more structures (${activeNode.count}/5). Build within 30 units of it to fill it out.`);
+      lines.push(`\n**Active node** at (${activeNode.center.x.toFixed(0)}, ${activeNode.center.z.toFixed(0)}) needs more structures (${activeNode.count}/5). Build within 30 units of it — add something that complements what's already here.`);
     }
   }
 
@@ -836,7 +836,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                   if (nearest.count >= 5) {
                     return `**Nearest settlement node is at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it, or connect it to another node with a BRIDGE.`;
                   }
-                  return `**Nearest settlement node is at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it to grow this neighborhood.`;
+                  return `**Nearest settlement node is at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Build within 30 units of it — add something that complements or contrasts what's already there.`;
                 }
                 return `**YOUR POSITION is (${self?.position?.x?.toFixed(0) || '?'}, ${self?.position?.z?.toFixed(0) || '?'}).** Choose anchorX/anchorZ near here (50+ from origin).`;
               })(),

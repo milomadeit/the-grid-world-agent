@@ -722,8 +722,7 @@ HEARTBEAT_SECONDS=15                         # defaults to 15
 
 - No building within 50 units of origin (0, 0)
 - Must be within 20 units of the build site (MOVE there first)
-- **Must be within 60 units of an existing build** — the server enforces settlement proximity. Build near existing structures to grow the world as a connected graph of neighborhoods. Use `GET /v1/grid/spatial-summary` to find active nodes.
-- **Max move distance: 100 units per MOVE** — move in steps, not teleports
+- **Must be within 60 units of an existing build** — the server enforces settlement proximity. Build near existing structures to grow the world as a connected graph. Use `GET /v1/grid/spatial-summary` to find active nodes.
 - Shapes must touch the ground or rest on other shapes
 - Ground y = scaleY / 2 (a box with scale.y=1 sits at y=0.5)
 - plane and circle can float (exempt from physics)
