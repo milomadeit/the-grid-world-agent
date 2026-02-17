@@ -847,6 +847,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       reply.code(403).send({ error: 'Agent not registered' });
       return null;
     }
+    await world.touchAgent(payload.agentId);
     return payload.agentId;
   };
 
@@ -1402,6 +1403,114 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     world.clearBuildPlan(agentId);
 
     return { cancelled: true, piecesPlaced };
+  });
+
+  const RelocateFrontierSchema = z.object({
+    minDistance: z.number().min(40).max(600).optional(),
+    preferredType: z.enum(['frontier', 'connector', 'growth']).optional(),
+  });
+
+  fastify.post('/v1/grid/relocate/frontier', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const relocateThrottle = checkRateLimit(
+      'rest:grid:relocate:frontier',
+      agentId,
+      1,
+      60_000
+    );
+    if (!relocateThrottle.allowed) {
+      return reply.code(429).send({
+        error: 'Frontier relocation rate limited. Try again shortly.',
+        retryAfterMs: relocateThrottle.retryAfterMs,
+      });
+    }
+
+    const parsed = RelocateFrontierSchema.safeParse(request.body || {});
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: 'Invalid relocation request body',
+        details: parsed.error.issues,
+      });
+    }
+
+    const minDistance = parsed.data.minDistance ?? 120;
+    const preferredType = parsed.data.preferredType ?? 'frontier';
+
+    const agent = world.getAgent(agentId);
+    if (!agent) {
+      return reply.code(404).send({ error: 'Active agent not found in world state.' });
+    }
+
+    const allPrimitives = world.getWorldPrimitives();
+    const primitiveInput = allPrimitives as unknown as PrimitiveLike[];
+    const connectorPrimitives = primitiveInput.filter(isConnectorPrimitive);
+    const structures = buildStructureSummaries(primitiveInput);
+    const nodes = buildSettlementNodes(structures, connectorPrimitives);
+    const openAreas = computeOpenAreas(nodes);
+
+    if (openAreas.length === 0) {
+      return reply.code(409).send({
+        error: 'No relocation candidates available right now. Try again after world expansion.',
+      });
+    }
+
+    const otherAgents = world.getAgents().filter(a => a.id !== agentId);
+    const targetDistance = Math.max(130, minDistance);
+
+    const scored = openAreas.map((area) => {
+      const distToSelf = Math.hypot(area.x - agent.position.x, area.z - agent.position.z);
+      const nearestOtherAgent = otherAgents.length > 0
+        ? Math.min(...otherAgents.map(a => Math.hypot(area.x - a.position.x, area.z - a.position.z)))
+        : 200;
+
+      const type = area.type || 'growth';
+      const preferredBonus = type === preferredType ? -22 : type === 'frontier' ? -10 : 6;
+      const underDistancePenalty = distToSelf < minDistance ? (minDistance - distToSelf) * 8 : 0;
+
+      let score = Math.abs(distToSelf - targetDistance) + underDistancePenalty;
+      score -= Math.min(35, nearestOtherAgent / 5);
+      score += preferredBonus;
+
+      return { area, distToSelf, nearestOtherAgent, score };
+    });
+
+    scored.sort((a, b) => a.score - b.score || b.distToSelf - a.distToSelf);
+
+    const chosen =
+      scored.find((entry) => entry.distToSelf >= Math.max(45, minDistance * 0.75))
+      || scored[0];
+
+    if (!chosen) {
+      return reply.code(409).send({
+        error: 'Could not select a relocation target.',
+      });
+    }
+
+    const moved = world.teleportAgent(agentId, chosen.area.x, chosen.area.z);
+    if (!moved) {
+      return reply.code(404).send({ error: 'Agent missing from world state during relocation.' });
+    }
+
+    await db.updateAgent(agentId, moved);
+
+    return {
+      success: true,
+      position: {
+        x: moved.position.x,
+        z: moved.position.z,
+      },
+      distanceFromPrevious: Math.round(chosen.distToSelf),
+      area: {
+        x: chosen.area.x,
+        z: chosen.area.z,
+        type: chosen.area.type || 'growth',
+        nearestBuild: chosen.area.nearestBuild,
+        nearestNodeName: chosen.area.nearestNodeName,
+      },
+      guidance: 'Relocated to a frontier expansion lane. Start or continue builds from this area.',
+    };
   });
 
   fastify.delete('/v1/grid/primitive/:id', async (request, reply) => {

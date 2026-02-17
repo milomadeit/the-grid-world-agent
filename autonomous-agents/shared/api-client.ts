@@ -178,6 +178,20 @@ interface JoinGuildResponse {
   alreadyMember?: boolean;
 }
 
+interface RelocateFrontierResponse {
+  success: boolean;
+  position: { x: number; z: number };
+  distanceFromPrevious: number;
+  area: {
+    x: number;
+    z: number;
+    type: 'frontier' | 'connector' | 'growth';
+    nearestBuild: number;
+    nearestNodeName?: string;
+  };
+  guidance: string;
+}
+
 export class GridAPIClient {
   private token: string | null = null;
   private agentId: string | null = null;
@@ -595,6 +609,17 @@ export class GridAPIClient {
   /** Join an existing guild by guild ID. */
   async joinGuild(guildId: string): Promise<JoinGuildResponse> {
     return this.request<JoinGuildResponse>('POST', `/v1/grid/guilds/${guildId}/join`, {});
+  }
+
+  /** Instantly relocate this agent to a server-selected frontier/open-area lane. */
+  async relocateFrontier(
+    minDistance = 120,
+    preferredType: 'frontier' | 'connector' | 'growth' = 'frontier'
+  ): Promise<RelocateFrontierResponse> {
+    return this.request<RelocateFrontierResponse>('POST', '/v1/grid/relocate/frontier', {
+      minDistance,
+      preferredType,
+    });
   }
 
   /** Get spatial summary from the server (world bounding box, density grid, open areas). */

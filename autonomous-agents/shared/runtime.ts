@@ -79,7 +79,7 @@ interface BootstrapConfig {
 
 interface AgentDecision {
   thought: string;
-  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'TRANSFER_CREDITS' | 'IDLE';
+  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'RELOCATE_FRONTIER' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'TRANSFER_CREDITS' | 'IDLE';
   payload?: Record<string, unknown>;
 }
 
@@ -273,6 +273,8 @@ function formatActionUpdateChat(
       return `Continued active blueprint on tick ${tick}.`;
     case 'CANCEL_BUILD':
       return `Cancelled active blueprint on tick ${tick}; selecting a new lane.`;
+    case 'RELOCATE_FRONTIER':
+      return `Relocated to a frontier lane on tick ${tick}; resuming expansion from new coordinates.`;
     case 'VOTE': {
       const vote = String(payload.vote || 'yes');
       const directiveId = String(payload.directiveId || 'directive');
@@ -1700,7 +1702,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '',
     '## Action Discipline',
     '- **Follow your OPERATING MANUAL priorities.** Your AGENTS.md defines your specific role — builder, connector, or explorer. Follow those priorities, not chat pressure.',
-    '- **Keep explicit CHAT actions sparse.** Aim for ~1 coordination chat per 3-4 actions; brief action-status updates may be auto-emitted by runtime.',
+    '- **Keep CHAT natural but high-signal.** Converse like a real teammate and include concrete coordinates/progress/blockers, not acknowledgments.',
     '- **Don\'t respond to every mention.** When directly addressed, reply once with concrete coordinates/progress/blockers, then return to execution.',
     '- **Spread out.** Check Nearby Agents. If others are at your node, move to a different one.',
     '- **If a build fails, relocate.** Don\'t retry at the same spot. Move 30+ units away.',
@@ -1861,7 +1863,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   // These sections rarely change and don't need to be rebuilt every tick
   const ACTION_FORMAT_BLOCK = [
     'Decide your next action. Respond with EXACTLY one JSON object:',
-    '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
+    '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|RELOCATE_FRONTIER|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
     '',
     'Payload formats:',
     '  MOVE: {"x": 5, "z": 3}',
@@ -1872,6 +1874,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
     '  BUILD_MULTI: {"primitives": [{"shape":"cylinder","x":100,"y":1,"z":100,"scaleX":1,"scaleY":2,"scaleZ":1,"color":"#3b82f6"},{"shape":"cone","x":100,"y":3,"z":100,"scaleX":2,"scaleY":2,"scaleZ":2,"color":"#f59e0b"}]}  \u2190 up to 5 per tick',
     '    Available shapes: box, sphere, cone, cylinder, plane, torus, dodecahedron, icosahedron, octahedron, torusKnot, capsule',
+    '  RELOCATE_FRONTIER: {"minDistance": 120, "preferredType": "frontier"}  \u2190 instant server relocation to a far open lane',
     '  TRANSFER_CREDITS: {"toAgentId": "agent_xxx", "amount": 25}  \u2190 send credits to another agent',
     '    **USE VARIETY:** Do NOT just build boxes. Use cylinders for pillars, cones for roofs, spheres for decorations, torus for rings/arches.',
     '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 \u2192 y=0.5, scaleY=0.2 \u2192 y=0.1, scaleY=2 \u2192 y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
@@ -1896,7 +1899,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   // --- Heartbeat Loop ---
   console.log(`[${agentName}] Heartbeat started (every ${config.heartbeatSeconds}s)`);
   const forceChatCadence = process.env.AGENT_FORCE_CHAT_CADENCE === 'true';
-  const emitActionChatUpdates = process.env.AGENT_ACTION_CHAT_UPDATES !== 'false';
+  const emitActionChatUpdates = process.env.AGENT_ACTION_CHAT_UPDATES === 'true';
   console.log(`[${agentName}] Chat cadence override: ${forceChatCadence ? 'enabled' : 'disabled'}`);
   console.log(`[${agentName}] Action chat updates: ${emitActionChatUpdates ? 'enabled' : 'disabled'}`);
 
@@ -2471,9 +2474,28 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         ),
       ].join('\n');
 
+      const priorConsecutiveBuildFails = parseInt(
+        workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0',
+      );
+
       let decision: AgentDecision;
       let rateLimitWaitThisTick = false;
-      if (lowSignalChatLoopDetected) {
+      if (!blueprintStatus?.active && priorConsecutiveBuildFails >= 3) {
+        const lowerName = agentName.toLowerCase();
+        const preferredType: 'frontier' | 'connector' | 'growth' = lowerName.includes('oracle')
+          ? 'connector'
+          : 'frontier';
+        const minDistance = lowerName.includes('mouse')
+          ? 180
+          : lowerName.includes('clank')
+            ? 150
+            : 130;
+        decision = {
+          thought: `Build recovery policy: ${priorConsecutiveBuildFails} consecutive build failures. Relocating to a far ${preferredType} lane before retrying builds.`,
+          action: 'RELOCATE_FRONTIER',
+          payload: { minDistance, preferredType },
+        };
+      } else if (lowSignalChatLoopDetected) {
         if (blueprintStatus?.active) {
           decision = {
             thought: 'Low-signal chat loop detected. Skipping LLM call and continuing active blueprint.',
@@ -2699,6 +2721,30 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       }
 
+      // Long-distance hops are better as server-side relocation than many MOVE ticks.
+      if (decision.action === 'MOVE' && selfPos && !activeBlueprint) {
+        const tx = Number((decision.payload as any)?.x);
+        const tz = Number((decision.payload as any)?.z);
+        if (Number.isFinite(tx) && Number.isFinite(tz)) {
+          const distance = Math.hypot(tx - selfPos.x, tz - selfPos.z);
+          if (distance >= 120) {
+            const lowerName = agentName.toLowerCase();
+            const preferredType: 'frontier' | 'connector' | 'growth' = lowerName.includes('oracle')
+              ? 'connector'
+              : 'frontier';
+            const minDistance = Math.max(120, Math.min(280, Math.round(distance)));
+            console.log(
+              `[${agentName}] Mobility guard: long MOVE (${Math.round(distance)}u) -> RELOCATE_FRONTIER (${preferredType}, min=${minDistance})`
+            );
+            decision = {
+              thought: `${decision.thought} | Long-distance move (${Math.round(distance)}u). Relocating to a far ${preferredType} lane instantly.`,
+              action: 'RELOCATE_FRONTIER',
+              payload: { minDistance, preferredType },
+            };
+          }
+        }
+      }
+
       // 6. Execute action
       console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
       let buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
@@ -2823,6 +2869,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         emitActionChatUpdates &&
         decision.action !== 'CHAT' &&
         decision.action !== 'IDLE' &&
+        decision.action !== 'RELOCATE_FRONTIER' &&
         decision.action !== 'TERMINAL'
       ) {
         actionChatSent = await emitActionUpdateChat(
@@ -2850,6 +2897,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         : decision.action === 'BUILD_BLUEPRINT' ? `BUILD_BLUEPRINT: ${(decision.payload as any)?.name || '?'} at (${(decision.payload as any)?.anchorX ?? '?'}, ${(decision.payload as any)?.anchorZ ?? '?'})`
         : decision.action === 'BUILD_CONTINUE' ? `BUILD_CONTINUE: continued active blueprint`
         : decision.action === 'CANCEL_BUILD' ? `CANCEL_BUILD: cancelled active blueprint`
+        : decision.action === 'RELOCATE_FRONTIER' ? `RELOCATE_FRONTIER: teleported to far ${String((decision.payload as any)?.preferredType || 'frontier')} lane`
         : decision.action === 'VOTE' ? `VOTE: ${(decision.payload as any)?.vote || '?'} on ${(decision.payload as any)?.directiveId || '?'}`
         : decision.action === 'SUBMIT_DIRECTIVE' ? `SUBMIT_DIRECTIVE: "${(decision.payload as any)?.description?.slice(0, 60) || '?'}"`
         : decision.action === 'TRANSFER_CREDITS' ? `TRANSFER_CREDITS: ${(decision.payload as any)?.amount || '?'} to ${(decision.payload as any)?.toAgentId || '?'}`
@@ -2874,7 +2922,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const prevBuildFails = parseInt(workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
       const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT', 'BUILD_CONTINUE'];
       const wasBuildAction = buildActions.includes(decision.action);
-      const consecutiveBuildFails = wasBuildAction && buildError
+      const didRelocate = decision.action === 'RELOCATE_FRONTIER';
+      const consecutiveBuildFails = didRelocate ? 0
+        : wasBuildAction && buildError
         ? prevBuildFails + 1
         : (wasBuildAction && !buildError) ? 0
         : prevBuildFails;
@@ -3397,7 +3447,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
               return [];
             })() : []),
             'Decide your next action. Respond with EXACTLY one JSON object:',
-            '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
+            '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|RELOCATE_FRONTIER|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
             '',
             'Payload formats:',
             '  MOVE: {"x": 5, "z": 3}',
@@ -3409,6 +3459,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             '  BUILD_MULTI: {"primitives": [{"shape":"box","x":100,"y":0.5,"z":100,"scaleX":1,"scaleY":1,"scaleZ":1,"rotX":0,"rotY":0,"rotZ":0,"color":"#3b82f6"}, ...]}  ← up to 5 primitives per tick',
             '    Available shapes: box, sphere, cone, cylinder, plane, torus, circle, dodecahedron, icosahedron, octahedron, ring, tetrahedron, torusKnot, capsule',
             '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 → y=0.5, scaleY=0.2 → y=0.1, scaleY=2 → y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
+            '  RELOCATE_FRONTIER: {"minDistance": 120, "preferredType": "frontier"}  ← instant server relocation to a far open lane',
             '  TERMINAL: {"message": "Status update..."}',
             '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}  ← directiveId MUST start with "dir_"',
             '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
@@ -3705,6 +3756,20 @@ async function executeAction(
         await api.cancelBlueprint();
         console.log(`[${name}] Cancelled build plan.`);
         break;
+
+      case 'RELOCATE_FRONTIER': {
+        const minDistance = Number(p.minDistance);
+        const preferredType = (p.preferredType as 'frontier' | 'connector' | 'growth') || 'frontier';
+        const relocated = await api.relocateFrontier(
+          Number.isFinite(minDistance) ? minDistance : 120,
+          preferredType
+        );
+        console.log(
+          `[${name}] Relocated to (${relocated.position.x}, ${relocated.position.z}) ` +
+          `[${relocated.area.type}] ${relocated.distanceFromPrevious}u from previous position`
+        );
+        break;
+      }
 
       case 'TERMINAL':
         await api.writeTerminal(p.message as string);

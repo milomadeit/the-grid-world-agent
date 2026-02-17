@@ -223,6 +223,30 @@ class WorldManager {
     this.blueprintReservations.delete(agentId);
   }
 
+  /** Instantly reposition an agent to a new location (used for frontier relocation). */
+  teleportAgent(agentId: string, x: number, z: number): Agent | null {
+    const agent = this.agents.get(agentId);
+    if (!agent) return null;
+
+    agent.position = { ...agent.position, x, z };
+    agent.targetPosition = { ...agent.targetPosition, x, z };
+    agent.status = 'idle';
+    this.agentLastSeen.set(agentId, Date.now());
+
+    this.io?.emit('world:update', {
+      tick: this.tick,
+      updates: [{
+        id: agent.id,
+        x: agent.position.x,
+        y: agent.position.y,
+        z: agent.position.z,
+        status: agent.status,
+      }],
+    });
+
+    return agent;
+  }
+
   // --- Blueprint Reservation Management ---
 
   setBlueprintReservation(agentId: string, reservation: BlueprintReservation): void {
