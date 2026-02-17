@@ -46,10 +46,25 @@ export const EnterWorldRequestSchema = z.object({
 
 export type EnterWorldRequest = z.infer<typeof EnterWorldRequestSchema>;
 
+export interface EnterGuildStatus {
+  inGuild: boolean;
+  guildId?: string;
+  guildName?: string;
+  role?: 'commander' | 'vice' | 'member';
+  advice: string;
+}
+
 export interface EnterWorldResponse {
   agentId: string;
   position: { x: number; z: number };
   token: string;
+  skillUrl?: string;
+  erc8004?: {
+    agentId: string;
+    agentRegistry: string;
+    verified: boolean;
+  };
+  guild?: EnterGuildStatus;
   needsPayment?: boolean;
   treasury?: string;
   amount?: string;

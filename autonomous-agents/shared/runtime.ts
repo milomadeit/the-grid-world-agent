@@ -83,6 +83,14 @@ interface AgentDecision {
   payload?: Record<string, unknown>;
 }
 
+interface EnterGuildStatus {
+  inGuild: boolean;
+  guildId?: string;
+  guildName?: string;
+  role?: 'commander' | 'vice' | 'member';
+  advice: string;
+}
+
 // --- File Helpers ---
 
 function readMd(path: string): string {
@@ -136,6 +144,29 @@ function logNetworkFailure(agentName: string, err: unknown): void {
     const message = sub?.message || '';
     console.error(`[${agentName}] Connect error: ${code} ${address}:${port} ${message}`.trim());
   }
+}
+
+function summarizeEnterGuildStatus(guild?: EnterGuildStatus): { summary: string; advice: string } | null {
+  if (!guild) return null;
+  if (guild.inGuild) {
+    const name = guild.guildName || guild.guildId || 'unknown guild';
+    const role = guild.role ? ` as ${guild.role}` : '';
+    return {
+      summary: `in guild ${name}${role}`,
+      advice: guild.advice,
+    };
+  }
+  return {
+    summary: 'not in a guild',
+    advice: guild.advice,
+  };
+}
+
+function logEnterGuildStatus(agentName: string, guild?: EnterGuildStatus): void {
+  const status = summarizeEnterGuildStatus(guild);
+  if (!status) return;
+  console.log(`[${agentName}] Guild status: ${status.summary}`);
+  console.log(`[${agentName}] Guild guidance: ${status.advice}`);
 }
 
 function makeCoordinationChat(
@@ -1686,6 +1717,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   // Enter the world with ERC-8004 identity — same door as everyone
   console.log(`[${agentName}] Entering OpGrid (wallet: ${config.walletAddress}, agent ID: ${config.erc8004AgentId})...`);
   let enteredOk = false;
+  let enterGuild: EnterGuildStatus | undefined;
+  let enterGuildSummary = '';
+  let enterGuildAdvice = '';
   try {
     const entry = await api.enter(
       config.privateKey,
@@ -1696,6 +1730,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       config.erc8004Registry
     );
     console.log(`[${agentName}] Entered at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
+    enterGuild = entry.guild;
+    const guildStatus = summarizeEnterGuildStatus(entry.guild);
+    if (guildStatus) {
+      enterGuildSummary = guildStatus.summary;
+      enterGuildAdvice = guildStatus.advice;
+    }
+    logEnterGuildStatus(agentName, entry.guild);
     enteredOk = true;
   } catch (err: any) {
     const errMsg = err?.message || String(err);
@@ -1726,6 +1767,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             config.erc8004Registry
           );
           console.log(`[${agentName}] Entered at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
+          enterGuild = entry.guild;
+          const guildStatus = summarizeEnterGuildStatus(entry.guild);
+          if (guildStatus) {
+            enterGuildSummary = guildStatus.summary;
+            enterGuildAdvice = guildStatus.advice;
+          }
+          logEnterGuildStatus(agentName, entry.guild);
           enteredOk = true;
         } else {
           console.error(`[${agentName}] No MON for gas. Fund wallet ${chain.getAddress()} and restart.`);
@@ -1757,10 +1805,22 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     `Last action detail: Just entered the world — fresh session`,
     `Last seen message id: 0`,
   ];
+  if (enterGuildSummary) {
+    freshMemoryLines.push(`Guild membership: ${enterGuildSummary}`);
+  }
+  if (enterGuildAdvice) {
+    freshMemoryLines.push(`Guild guidance: ${enterGuildAdvice}`);
+  }
   // Smith-specific: seed guild tracking fields
   if (agentName.toLowerCase() === 'smith') {
-    freshMemoryLines.push('Guild status: not formed');
-    freshMemoryLines.push('Guild members: (none yet)');
+    if (enterGuild?.inGuild) {
+      const guildName = enterGuild.guildName || enterGuild.guildId || 'existing guild';
+      freshMemoryLines.push(`Guild status: formed (${guildName})`);
+      freshMemoryLines.push('Guild members: (existing guild)');
+    } else {
+      freshMemoryLines.push('Guild status: not formed');
+      freshMemoryLines.push('Guild members: (none yet)');
+    }
     freshMemoryLines.push('Declined recruitment: (none)');
   }
   const freshMemory = freshMemoryLines.join('\n');
@@ -2918,6 +2978,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             config.erc8004Registry
           );
           console.log(`[${agentName}] Re-entered at (${entry.position.x}, ${entry.position.z}) — ID: ${entry.agentId}`);
+          logEnterGuildStatus(agentName, entry.guild);
           return;
         } catch (reauthErr) {
           console.error(`[${agentName}] Re-entry failed:`, reauthErr);

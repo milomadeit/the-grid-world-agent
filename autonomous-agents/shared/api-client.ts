@@ -17,6 +17,19 @@ interface EnterResponse {
   agentId: string;
   token: string;
   position: { x: number; z: number };
+  skillUrl?: string;
+  erc8004?: {
+    agentId: string;
+    agentRegistry: string;
+    verified: boolean;
+  };
+  guild?: {
+    inGuild: boolean;
+    guildId?: string;
+    guildName?: string;
+    role?: 'commander' | 'vice' | 'member';
+    advice: string;
+  };
   needsPayment?: boolean;
   treasury?: string;
   amount?: string;

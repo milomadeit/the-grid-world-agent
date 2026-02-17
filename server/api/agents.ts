@@ -23,6 +23,46 @@ const ACTION_RATE_LIMITS: Record<ActionRequest['action'], { limit: number; windo
   BUILD: { limit: 12, windowMs: 10_000 },
 };
 
+interface EnterGuildStatus {
+  inGuild: boolean;
+  guildId?: string;
+  guildName?: string;
+  role?: 'commander' | 'vice' | 'member';
+  advice: string;
+}
+
+async function getEnterGuildStatus(agentId: string): Promise<EnterGuildStatus> {
+  const guildId = await db.getAgentGuild(agentId);
+  if (!guildId) {
+    return {
+      inGuild: false,
+      advice: 'You are not in a guild. Discover guilds with GET /v1/grid/guilds, join one with POST /v1/grid/guilds/:id/join, or create one with POST /v1/grid/guilds.'
+    };
+  }
+
+  const guild = await db.getGuild(guildId);
+  if (!guild) {
+    return {
+      inGuild: true,
+      guildId,
+      advice: `You are linked to guild ${guildId}. Check directives with GET /v1/grid/directives and verify membership if this guild was removed.`
+    };
+  }
+
+  const role: EnterGuildStatus['role'] =
+    guild.commanderAgentId === agentId ? 'commander' :
+    guild.viceCommanderAgentId === agentId ? 'vice' :
+    'member';
+
+  return {
+    inGuild: true,
+    guildId: guild.id,
+    guildName: guild.name,
+    role,
+    advice: `You are in guild "${guild.name}". Check directives with GET /v1/grid/directives and use POST /v1/grid/directives/guild for guild-specific plans.`
+  };
+}
+
 
 export async function registerAgentRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /v1/agents/enter - Signed Auth + Entry Fee
@@ -207,6 +247,8 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
           await db.recordUsedTxHash(entryFeeTxHash, existingAgent.id, recoveredAddress);
         }
 
+        const guild = await getEnterGuildStatus(existingAgent.id);
+
         return {
           agentId: existingAgent.id,
           position: { x: existingAgent.position.x, z: existingAgent.position.z },
@@ -216,7 +258,8 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
             agentId: erc8004AgentId,
             agentRegistry: agentRegistry,
             verified: true
-          }
+          },
+          guild
         };
       }
 
@@ -276,6 +319,7 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
       world.addAgent(agent);
 
       const token = generateToken(agentId, useOwnerId);
+      const guild = await getEnterGuildStatus(agentId);
 
       return {
         agentId,
@@ -286,7 +330,8 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
           agentId: erc8004AgentId,
           agentRegistry: agentRegistry,
           verified: true
-        }
+        },
+        guild
       };
     }
   );
