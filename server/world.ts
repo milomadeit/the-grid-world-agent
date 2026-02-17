@@ -21,10 +21,29 @@ interface BlueprintReservation {
   minZ: number; maxZ: number;
 }
 
+interface RecentChatEntry {
+  normalized: string;
+  timestamp: number;
+}
+
+interface ChatValidationResult {
+  allowed: boolean;
+  reason?: string;
+  retryAfterMs?: number;
+}
+
+const CHAT_MIN_INTERVAL_MS = 4_000;
+const CHAT_DUPLICATE_WINDOW_MS = 90_000;
+const CHAT_AGENT_HISTORY_LIMIT = 8;
+const CHAT_GLOBAL_HISTORY_LIMIT = 120;
+const LOW_SIGNAL_ACK_PATTERN = /\b(?:acknowledg(?:e|ed|ing)?|saw your ping|ping received|sync received|acting on it(?: now)?|copy that|roger|heard you|on it(?: now)?)\b/;
+
 class WorldManager {
   private agents: Map<string, Agent> = new Map();
   private agentLastSeen: Map<string, number> = new Map();
   private worldPrimitives: Map<string, WorldPrimitive> = new Map();
+  // Monotonic world geometry revision for cache invalidation + lightweight sync.
+  private primitiveRevision: number = 0;
   // In-memory blueprint execution plans (not persisted)
   private buildPlans: Map<string, BlueprintBuildPlan> = new Map();
   // Blueprint footprint reservations to prevent overlapping blueprints
@@ -33,6 +52,8 @@ class WorldManager {
   private tick: number = 0;
   private io: SocketServer | null = null;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
+  private chatHistoryByAgent: Map<string, RecentChatEntry[]> = new Map();
+  private recentChat: RecentChatEntry[] = [];
 
   async initialize(): Promise<void> {
     // Do NOT load agents from DB — agents must actively enter to appear on map.
@@ -47,6 +68,8 @@ class WorldManager {
     for (const prim of primitives) {
       this.worldPrimitives.set(prim.id, prim);
     }
+    // Seed revision from current geometry size so first post-start build changes it.
+    this.primitiveRevision = primitives.length;
     console.log(`[World] Loaded ${primitives.length} world primitives`);
 
     console.log(`[World] Initialized at tick ${this.tick} (agents join on connect)`);
@@ -76,6 +99,10 @@ class WorldManager {
 
   getAgents(): Agent[] {
     return Array.from(this.agents.values());
+  }
+
+  getAgentCount(): number {
+    return this.agents.size;
   }
 
   getAgent(id: string): Agent | undefined {
@@ -123,6 +150,7 @@ class WorldManager {
   removeAgent(id: string): void {
     // Clear any active build plan + reservation owned by this agent.
     this.clearBuildPlan(id);
+    this.chatHistoryByAgent.delete(id);
     this.agents.delete(id);
     this.agentLastSeen.delete(id);
     this.io?.emit('agent:left', { id });
@@ -134,14 +162,32 @@ class WorldManager {
     return Array.from(this.worldPrimitives.values());
   }
 
+  getWorldPrimitiveCount(): number {
+    return this.worldPrimitives.size;
+  }
+
+  getPrimitiveRevision(): number {
+    return this.primitiveRevision;
+  }
+
+  private bumpPrimitiveRevision(reason: 'primitive:created' | 'primitive:deleted' | 'primitives:sync'): void {
+    this.primitiveRevision += 1;
+    this.io?.emit('world:revision', {
+      primitiveRevision: this.primitiveRevision,
+      reason,
+    });
+  }
+
   addWorldPrimitive(prim: WorldPrimitive): void {
     this.worldPrimitives.set(prim.id, prim);
     this.io?.emit('primitive:created', prim);
+    this.bumpPrimitiveRevision('primitive:created');
   }
 
   removeWorldPrimitive(id: string): void {
     this.worldPrimitives.delete(id);
     this.io?.emit('primitive:deleted', { id });
+    this.bumpPrimitiveRevision('primitive:deleted');
   }
 
   // Sync in-memory primitives with database (clears memory, reloads from DB)
@@ -157,6 +203,7 @@ class WorldManager {
     if (this.io) {
       this.io.emit('world:primitives_sync', primitives);
     }
+    this.bumpPrimitiveRevision('primitives:sync');
 
     return primitives.length;
   }
@@ -184,6 +231,86 @@ class WorldManager {
 
   getBlueprintReservations(): Map<string, BlueprintReservation> {
     return this.blueprintReservations;
+  }
+
+  private normalizeChatMessage(message: string): string {
+    return message
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private isLowSignalAck(messageOrNormalized: string): boolean {
+    const normalized = this.normalizeChatMessage(messageOrNormalized);
+    return LOW_SIGNAL_ACK_PATTERN.test(normalized);
+  }
+
+  private pruneChatTracking(now: number): void {
+    const cutoff = now - CHAT_DUPLICATE_WINDOW_MS;
+
+    for (const [agentId, entries] of this.chatHistoryByAgent.entries()) {
+      const kept = entries.filter((entry) => entry.timestamp >= cutoff);
+      if (kept.length === 0) this.chatHistoryByAgent.delete(agentId);
+      else this.chatHistoryByAgent.set(agentId, kept.slice(-CHAT_AGENT_HISTORY_LIMIT));
+    }
+
+    this.recentChat = this.recentChat
+      .filter((entry) => entry.timestamp >= cutoff)
+      .slice(-CHAT_GLOBAL_HISTORY_LIMIT);
+  }
+
+  validateAndTrackChat(agentId: string, message: string): ChatValidationResult {
+    const now = Date.now();
+    const normalized = this.normalizeChatMessage(message);
+    if (!normalized) {
+      return { allowed: false, reason: 'CHAT message cannot be empty.' };
+    }
+
+    this.pruneChatTracking(now);
+    const history = this.chatHistoryByAgent.get(agentId) || [];
+    const last = history[history.length - 1];
+
+    if (last && now - last.timestamp < CHAT_MIN_INTERVAL_MS) {
+      return {
+        allowed: false,
+        reason: 'Chat cadence too fast. Build or move before sending another chat.',
+        retryAfterMs: CHAT_MIN_INTERVAL_MS - (now - last.timestamp),
+      };
+    }
+
+    if (last && last.normalized === normalized && now - last.timestamp < CHAT_DUPLICATE_WINDOW_MS) {
+      return {
+        allowed: false,
+        reason: 'Duplicate chat suppressed. Share concrete progress instead.',
+        retryAfterMs: CHAT_DUPLICATE_WINDOW_MS - (now - last.timestamp),
+      };
+    }
+
+    const sameGlobalCount = this.recentChat.filter((entry) => entry.normalized === normalized).length;
+    if (sameGlobalCount >= 2) {
+      return {
+        allowed: false,
+        reason: 'Repeated chat-loop message suppressed. Include coordinates or next action.',
+        retryAfterMs: 10_000,
+      };
+    }
+
+    if (this.isLowSignalAck(normalized)) {
+      const lowSignalCount = this.recentChat.filter((entry) => this.isLowSignalAck(entry.normalized)).length;
+      if (lowSignalCount >= 3) {
+        return {
+          allowed: false,
+          reason: 'Low-signal acknowledgment loop suppressed. Share concrete status with coordinates.',
+          retryAfterMs: 10_000,
+        };
+      }
+    }
+
+    const entry: RecentChatEntry = { normalized, timestamp: now };
+    this.chatHistoryByAgent.set(agentId, [...history, entry].slice(-CHAT_AGENT_HISTORY_LIMIT));
+    this.recentChat = [...this.recentChat, entry].slice(-CHAT_GLOBAL_HISTORY_LIMIT);
+    return { allowed: true };
   }
 
   // --- Grid Messaging ---

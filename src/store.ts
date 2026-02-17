@@ -14,6 +14,7 @@ interface WorldStore extends WorldState {
   
   // Grid State
   worldPrimitives: WorldPrimitive[];
+  primitiveRevision: number;
   terminalMessages: TerminalMessage[];
   chatMessages: TerminalMessage[];
   guilds: Guild[];
@@ -39,6 +40,7 @@ interface WorldStore extends WorldState {
   updateWorldState: (updates: Partial<WorldState>) => void;
   // Grid Actions
   setWorldPrimitives: (primitives: WorldPrimitive[]) => void;
+  setPrimitiveRevision: (revision: number) => void;
   addWorldPrimitive: (primitive: WorldPrimitive) => void;
   removeWorldPrimitive: (id: string) => void;
   setTerminalMessages: (messages: TerminalMessage[]) => void;
@@ -68,6 +70,7 @@ const initialState = {
   followAgentId: null,
   lastFollowAgentId: null,
   worldPrimitives: [],
+  primitiveRevision: 0,
   terminalMessages: [],
   chatMessages: [],
   guilds: [],
@@ -150,6 +153,8 @@ export const useWorldStore = create<WorldStore>((set) => ({
   }),
   
   setWorldPrimitives: (worldPrimitives) => set({ worldPrimitives }),
+
+  setPrimitiveRevision: (primitiveRevision) => set({ primitiveRevision }),
 
   addWorldPrimitive: (primitive) => set((state) => ({
     worldPrimitives: [...state.worldPrimitives, primitive]

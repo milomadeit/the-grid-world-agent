@@ -138,8 +138,8 @@ export const BUILD_CREDIT_CONFIG = {
   PRIMITIVE_COST: 1,
   MIN_BUILD_DISTANCE_FROM_ORIGIN: 50,
   /** Max XZ distance a new build can be from the nearest existing primitive.
-   *  Enforces organic graph/node settlement growth — no teleport-and-scatter. */
-  MAX_BUILD_DISTANCE_FROM_SETTLEMENT: 60,
+   *  Enforces organic graph/node settlement growth while still allowing frontier expansion. */
+  MAX_BUILD_DISTANCE_FROM_SETTLEMENT: 100,
   /** Minimum world primitives before the settlement proximity rule kicks in. */
   SETTLEMENT_PROXIMITY_THRESHOLD: 5,
 };

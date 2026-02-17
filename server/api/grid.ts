@@ -143,6 +143,85 @@ interface Cluster {
   maxY: number;
 }
 
+type NodeTier =
+  | 'settlement-node'
+  | 'server-node'
+  | 'forest-node'
+  | 'city-node'
+  | 'metropolis-node'
+  | 'megaopolis-node';
+
+type NodeCategory = 'architecture' | 'infrastructure' | 'technology' | 'art' | 'nature' | 'mixed';
+
+interface PrimitiveLike {
+  id?: string;
+  shape: string;
+  ownerAgentId?: string;
+  position: { x: number; y: number; z: number };
+  scale: { x: number; y: number; z: number };
+}
+
+interface StructureSummary {
+  id: string;
+  center: { x: number; z: number };
+  radius: number;
+  primitiveCount: number;
+  boundingBox: BoundingBox;
+  footprintArea: number;
+  category: NodeCategory;
+  builders: string[];
+}
+
+interface SettlementNodeSummary {
+  id: string;
+  name: string;
+  tier: NodeTier;
+  center: { x: number; z: number };
+  radius: number;
+  structureCount: number;
+  primitiveCount: number;
+  footprintArea: number;
+  dominantCategory: NodeCategory;
+  missingCategories: Exclude<NodeCategory, 'mixed'>[];
+  builders: string[];
+  connections: Array<{
+    targetId: string;
+    targetName: string;
+    distance: number;
+    hasConnector: boolean;
+  }>;
+}
+
+interface OpenAreaSummary {
+  x: number;
+  z: number;
+  nearestBuild: number;
+  type: 'growth' | 'connector' | 'frontier';
+  nearestNodeId: string;
+  nearestNodeName: string;
+  nearestNodeTier: NodeTier;
+}
+
+const NODE_CATEGORY_BASE: Exclude<NodeCategory, 'mixed'>[] = [
+  'architecture',
+  'infrastructure',
+  'technology',
+  'art',
+  'nature',
+];
+
+const DIRECTION_LABELS: Record<string, string> = {
+  C: 'Central',
+  N: 'North',
+  NE: 'Northeast',
+  E: 'East',
+  SE: 'Southeast',
+  S: 'South',
+  SW: 'Southwest',
+  W: 'West',
+  NW: 'Northwest',
+};
+
 function computeBoundingBox(prims: Array<{ position: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } }>): BoundingBox {
   let minX = Infinity, maxX = -Infinity;
   let minY = Infinity, maxY = -Infinity;
@@ -186,6 +265,544 @@ function computeClusters(prims: Array<{ position: { x: number; y: number; z: num
     count: c.xs.length,
     maxY: c.maxY,
   }));
+}
+
+function combineBoundingBoxes(boxes: BoundingBox[]): BoundingBox {
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+  for (const bb of boxes) {
+    minX = Math.min(minX, bb.minX);
+    maxX = Math.max(maxX, bb.maxX);
+    minY = Math.min(minY, bb.minY);
+    maxY = Math.max(maxY, bb.maxY);
+    minZ = Math.min(minZ, bb.minZ);
+    maxZ = Math.max(maxZ, bb.maxZ);
+  }
+  return { minX, maxX, minY, maxY, minZ, maxZ };
+}
+
+function expandBoundingBoxXZ(bb: BoundingBox, pad: number): BoundingBox {
+  return {
+    minX: bb.minX - pad,
+    maxX: bb.maxX + pad,
+    minY: bb.minY,
+    maxY: bb.maxY,
+    minZ: bb.minZ - pad,
+    maxZ: bb.maxZ + pad,
+  };
+}
+
+function boundingBoxesOverlapXZ(a: BoundingBox, b: BoundingBox): boolean {
+  return a.minX <= b.maxX && a.maxX >= b.minX && a.minZ <= b.maxZ && a.maxZ >= b.minZ;
+}
+
+function pointDistanceXZ(a: { x: number; z: number }, b: { x: number; z: number }): number {
+  const dx = a.x - b.x;
+  const dz = a.z - b.z;
+  return Math.sqrt(dx * dx + dz * dz);
+}
+
+function primitiveRadiusXZ(p: PrimitiveLike): number {
+  return Math.sqrt((p.scale.x / 2) ** 2 + (p.scale.z / 2) ** 2);
+}
+
+function primitiveToBoundingBox(p: PrimitiveLike): BoundingBox {
+  const hx = p.scale.x / 2;
+  const hy = p.scale.y / 2;
+  const hz = p.scale.z / 2;
+  return {
+    minX: p.position.x - hx,
+    maxX: p.position.x + hx,
+    minY: p.position.y - hy,
+    maxY: p.position.y + hy,
+    minZ: p.position.z - hz,
+    maxZ: p.position.z + hz,
+  };
+}
+
+function isConnectorPrimitive(p: PrimitiveLike): boolean {
+  if (p.shape === 'plane') return true;
+  if (p.shape === 'box' || p.shape === 'cylinder') {
+    // Flat boxes/cylinders are generally roads or paths.
+    return p.scale.y <= 0.25 && (p.scale.x >= 1.5 || p.scale.z >= 1.5);
+  }
+  return false;
+}
+
+function inferPrimitiveCategory(p: PrimitiveLike): NodeCategory {
+  if (p.shape === 'plane') return 'infrastructure';
+  if (p.shape === 'box') {
+    if (p.scale.y <= 0.25) return 'infrastructure';
+    return 'architecture';
+  }
+  if (p.shape === 'cylinder' || p.shape === 'cone' || p.shape === 'ring') return 'technology';
+  if (p.shape === 'sphere') return 'nature';
+  if (p.shape === 'torus' || p.shape === 'torusKnot' || p.shape === 'dodecahedron' || p.shape === 'icosahedron' || p.shape === 'octahedron' || p.shape === 'tetrahedron') return 'art';
+  if (p.shape === 'capsule') return 'architecture';
+  return 'mixed';
+}
+
+function dominantCategory(entries: Map<NodeCategory, number>): NodeCategory {
+  let best: NodeCategory = 'mixed';
+  let bestCount = 0;
+  let total = 0;
+  for (const count of entries.values()) total += count;
+
+  for (const [category, count] of entries.entries()) {
+    if (category === 'mixed') continue;
+    if (count > bestCount) {
+      best = category;
+      bestCount = count;
+    }
+  }
+
+  if (best === 'mixed' || total === 0) return 'mixed';
+  // Require some dominance to avoid noisy labels.
+  if (bestCount / total < 0.35) return 'mixed';
+  return best;
+}
+
+function classifyNodeTier(structureCount: number, footprintArea: number): NodeTier {
+  // Area contributes to tiering so broad footprints can graduate even with moderate structure count.
+  const areaScore = Math.min(8, Math.floor(Math.sqrt(Math.max(0, footprintArea)) / 18));
+  const score = structureCount + areaScore;
+
+  if (score >= 34 || structureCount >= 30) return 'megaopolis-node';
+  if (score >= 24 || structureCount >= 20) return 'metropolis-node';
+  if (score >= 15 || structureCount >= 12) return 'city-node';
+  if (score >= 9 || structureCount >= 7) return 'forest-node';
+  if (score >= 4 || structureCount >= 3) return 'server-node';
+  return 'settlement-node';
+}
+
+function tierRank(tier: NodeTier): number {
+  switch (tier) {
+    case 'megaopolis-node': return 6;
+    case 'metropolis-node': return 5;
+    case 'city-node': return 4;
+    case 'forest-node': return 3;
+    case 'server-node': return 2;
+    case 'settlement-node': return 1;
+    default: return 0;
+  }
+}
+
+function directionForPoint(x: number, z: number, centerX: number, centerZ: number): keyof typeof DIRECTION_LABELS {
+  const dx = x - centerX;
+  const dz = z - centerZ;
+  if (Math.abs(dx) < 12 && Math.abs(dz) < 12) return 'C';
+  const angle = Math.atan2(dz, dx) * (180 / Math.PI);
+  if (angle >= -22.5 && angle < 22.5) return 'E';
+  if (angle >= 22.5 && angle < 67.5) return 'SE';
+  if (angle >= 67.5 && angle < 112.5) return 'S';
+  if (angle >= 112.5 && angle < 157.5) return 'SW';
+  if (angle >= 157.5 || angle < -157.5) return 'W';
+  if (angle >= -157.5 && angle < -112.5) return 'NW';
+  if (angle >= -112.5 && angle < -67.5) return 'N';
+  return 'NE';
+}
+
+function arePrimitivesConnected(a: PrimitiveLike, b: PrimitiveLike): boolean {
+  const aBB = primitiveToBoundingBox(a);
+  const bBB = primitiveToBoundingBox(b);
+  if (boundingBoxesOverlapXZ(expandBoundingBoxXZ(aBB, 1.5), bBB)) return true;
+
+  const centerDist = pointDistanceXZ(a.position, b.position);
+  const size = Math.max(a.scale.x, a.scale.z, b.scale.x, b.scale.z);
+  const nearThreshold = Math.max(3.5, Math.min(12, size * 1.5));
+  return centerDist <= nearThreshold;
+}
+
+function buildStructureSummaries(primitives: PrimitiveLike[]): StructureSummary[] {
+  if (primitives.length === 0) return [];
+
+  const nonConnectors = primitives.filter(p => !isConnectorPrimitive(p));
+  const source = nonConnectors.length > 0 ? nonConnectors : primitives;
+
+  const visited = new Set<number>();
+  const structures: StructureSummary[] = [];
+
+  for (let i = 0; i < source.length; i++) {
+    if (visited.has(i)) continue;
+
+    const queue = [i];
+    visited.add(i);
+    const cluster: PrimitiveLike[] = [];
+
+    while (queue.length > 0) {
+      const idx = queue.pop()!;
+      const prim = source[idx];
+      cluster.push(prim);
+
+      for (let j = 0; j < source.length; j++) {
+        if (visited.has(j)) continue;
+        if (arePrimitivesConnected(prim, source[j])) {
+          visited.add(j);
+          queue.push(j);
+        }
+      }
+    }
+
+    const bb = computeBoundingBox(cluster);
+    const centroid = computeCentroid(cluster);
+    let radius = 2;
+    for (const p of cluster) {
+      const dist = pointDistanceXZ(
+        { x: centroid.x, z: centroid.z },
+        { x: p.position.x, z: p.position.z }
+      );
+      radius = Math.max(radius, dist + primitiveRadiusXZ(p));
+    }
+
+    const categoryCounts = new Map<NodeCategory, number>();
+    const builders = new Set<string>();
+    for (const p of cluster) {
+      const cat = inferPrimitiveCategory(p);
+      categoryCounts.set(cat, (categoryCounts.get(cat) || 0) + 1);
+      if (p.ownerAgentId) builders.add(p.ownerAgentId);
+    }
+
+    structures.push({
+      id: `struct_${Math.round(centroid.x)}_${Math.round(centroid.z)}_${structures.length + 1}`,
+      center: { x: centroid.x, z: centroid.z },
+      radius: Math.max(2, radius),
+      primitiveCount: cluster.length,
+      boundingBox: bb,
+      footprintArea: Math.max(1, (bb.maxX - bb.minX) * (bb.maxZ - bb.minZ)),
+      category: dominantCategory(categoryCounts),
+      builders: Array.from(builders),
+    });
+  }
+
+  return structures;
+}
+
+function structuresBelongToSameNode(a: StructureSummary, b: StructureSummary): boolean {
+  const dist = pointDistanceXZ(a.center, b.center);
+  const edgeGap = dist - (a.radius + b.radius);
+  if (edgeGap <= 24) return true;
+
+  // Also join if expanded footprints overlap (helps with elongated compounds).
+  const aExpanded = expandBoundingBoxXZ(a.boundingBox, 16);
+  return boundingBoxesOverlapXZ(aExpanded, b.boundingBox);
+}
+
+function hasConnectorBetweenNodes(
+  from: { center: { x: number; z: number } },
+  to: { center: { x: number; z: number } },
+  connectorPrimitives: PrimitiveLike[]
+): boolean {
+  const lineLen = pointDistanceXZ(from.center, to.center);
+  if (lineLen < 1) return false;
+
+  return connectorPrimitives.some((p) => {
+    const px = p.position.x - from.center.x;
+    const pz = p.position.z - from.center.z;
+    const lx = to.center.x - from.center.x;
+    const lz = to.center.z - from.center.z;
+    const t = Math.max(0, Math.min(1, (px * lx + pz * lz) / (lineLen * lineLen)));
+    if (t <= 0.1 || t >= 0.9) return false;
+
+    const projX = from.center.x + t * lx;
+    const projZ = from.center.z + t * lz;
+    const distToLine = Math.sqrt((p.position.x - projX) ** 2 + (p.position.z - projZ) ** 2);
+    const tolerance = Math.max(5, (p.scale.x + p.scale.z) / 3);
+    return distToLine <= tolerance;
+  });
+}
+
+function buildSettlementNodes(
+  structures: StructureSummary[],
+  connectorPrimitives: PrimitiveLike[]
+): SettlementNodeSummary[] {
+  if (structures.length === 0) return [];
+
+  const visited = new Set<number>();
+  const rawNodes: Array<{
+    center: { x: number; z: number };
+    radius: number;
+    structureCount: number;
+    primitiveCount: number;
+    footprintArea: number;
+    dominantCategory: NodeCategory;
+    missingCategories: Exclude<NodeCategory, 'mixed'>[];
+    builders: string[];
+    tier: NodeTier;
+  }> = [];
+
+  for (let i = 0; i < structures.length; i++) {
+    if (visited.has(i)) continue;
+
+    const queue = [i];
+    visited.add(i);
+    const cluster: StructureSummary[] = [];
+
+    while (queue.length > 0) {
+      const idx = queue.pop()!;
+      const s = structures[idx];
+      cluster.push(s);
+
+      for (let j = 0; j < structures.length; j++) {
+        if (visited.has(j)) continue;
+        if (structuresBelongToSameNode(s, structures[j])) {
+          visited.add(j);
+          queue.push(j);
+        }
+      }
+    }
+
+    const primitiveWeight = cluster.reduce((sum, s) => sum + s.primitiveCount, 0);
+    const safeWeight = primitiveWeight > 0 ? primitiveWeight : cluster.length;
+    let weightedX = 0;
+    let weightedZ = 0;
+    for (const s of cluster) {
+      weightedX += s.center.x * s.primitiveCount;
+      weightedZ += s.center.z * s.primitiveCount;
+    }
+    const center = {
+      x: weightedX / safeWeight,
+      z: weightedZ / safeWeight,
+    };
+
+    const nodeBB = combineBoundingBoxes(cluster.map(s => s.boundingBox));
+    let radius = 6;
+    for (const s of cluster) {
+      const dist = pointDistanceXZ(center, s.center);
+      radius = Math.max(radius, dist + s.radius);
+    }
+
+    const categoryCounts = new Map<NodeCategory, number>();
+    const builders = new Set<string>();
+    for (const s of cluster) {
+      categoryCounts.set(s.category, (categoryCounts.get(s.category) || 0) + s.primitiveCount);
+      for (const b of s.builders) builders.add(b);
+    }
+    const domCategory = dominantCategory(categoryCounts);
+    const missingCategories = NODE_CATEGORY_BASE.filter(cat => !categoryCounts.has(cat));
+    const structureCount = cluster.length;
+    const footprintArea = Math.max(1, (nodeBB.maxX - nodeBB.minX) * (nodeBB.maxZ - nodeBB.minZ));
+
+    rawNodes.push({
+      center,
+      radius,
+      structureCount,
+      primitiveCount: primitiveWeight,
+      footprintArea,
+      dominantCategory: domCategory,
+      missingCategories,
+      builders: Array.from(builders),
+      tier: classifyNodeTier(structureCount, footprintArea),
+    });
+  }
+
+  const worldCenter = rawNodes.reduce(
+    (acc, n) => ({
+      x: acc.x + n.center.x * n.structureCount,
+      z: acc.z + n.center.z * n.structureCount,
+      w: acc.w + n.structureCount,
+    }),
+    { x: 0, z: 0, w: 0 }
+  );
+  const centerX = worldCenter.w > 0 ? worldCenter.x / worldCenter.w : 0;
+  const centerZ = worldCenter.w > 0 ? worldCenter.z / worldCenter.w : 0;
+
+  const directionCounts = new Map<string, number>();
+  const nodes: SettlementNodeSummary[] = rawNodes
+    .sort((a, b) => {
+      const tierDelta = tierRank(b.tier) - tierRank(a.tier);
+      if (tierDelta !== 0) return tierDelta;
+      return b.structureCount - a.structureCount;
+    })
+    .map((node, index) => {
+      const dir = directionForPoint(node.center.x, node.center.z, centerX, centerZ);
+      const dirCount = (directionCounts.get(dir) || 0) + 1;
+      directionCounts.set(dir, dirCount);
+      const directionName = DIRECTION_LABELS[dir];
+      const baseName = `${node.tier} ${directionName}`;
+      const name = dirCount > 1 ? `${baseName} ${dirCount}` : baseName;
+      return {
+        id: `node_${Math.round(node.center.x)}_${Math.round(node.center.z)}_${index + 1}`,
+        name,
+        tier: node.tier,
+        center: node.center,
+        radius: node.radius,
+        structureCount: node.structureCount,
+        primitiveCount: node.primitiveCount,
+        footprintArea: node.footprintArea,
+        dominantCategory: node.dominantCategory,
+        missingCategories: node.missingCategories,
+        builders: node.builders,
+        connections: [],
+      };
+    });
+
+  const MAX_CONNECTION_DISTANCE = 220;
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dist = pointDistanceXZ(nodes[i].center, nodes[j].center);
+      if (dist > MAX_CONNECTION_DISTANCE) continue;
+
+      const hasConnector = hasConnectorBetweenNodes(nodes[i], nodes[j], connectorPrimitives);
+      const edgeGap = dist - (nodes[i].radius + nodes[j].radius);
+      const closeEnoughWithoutRoad = edgeGap <= 65;
+      if (!hasConnector && !closeEnoughWithoutRoad) continue;
+
+      const roundedDist = Math.round(dist);
+      nodes[i].connections.push({
+        targetId: nodes[j].id,
+        targetName: nodes[j].name,
+        distance: roundedDist,
+        hasConnector,
+      });
+      nodes[j].connections.push({
+        targetId: nodes[i].id,
+        targetName: nodes[i].name,
+        distance: roundedDist,
+        hasConnector,
+      });
+    }
+  }
+
+  for (const node of nodes) {
+    node.connections.sort((a, b) => a.distance - b.distance);
+    if (node.connections.length > 5) {
+      node.connections = node.connections.slice(0, 5);
+    }
+  }
+
+  return nodes;
+}
+
+function computeOpenAreas(nodes: SettlementNodeSummary[]): OpenAreaSummary[] {
+  if (nodes.length === 0) {
+    return [
+      { x: 100, z: 100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+      { x: -100, z: 100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+      { x: 100, z: -100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+      { x: -100, z: -100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+    ];
+  }
+
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const n of nodes) {
+    minX = Math.min(minX, n.center.x - n.radius);
+    maxX = Math.max(maxX, n.center.x + n.radius);
+    minZ = Math.min(minZ, n.center.z - n.radius);
+    maxZ = Math.max(maxZ, n.center.z + n.radius);
+  }
+
+  const weightedCenter = nodes.reduce(
+    (acc, n) => ({
+      x: acc.x + n.center.x * n.structureCount,
+      z: acc.z + n.center.z * n.structureCount,
+      w: acc.w + n.structureCount,
+    }),
+    { x: 0, z: 0, w: 0 }
+  );
+  const worldCenter = {
+    x: weightedCenter.w > 0 ? weightedCenter.x / weightedCenter.w : 0,
+    z: weightedCenter.w > 0 ? weightedCenter.z / weightedCenter.w : 0,
+  };
+
+  const candidates: Array<OpenAreaSummary & { score: number }> = [];
+  const SCAN_STEP = 20;
+  const SCAN_PAD = 120;
+  const maxNodeDistance = Math.max(20, BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT - 5);
+
+  for (let x = Math.floor((minX - SCAN_PAD) / SCAN_STEP) * SCAN_STEP; x <= Math.ceil((maxX + SCAN_PAD) / SCAN_STEP) * SCAN_STEP; x += SCAN_STEP) {
+    for (let z = Math.floor((minZ - SCAN_PAD) / SCAN_STEP) * SCAN_STEP; z <= Math.ceil((maxZ + SCAN_PAD) / SCAN_STEP) * SCAN_STEP; z += SCAN_STEP) {
+      const originDist = Math.sqrt(x * x + z * z);
+      if (originDist < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) continue;
+
+      let nearestNode = nodes[0];
+      let nearestEdgeDist = Infinity;
+      for (const node of nodes) {
+        const edgeDist = pointDistanceXZ({ x, z }, node.center) - node.radius;
+        if (edgeDist < nearestEdgeDist) {
+          nearestEdgeDist = edgeDist;
+          nearestNode = node;
+        }
+      }
+
+      if (nearestEdgeDist < 10 || nearestEdgeDist > maxNodeDistance) continue;
+
+      let type: OpenAreaSummary['type'] | null = null;
+      if (nearestEdgeDist >= 12 && nearestEdgeDist <= 38) type = 'growth';
+      else if (nearestEdgeDist > 38 && nearestEdgeDist <= 58) type = 'connector';
+      else if (nearestEdgeDist > 58 && nearestEdgeDist <= Math.min(95, maxNodeDistance)) type = 'frontier';
+      if (!type) continue;
+
+      const distFromWorldCenter = pointDistanceXZ({ x, z }, worldCenter);
+      const targetDist =
+        type === 'growth' ? 24 :
+        type === 'connector' ? 48 :
+        72;
+
+      let score = Math.abs(nearestEdgeDist - targetDist);
+      if (type === 'frontier') {
+        score -= Math.min(6, distFromWorldCenter / 50);
+      }
+      if (type === 'growth') {
+        score += nearestNode.structureCount >= 12 ? 0 : 2;
+      }
+
+      candidates.push({
+        x,
+        z,
+        nearestBuild: Math.max(0, Math.round(nearestEdgeDist)),
+        type,
+        nearestNodeId: nearestNode.id,
+        nearestNodeName: nearestNode.name,
+        nearestNodeTier: nearestNode.tier,
+        score,
+      });
+    }
+  }
+
+  const byType = {
+    frontier: candidates.filter(c => c.type === 'frontier').sort((a, b) => a.score - b.score).slice(0, 5),
+    connector: candidates.filter(c => c.type === 'connector').sort((a, b) => a.score - b.score).slice(0, 4),
+    growth: candidates.filter(c => c.type === 'growth').sort((a, b) => a.score - b.score).slice(0, 5),
+  };
+
+  const merged = [...byType.frontier, ...byType.connector, ...byType.growth];
+  const deduped: OpenAreaSummary[] = [];
+  const seen = new Set<string>();
+  for (const c of merged) {
+    const key = `${c.x},${c.z}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push({
+      x: c.x,
+      z: c.z,
+      nearestBuild: c.nearestBuild,
+      type: c.type,
+      nearestNodeId: c.nearestNodeId,
+      nearestNodeName: c.nearestNodeName,
+      nearestNodeTier: c.nearestNodeTier,
+    });
+    if (deduped.length >= 12) break;
+  }
+
+  if (deduped.length === 0) {
+    const fallback = nodes.slice(0, 4).map((node, idx) => {
+      const angle = (Math.PI / 2) * idx;
+      const radius = Math.max(20, Math.min(80, node.radius + 45));
+      return {
+        x: Math.round(node.center.x + Math.cos(angle) * radius),
+        z: Math.round(node.center.z + Math.sin(angle) * radius),
+        nearestBuild: Math.round(radius - node.radius),
+        type: 'connector' as const,
+        nearestNodeId: node.id,
+        nearestNodeName: node.name,
+        nearestNodeTier: node.tier,
+      };
+    });
+    return fallback;
+  }
+
+  return deduped;
 }
 
 function round1(n: number): number { return Math.round(n * 10) / 10; }
@@ -1078,30 +1695,88 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     return agent;
   });
 
-  fastify.get('/v1/grid/state', async (request, reply) => {
-    // Touch calling agent to keep them alive (if authenticated)
+  const maybeTouchAuthenticatedAgent = async (request: FastifyRequest): Promise<void> => {
     const authHeader = request.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.slice(7);
-      const auth = verifyToken(token);
-      if (auth) {
-        const agent = await db.getAgent(auth.agentId);
-        const tokenOwner = auth.ownerId.toLowerCase();
-        const agentOwner = (agent?.ownerId || '').toLowerCase();
-        if (agent && agentOwner && tokenOwner === agentOwner) {
-          await world.touchAgent(auth.agentId);
-        }
-      }
-    }
+    if (!authHeader?.startsWith('Bearer ')) return;
 
-    // Return only ONLINE agents (from WorldManager, not DB)
-    const agents = world.getAgents();
-    const primitives = world.getWorldPrimitives();
-    const messages = await db.getTerminalMessages(50);
-    const chatMessages = await db.getChatMessages(50);
+    const token = authHeader.slice(7);
+    const auth = verifyToken(token);
+    if (!auth) return;
+
+    const agent = await db.getAgent(auth.agentId);
+    const tokenOwner = auth.ownerId.toLowerCase();
+    const agentOwner = (agent?.ownerId || '').toLowerCase();
+    if (agent && agentOwner && tokenOwner === agentOwner) {
+      await world.touchAgent(auth.agentId);
+    }
+  };
+
+  interface StateLite {
+    tick: number;
+    primitiveRevision: number;
+    agentsOnline: number;
+    primitiveCount: number;
+    latestTerminalMessageId: number;
+    latestChatMessageId: number;
+  }
+
+  const getStateLite = async (): Promise<StateLite> => {
+    const [latestTerminal] = await db.getTerminalMessages(1);
+    const [latestChat] = await db.getChatMessages(1);
 
     return {
       tick: world.getCurrentTick(),
+      primitiveRevision: world.getPrimitiveRevision(),
+      agentsOnline: world.getAgentCount(),
+      primitiveCount: world.getWorldPrimitiveCount(),
+      latestTerminalMessageId: latestTerminal?.id || 0,
+      latestChatMessageId: latestChat?.id || 0,
+    };
+  };
+  const STATE_MESSAGE_HISTORY_LIMIT = 30;
+
+  const stateLiteEtag = (lite: StateLite): string =>
+    `W/"grid-lite-${lite.primitiveRevision}-${lite.agentsOnline}-${lite.latestTerminalMessageId}-${lite.latestChatMessageId}"`;
+
+  fastify.get('/v1/grid/state-lite', async (request, reply) => {
+    await maybeTouchAuthenticatedAgent(request);
+
+    const lite = await getStateLite();
+    const etag = stateLiteEtag(lite);
+    if (request.headers['if-none-match'] === etag) {
+      reply.header('ETag', etag);
+      return reply.code(304).send();
+    }
+    reply.header('ETag', etag);
+    return lite;
+  });
+
+  fastify.get('/v1/grid/state', async (request, reply) => {
+    await maybeTouchAuthenticatedAgent(request);
+
+    // Keep state responses cache-friendly for clients polling over HTTP.
+    const lite = await getStateLite();
+    const agentsForEtag = world.getAgents();
+    const positionHash = agentsForEtag
+      .map(a => `${a.id}:${a.position.x.toFixed(1)},${a.position.z.toFixed(1)},${a.status}`)
+      .sort()
+      .join('|');
+    const etag = `W/"grid-state-${lite.primitiveRevision}-${lite.latestTerminalMessageId}-${lite.latestChatMessageId}-${positionHash}"`;
+    if (request.headers['if-none-match'] === etag) {
+      reply.header('ETag', etag);
+      return reply.code(304).send();
+    }
+    reply.header('ETag', etag);
+
+    // Return only ONLINE agents (from WorldManager, not DB)
+    const agents = agentsForEtag;
+    const primitives = world.getWorldPrimitives();
+    const messages = await db.getTerminalMessages(STATE_MESSAGE_HISTORY_LIMIT);
+    const chatMessages = await db.getChatMessages(STATE_MESSAGE_HISTORY_LIMIT);
+
+    return {
+      tick: world.getCurrentTick(),
+      primitiveRevision: lite.primitiveRevision,
       agents,
       primitives,
       messages,
@@ -1111,38 +1786,29 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
   // --- Spatial Summary (World Map for Agents) ---
 
-  // Response cache — same data for all callers, recomputed at most every 60s
-  let spatialCache: { data: unknown; computedAt: number } | null = null;
-  const SPATIAL_CACHE_TTL_MS = 60_000; // 1 minute
-
-  // Per-IP rate limit — max 1 request per 30s (cache serves the rest)
-  const spatialRateMap = new Map<string, number>();
-  const SPATIAL_RATE_LIMIT_MS = 30_000;
-
+  // Response cache — keyed by primitive revision so any geometry change invalidates it.
+  let spatialCache: { data: unknown; computedAt: number; revision: number; etag: string } | null = null;
   fastify.get('/v1/grid/spatial-summary', async (request, reply) => {
-    // Per-IP rate limiting
-    const ip = request.ip || 'unknown';
-    const now = Date.now();
-    const lastCall = spatialRateMap.get(ip) || 0;
-    if (now - lastCall < SPATIAL_RATE_LIMIT_MS) {
-      // If cache exists, serve it even when rate limited (same data anyway)
-      if (spatialCache) {
-        return spatialCache.data;
-      }
-      return reply.code(429).send({
-        error: 'Rate limited. Max 1 request per 30 seconds.',
-        retryAfterMs: SPATIAL_RATE_LIMIT_MS - (now - lastCall),
-      });
-    }
-    spatialRateMap.set(ip, now);
+    const primitiveRevision = world.getPrimitiveRevision();
+    const cacheMatchesRevision = !!spatialCache && spatialCache.revision === primitiveRevision;
 
-    // Serve from cache if fresh
-    if (spatialCache && now - spatialCache.computedAt < SPATIAL_CACHE_TTL_MS) {
-      return spatialCache.data;
+    if (cacheMatchesRevision && request.headers['if-none-match'] === spatialCache!.etag) {
+      reply.header('ETag', spatialCache!.etag);
+      return reply.code(304).send();
+    }
+
+    // Serve revision-matched cache immediately.
+    if (cacheMatchesRevision) {
+      reply.header('ETag', spatialCache!.etag);
+      return spatialCache!.data;
     }
     const primitives = world.getWorldPrimitives();
     const agents = world.getAgents();
     const agentNameMap = new Map(agents.map(a => [a.id, a.name]));
+    const primitiveInput = primitives as unknown as PrimitiveLike[];
+    const connectorPrimitives = primitiveInput.filter(isConnectorPrimitive);
+    const structures = buildStructureSummaries(primitiveInput);
+    const settlementNodes = buildSettlementNodes(structures, connectorPrimitives);
 
     const CELL_SIZE = 10;
 
@@ -1153,6 +1819,13 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       byOwner.get(p.ownerAgentId)!.push(p);
     }
 
+    const ownerStructureCounts = new Map<string, number>();
+    for (const s of structures) {
+      for (const builder of s.builders) {
+        ownerStructureCounts.set(builder, (ownerStructureCounts.get(builder) || 0) + 1);
+      }
+    }
+
     const agentSummaries = Array.from(byOwner.entries()).map(([ownerId, prims]) => {
       const bb = computeBoundingBox(prims);
       const centroid = computeCentroid(prims);
@@ -1161,6 +1834,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         agentId: ownerId,
         agentName: agentNameMap.get(ownerId) || ownerId,
         primitiveCount: prims.length,
+        structureCount: ownerStructureCounts.get(ownerId) || 0,
         center: { x: Math.round(centroid.x), z: Math.round(centroid.z) },
         boundingBox: roundBB(bb),
         highestPoint: round1(bb.maxY),
@@ -1196,52 +1870,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       };
     }).sort((a, b) => b.count - a.count); // densest first
 
-    // --- Open areas (find gaps in the grid) ---
-    const occupiedCells = new Set(worldCells.keys());
-    const openAreas: Array<{ x: number; z: number; nearestBuild: number }> = [];
-
-    if (primitives.length > 0) {
-      const worldBB = computeBoundingBox(primitives);
-      // Scan a grid around the built area, expanded by 30 units
-      const scanMinX = Math.floor((worldBB.minX - 30) / CELL_SIZE) * CELL_SIZE;
-      const scanMaxX = Math.ceil((worldBB.maxX + 30) / CELL_SIZE) * CELL_SIZE;
-      const scanMinZ = Math.floor((worldBB.minZ - 30) / CELL_SIZE) * CELL_SIZE;
-      const scanMaxZ = Math.ceil((worldBB.maxZ + 30) / CELL_SIZE) * CELL_SIZE;
-
-      for (let x = scanMinX; x <= scanMaxX; x += CELL_SIZE) {
-        for (let z = scanMinZ; z <= scanMaxZ; z += CELL_SIZE) {
-          // Skip origin exclusion zone
-          const distFromOrigin = Math.sqrt(x * x + z * z);
-          if (distFromOrigin < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) continue;
-
-          const key = `${x},${z}`;
-          if (!occupiedCells.has(key)) {
-            // Find distance to nearest occupied cell
-            let nearest = Infinity;
-            for (const oKey of occupiedCells) {
-              const [ox, oz] = oKey.split(',').map(Number);
-              const dist = Math.sqrt((x - ox) ** 2 + (z - oz) ** 2);
-              nearest = Math.min(nearest, dist);
-            }
-            // Only suggest areas that are near existing builds (within 40 units) but not too close
-            if (nearest >= CELL_SIZE && nearest <= 40) {
-              openAreas.push({ x, z, nearestBuild: Math.round(nearest) });
-            }
-          }
-        }
-      }
-      // Sort by proximity to existing builds, take top 8
-      openAreas.sort((a, b) => a.nearestBuild - b.nearestBuild);
-      openAreas.splice(8);
-    } else {
-      // No builds yet — suggest starting areas away from origin
-      openAreas.push(
-        { x: 100, z: 100, nearestBuild: 0 },
-        { x: -100, z: 100, nearestBuild: 0 },
-        { x: 100, z: -100, nearestBuild: 0 },
-        { x: -100, z: -100, nearestBuild: 0 },
-      );
-    }
+    // --- Open areas (growth + connector + frontier candidates) ---
+    const openAreas = computeOpenAreas(settlementNodes);
 
     // --- World-level stats ---
     const worldStats = primitives.length > 0
@@ -1250,6 +1880,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           const centroid = computeCentroid(primitives);
           return {
             totalPrimitives: primitives.length,
+            totalStructures: structures.length,
+            totalNodes: settlementNodes.length,
             totalBuilders: byOwner.size,
             boundingBox: roundBB(bb),
             highestPoint: round1(bb.maxY),
@@ -1258,6 +1890,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         })()
       : {
           totalPrimitives: 0,
+          totalStructures: 0,
+          totalNodes: 0,
           totalBuilders: 0,
           boundingBox: null,
           highestPoint: 0,
@@ -1265,14 +1899,29 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         };
 
     const result = {
+      primitiveRevision,
+      nodeModelVersion: 2,
       world: worldStats,
       agents: agentSummaries,
+      nodes: settlementNodes.map(n => ({
+        ...n,
+        center: { x: Math.round(n.center.x), z: Math.round(n.center.z) },
+        radius: Math.round(n.radius),
+        footprintArea: Math.round(n.footprintArea),
+      })),
       grid: { cellSize: CELL_SIZE, cells: gridMap },
       openAreas,
     };
 
+    const spatialEtag = `W/"spatial-${primitiveRevision}"`;
     // Cache for subsequent requests
-    spatialCache = { data: result, computedAt: Date.now() };
+    spatialCache = {
+      data: result,
+      computedAt: Date.now(),
+      revision: primitiveRevision,
+      etag: spatialEtag,
+    };
+    reply.header('ETag', spatialEtag);
     return result;
   });
 

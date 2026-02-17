@@ -168,6 +168,7 @@ async function main() {
   console.log(`  - POST /v1/reputation/:feedbackId/revoke`);
   console.log(`  - POST /v1/grid/plot`);
   console.log(`  - POST /v1/grid/terminal`);
+  console.log(`  - GET  /v1/grid/state-lite`);
   console.log(`  - GET  /v1/grid/state`);
 
   // Graceful shutdown

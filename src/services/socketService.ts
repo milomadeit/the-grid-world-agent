@@ -10,6 +10,7 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL ||
 
 interface WorldSnapshot {
   tick: number;
+  primitiveRevision?: number;
   agents: Array<{
     id: string;
     name: string;
@@ -45,6 +46,11 @@ interface ChatMessage {
   agentName: string;
   message: string;
   timestamp: number;
+}
+
+interface WorldRevisionEvent {
+  primitiveRevision: number;
+  reason?: 'primitive:created' | 'primitive:deleted' | 'primitives:sync';
 }
 
 export interface ERC8004Input {
@@ -186,6 +192,9 @@ class SocketService {
 
       useWorldStore.getState().setAgents(agents);
       useWorldStore.getState().setWorldPrimitives(data.primitives || []);
+      if (typeof data.primitiveRevision === 'number') {
+        useWorldStore.getState().setPrimitiveRevision(data.primitiveRevision);
+      }
       useWorldStore.getState().setTerminalMessages(data.terminalMessages);
       useWorldStore.getState().setChatMessages(data.chatMessages || []);
     });
@@ -270,6 +279,12 @@ class SocketService {
 
     this.socket.on('world:primitives_sync', (primitives: WorldPrimitive[]) => {
       useWorldStore.getState().setWorldPrimitives(primitives);
+    });
+
+    this.socket.on('world:revision', (data: WorldRevisionEvent) => {
+      if (typeof data?.primitiveRevision === 'number') {
+        useWorldStore.getState().setPrimitiveRevision(data.primitiveRevision);
+      }
     });
 
     this.socket.on('terminal:message', (message: TerminalMessage) => {

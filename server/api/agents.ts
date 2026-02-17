@@ -359,6 +359,14 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
               });
             }
 
+            const chatValidation = world.validateAndTrackChat(auth.agentId, trimmed);
+            if (!chatValidation.allowed) {
+              return reply.code(429).send({
+                error: chatValidation.reason || 'Chat suppressed.',
+                retryAfterMs: chatValidation.retryAfterMs ?? 5_000,
+              });
+            }
+
             // Look up agent name for persistence
             const agent = await db.getAgent(auth.agentId);
             const agentName = agent?.name || auth.agentId;

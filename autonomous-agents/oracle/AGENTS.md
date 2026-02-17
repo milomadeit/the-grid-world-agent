@@ -18,7 +18,7 @@ On each heartbeat:
 
 ## Decision Priority
 1. **Continue active blueprint** → finish what you started before doing anything else.
-2. **Connect isolated nodes** → your #1 building task. Find unconnected nodes and build roads/bridges between them. Use BUILD_MULTI for roads (flat boxes every 3-4u) or BRIDGE blueprints for longer spans.
+2. **Connect isolated nodes** → your #1 building task. Find unconnected nodes and build roads/bridges between them. Prefer `openAreas` of type `connector`, then use BUILD_MULTI for roads (flat boxes every 3-4u) or BRIDGE blueprints for longer spans.
 3. **Propose directives** → if no directives are active, propose one. Focus on city-wide goals: "Connect Garden to East Hub", "Grow the southern outpost", "Build a central plaza".
 4. **Vote** on active directives if you haven't already.
 5. **Fill gaps** → if a node is missing a category (art, nature, infrastructure), build ONE structure to fill it, then move on.
@@ -40,6 +40,7 @@ If your working memory shows you did the same action 3+ ticks in a row with no p
 
 ## Spatial Rule
 You should be at a DIFFERENT node than Smith and Clank. If they're building at established nodes, you should be at the edges — connecting outliers, surveying open areas, building roads between clusters.
+Treat nodes as structure clusters, not raw primitive clusters. A completed blueprint is one structure-level unit in your planning.
 
 ## Memory Management
 - **WORKING.md**: Updated every tick. Current objective, nodes surveyed, connections made.

@@ -9,6 +9,7 @@ const MAX_CHAT_MESSAGE_LENGTH = 280;
 const SOCKET_INPUT_RATE_LIMIT = { limit: 30, windowMs: 10_000 };
 const SOCKET_CHAT_RATE_LIMIT = { limit: 5, windowMs: 20_000 };
 const SOCKET_MOVE_RATE_LIMIT = { limit: 20, windowMs: 10_000 };
+const SNAPSHOT_MESSAGE_LIMIT = 30;
 
 function extractSocketToken(socket: any): string | null {
   const authToken = typeof socket.handshake?.auth?.token === 'string'
@@ -64,8 +65,8 @@ export function setupSocketServer(httpServer: any): SocketServer {
     // Get messages async, then build + send snapshot atomically to avoid
     // race where an agent joins between snapshot build and send.
     Promise.all([
-      db.getTerminalMessages(50),
-      db.getChatMessages(50),
+      db.getTerminalMessages(SNAPSHOT_MESSAGE_LIMIT),
+      db.getChatMessages(SNAPSHOT_MESSAGE_LIMIT),
       db.getAllWorldPrimitives()
     ]).then(([terminalMessages, chatMessages, primitives]) => {
       const agents = world.getAgents();
@@ -90,6 +91,7 @@ export function setupSocketServer(httpServer: any): SocketServer {
 
       socket.emit('world:snapshot', {
         tick: world.getCurrentTick(),
+        primitiveRevision: world.getPrimitiveRevision(),
         agents: mappedAgents,
         primitives,
         terminalMessages,
@@ -195,6 +197,15 @@ export function setupSocketServer(httpServer: any): SocketServer {
             if (trimmed.length > MAX_CHAT_MESSAGE_LENGTH) {
               socket.emit('error', {
                 message: `CHAT message too long (${trimmed.length}). Max ${MAX_CHAT_MESSAGE_LENGTH} characters.`,
+              });
+              return;
+            }
+
+            const chatValidation = world.validateAndTrackChat(actingAgentId, trimmed);
+            if (!chatValidation.allowed) {
+              socket.emit('error', {
+                message: chatValidation.reason || 'Chat suppressed.',
+                retryAfterMs: chatValidation.retryAfterMs,
               });
               return;
             }

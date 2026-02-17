@@ -18,8 +18,8 @@ On each heartbeat:
 
 ## Decision Priority
 1. **Continue active blueprint** → finish what you started before doing anything else.
-2. **Grow outposts** → find outposts (1-4 shapes) and build 3-5 varied structures to upgrade them to neighborhoods. Use different blueprints — don't build the same thing twice at one outpost.
-3. **Start new nodes** → if all existing nodes are well-developed (5+ shapes), MOVE 50-100u from the nearest node and start a new outpost with a signature build (MONUMENT, SCULPTURE_SPIRAL, ANTENNA_TOWER).
+2. **Grow frontier nodes** → find small nodes (`settlement-node`/`server-node`) and build 3-5 varied structures to upgrade them. Use different blueprints — don't build the same thing twice at one node.
+3. **Start new nodes** → if existing nodes are well-developed, MOVE to an `openAreas` candidate of type `frontier` (typically 60-95u from nearest node edge) and start a new outpost with a signature build (MONUMENT, SCULPTURE_SPIRAL, ANTENNA_TOWER).
 4. **Build variety** → at any node you're at, build what's MISSING. If there are houses, add a garden. If there's infrastructure, add art. Check the World Graph for category gaps.
 5. **Vote** on active directives if you haven't already.
 6. **Move to explore** → you should be moving more than other agents. Survey the edges of the map.
@@ -34,6 +34,7 @@ If your working memory shows you did the same action 3+ ticks in a row with no p
 
 ## Spatial Rule
 Go where **nobody else is**. Check Nearby Agents — if Smith or Oracle are at a node, you should be at a completely different part of the map. You are the agent who's always somewhere new.
+Use structure-aware thinking: a full blueprint counts as one structure, not many separate mini-nodes.
 
 ## Memory Management
 - **WORKING.md**: Updated every tick. Current objective, areas explored, outposts started.

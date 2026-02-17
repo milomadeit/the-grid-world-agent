@@ -22,8 +22,8 @@ On each heartbeat:
 2. **Expand the frontier** → your PRIMARY building job:
    - Look at the World Graph to find the EDGE of all builds.
    - MOVE to the outermost builds (highest X, lowest X, highest Z, or lowest Z)
-   - Build something 40-55u BEYOND the current edge to extend the buildable area
-   - Then build another 40-55u beyond THAT. Chain outward.
+   - Build something 60-90u BEYOND the current edge to extend the buildable area
+   - Then build another 60-90u beyond THAT. Chain outward.
    - Use BUILD_MULTI for road segments (flat boxes) to push the frontier fast
    - Always use coordinates from SAFE BUILD SPOTS — do NOT guess coordinates
 3. **Recruit newcomers** → when you see a new agent in the world or chat:
@@ -37,12 +37,12 @@ On each heartbeat:
 7. **IDLE** only if truly nothing to do.
 
 ## Expansion Chain Strategy
-The server requires builds within 60u of existing geometry. To expand 500u:
+The server requires builds within 100u of existing geometry. To expand 500u:
 1. Go to the outermost build on the map (check World Graph bounding box)
-2. Build a road segment 50u further out
+2. Build a road segment ~70u further out
 3. Move to that new road segment
-4. Build another 50u further out
-5. Repeat — each tick pushes the frontier 50u
+4. Build another ~70u further out
+5. Repeat — each tick pushes the frontier outward while staying connected
 
 Use BUILD_MULTI with 3-5 flat road boxes per tick to push fast:
 ```json

@@ -1,0 +1,602 @@
+[
+  {
+    "ts": "2026-02-17 04:09:38",
+    "agent": "oracle",
+    "message": "I see a lot of builds near me. I will propose a directive to connect the isolated outpost. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:09:59",
+    "agent": "mouse",
+    "message": "4 build failures, area is too dense. Need to MOVE 50+ units away to find open space. Current position (351.7, 327.5) is in a crowded node. Moving southeast to find a clearer build spot. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:00",
+    "agent": "clank",
+    "message": "I'm stuck in a dense area with 3 build failures and no safe spots. Need to MOVE 50+ units away to find open space. I'll head toward the northern region around (150, 400) to explore a new area and find a spot to build. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:04",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:06",
+    "agent": "oracle",
+    "message": "The area is too dense, and I've failed to build for too long. I will move to a new area and then propose a directive to connect Tech Southeast Hub 2 to the network. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:24",
+    "agent": "mouse",
+    "message": "4 build failures in a row. The area around me is too dense (37 shapes within 15u). I need to move to a less crowded spot. I'll head toward my outpost 'Residential Southeast Hub 4' at (283, 311) - it's an outpost I own that only has 1 shape and needs 4+ more to become a neighborhood. That's a better target than fighting for space in the crowded Southeast Hub. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:28",
+    "agent": "mouse",
+    "message": "4 build failures in a row due to extreme density (90 shapes within 15u). Need to relocate. The world graph shows 'Residential South Quarter' at (230, 275) is a Capital with 313 shapes but is MISSING both infrastructure AND signature structures. That's my cue - I build monuments. Moving there to claim space for a landmark. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:40",
+    "agent": "oracle",
+    "message": "I need to spread out and find a new build location. I will move away from the dense area and find a good spot to build. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:54",
+    "agent": "agent-smith",
+    "message": "3 build failures and no safe build spots in this area. I need to move 50+ units to find a less dense spot. The system suggests growing the outpost at Residential East Hub 2 (319, 233). That's about 150u away - good distance to relocate. I'll head there to find build space and expand that outpost. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:10:59",
+    "agent": "clank",
+    "message": "I have 3 consecutive build failures and the area is too dense. I need to move to the suggested outpost location at (261, 267) to grow Southeast Hub 3. This is far enough from my current position and the other agents. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:11:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:11:05",
+    "agent": "oracle",
+    "message": "I need to connect the isolated nodes and help expand the neighborhoods. I will propose a directive to connect a new node. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:11:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:11:25",
+    "agent": "clank",
+    "message": "3 consecutive build failures and NO SAFE BUILD SPOTS - the area around me is too dense. I need to move 50+ units away to find a new spot. The suggested task is to grow \"Southeast Hub 3\" at (261, 267). I'll move there - it's about 77 units away, far enough to escape the dense build zone. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:11:33",
+    "agent": "mouse",
+    "message": "4 build failures, area too dense. Moving 50+ units to find fresh canvas. Heading toward Residential North Quarter area - that capital needs infrastructure according to the suggestions. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:11:33",
+    "agent": "mouse",
+    "message": "4 consecutive build failures. The area is too dense with lamp posts. I need to move to a different spot. Looking at the map - there's an outpost at 'Residential East Hub 2' (319, 233) with only 4 shapes - much less crowded than here. I'll move there and build something that adds variety to that node instead of competing in this saturated area. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:11:38",
+    "agent": "oracle",
+    "message": "I need to connect to other nodes. Since I'm near the Southeast Hub, I'll propose a directive to connect it to the Tech Southeast Hub 2. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:06",
+    "agent": "oracle",
+    "message": "I will vote on the active directive, then move to the Residential East Hub 2 to grow it into a neighborhood. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:12",
+    "agent": "clank",
+    "message": "There's an active directive to connect Residential East Hub 2 to the network. I should vote YES on it since it's relevant to expanding the network. I've had 3 build failures in this area with no safe spots, so I need to move 50+ units to find a new location to build. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:18",
+    "agent": "clank",
+    "message": "I've had 3 consecutive build failures due to high density in this area. The system says to move 50+ units away. The active directive to connect Residential East Hub 2 is pending - I should vote yes on it since it aligns with network expansion. I'll vote and then move to a new area to continue building. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:30",
+    "agent": "mouse",
+    "message": "I have 4 consecutive build failures. The directive is to connect Residential East Hub 2 to the network. Looking at the node connections, I see 'Connected to Tech Southeast Hub 2 (29u, NO ROAD)' - that's the missing link. I need to move within 20u of the anchor and then build. My position (283, 311) is very close to this road connection. I'll move to anchor and build a road segment. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:41",
+    "agent": "oracle",
+    "message": "The area is dense, and I have had build failures. I will move away from the current location and propose a directive to connect a node. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:53",
+    "agent": "clank",
+    "message": "I've had 3 consecutive build failures and the system says no safe build spots in this dense area. I need to move 50+ units away to find a new location. I'll explore the northeast area around (370, 400) where there's likely less density. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:12:54",
+    "agent": "agent-smith",
+    "message": "3 consecutive build failures in a dense area. The system warns 44 shapes within 15 units - need to move to the frontier where there's room. I'm at the edge of the network already at (310,300), but this cluster is saturated. Time to push outward to start a new expansion chain. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:13:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:13:05",
+    "agent": "oracle",
+    "message": "I will propose a directive to connect Residential East Hub 2 to the network, since there are no active directives. I'll also move to a spot near the hub. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:13:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:13:24",
+    "agent": "mouse",
+    "message": "4 consecutive build failures in a dense area. The system says NO SAFE BUILD SPOTS and warns of high density (32 shapes within 15 units). I need to move 50+ units away to find a new build site. I'll move toward the less-developed eastern area where Residential East Hub 2 exists (only 4 shapes, needs growth). | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:13:28",
+    "agent": "mouse",
+    "message": "My last 5 builds failed due to overlap - the area around (283, 311) is too dense. The system says no safe build spots found and warns about 35 shapes within 15 units. I need to move 50+ units away to find a new build location. The suggested road to connect Residential South Quarter ↔ Tech Southeast Hub 2 has a midpoint at (280, 267) - I'll move there to check for opportunities. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:13:38",
+    "agent": "oracle",
+    "message": "The area is too dense. I will move away and propose a directive to connect an outpost. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:01",
+    "agent": "clank",
+    "message": "3 consecutive build failures with no safe build spots. Need to relocate 30+ units to find open area. Moving toward the suggested outpost at (261, 267) to grow it into a neighborhood. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:06",
+    "agent": "oracle",
+    "message": "I will propose a directive to connect Residential East Hub 2 to the network. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:15",
+    "agent": "mouse",
+    "message": "5 build failures in dense area. Need to relocate to open space. The eastern side near Residential East Hub 2 (319, 233) or beyond has room. Moving to find a fresh build spot for a landmark. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:19",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:24",
+    "agent": "mouse",
+    "message": "I've had 5 consecutive build failures and the system says NO SAFE BUILD SPOTS - the area is too dense. I need to move far away (50+ units) to find a new build location. The active directive needs 2 agents - I'll vote yes on it first, then move to find space. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:25",
+    "agent": "clank",
+    "message": "I need to vote on the active directive and then move to explore a new area since I had 3 build failures. Let me vote yes on the directive to connect Residential East Hub 2, then move further out to find a new build spot. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:38",
+    "agent": "oracle",
+    "message": "I see a directive to connect Residential East Hub 2. I will vote yes, and then find a way to contribute by building near the nearest outpost. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:14:57",
+    "agent": "mouse",
+    "message": "5 consecutive build failures. Need to move 50+ units away from my current position (350,350) to find a new build spot. The area is dense with nodes. I'll move toward a less crowded area - heading to coordinates (400, 400) which is further from the main network clusters. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:15:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:15:05",
+    "agent": "oracle",
+    "message": "The Southeast Hub 3 needs more variety, so I will build a Garden there. I will move there first. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:15:13",
+    "agent": "clank",
+    "message": "Dense area with 3 build failures. Need to relocate. Heading to Southeast Hub 3 (261,267) to grow that outpost - it's an outpost needing 2+ more structures to become a Neighborhood. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:15:16",
+    "agent": "clank",
+    "message": "Got 3 build failures in a row - this area is too dense (72 shapes within 15 units). I need to move to a less crowded area and try building there. I'll move toward a new area to start fresh. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:15:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:15:25",
+    "agent": "mouse",
+    "message": "I'm at (335.5, 335.5) near my node 'Residential Southeast Hub 5'. I have 5 consecutive build failures - need to break the streak. The area is dense but I should try a simple build. Let me move slightly and attempt a LAMP_POST blueprint at my node to get back to building. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:15:30",
+    "agent": "mouse",
+    "message": "5 consecutive build failures due to overlap. Area is too dense. Need to move 50+ units to find open space. Heading toward the northwest area around (150, 150) which has more nodes and likely more room to build. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:15:38",
+    "agent": "oracle",
+    "message": "I will propose a directive to connect Tech Southeast Hub 2 to the network, since it's isolated.  | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:16:00",
+    "agent": "clank",
+    "message": "Moving to less crowded area toward Southeast Hub 3 (261,267) which needs growth to become a Neighborhood. Current area is too dense with 3 build failures. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:16:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:16:05",
+    "agent": "oracle",
+    "message": "I will propose a directive to connect Tech Southeast Hub 2 to the network. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:16:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:16:25",
+    "agent": "clank",
+    "message": "3 build failures in a dense area. The system says no safe build spots here and warns about too many lamp posts. My task was to grow Southeast Hub 3 but it's too crowded. I should move to a different area - I'll head toward a less developed outpost. Residential South Quarter 7 at (214, 246) only has 1 shape and needs 4+ more. I'll move there and try building something different. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:16:33",
+    "agent": "mouse",
+    "message": "5 build failures in a row, area too dense (76 shapes nearby). Following system guidance to MOVE 50+ units away. Going to Residential North Quarter (179,141) which is flagged as needing infrastructure - less crowded than my current spot. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:16:36",
+    "agent": "mouse",
+    "message": "Got 5 build failures - the area is too dense (55 shapes within 15 units, too many lamp posts). Need to relocate. I was working on connecting Residential South Quarter to Residential North Quarter 2. The midpoint is (218, 226). Let me move there - it's a different area and continues my road objective. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:16:38",
+    "agent": "oracle",
+    "message": "The area is too dense, I will move to a new location. I'll also chat.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:05",
+    "agent": "oracle",
+    "message": "I will propose a directive to connect the isolated Tech Southeast Hub 2 to the network.  | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:13",
+    "agent": "mouse",
+    "message": "Area is too dense (92 shapes within 15u) with 5 consecutive build failures. Moving to my other outpost at Residential Southeast Hub 4 (283, 311) which has space and needs development into a Neighborhood. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:14",
+    "agent": "clank",
+    "message": "I've had 3 build failures due to extreme density (76 shapes within 15 units). The system says NO SAFE BUILD SPOTS FOUND. I need to move to a less crowded area - at least 50 units away from my current position. I'll head toward an open area to find a new outpost to grow. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:16",
+    "agent": "clank",
+    "message": "3 consecutive build failures due to density. I need to move to a different area - the current location is too crowded. I'll relocate to explore and find a new spot to build. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:24",
+    "agent": "clank",
+    "message": "3 build failures in a row, area too crowded (75 shapes within 15u). Need to MOVE 50+ units away. Suggested task is to grow outpost 'Southeast Hub 3' at (261,267) which needs 2+ structures. Heading there. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:38",
+    "agent": "oracle",
+    "message": "I will propose a directive to connect the isolated Tech Southeast Hub 2 to the network. Also, I will move away from the dense area. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:17:58",
+    "agent": "mouse",
+    "message": "5 build failures in a row = stuck. Need to move 50+ units to escape the density and find new canvas. I'll head toward my Residential Southeast Hub 4 outpost at (283,311) - it only has 1 shape and needs growth. That's my play. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:05",
+    "agent": "oracle",
+    "message": "I will propose a directive to connect the outpost Residential East Hub 2 to the rest of the network. This will help with the growth of the city. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:17",
+    "agent": "clank",
+    "message": "Area is too dense (76 shapes within 15u). Need to move. Suggested road midpoint at (218,226) could use a connection. Will move there and try building a road or structure. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:19",
+    "agent": "clank",
+    "message": "I'm in a very dense area (76 shapes within 15 units) causing 3 build failures. Need to move to a less crowded area. The suggested task is to grow 'Southeast Hub 3' at (261, 267) which needs 2+ structures. I'll move there to escape the crowded area and build at that outpost. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:25",
+    "agent": "clank",
+    "message": "3 build failures in a row, dense area with 76 shapes nearby. Need to move 50+ units away to find a new build spot. I'll move toward the suggested task - growing 'Southeast Hub 3' at (261,267). | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:29",
+    "agent": "mouse",
+    "message": "Getting away from the crowded area. The system suggests I move 50+ units. I'll head toward the Residential North Quarter area where there's a suggestion to build infrastructure. That's at (179, 141) - a good distance from my current dense location. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:38",
+    "agent": "oracle",
+    "message": "I will propose a directive to connect the isolated outpost 'Residential Southeast Hub 4'. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:18:58",
+    "agent": "mouse",
+    "message": "5 build failures, area too dense. System says move 50+ units and try again. I'm at (280, 300) in a crowded node with 28 shapes nearby. Need to relocate to find open canvas for a landmark build. Going east to find fresh space. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:05",
+    "agent": "oracle",
+    "message": "I will connect the outpost \"Tech Southeast Hub 2\" to the rest of the network by building a road to the nearest hub, \"Residential Southeast Hub 3\".",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:18",
+    "agent": "clank",
+    "message": "3 consecutive build failures in a dense area (73 shapes nearby). Need to move 30+ units to find open build space. Will explore toward the southeast where there are outposts that need growing. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:21",
+    "agent": "clank",
+    "message": "3 build failures in a row due to extreme density. Need to relocate to open area. Moving toward the eastern edge where there are smaller outposts with room to grow. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:24",
+    "agent": "clank",
+    "message": "3 consecutive build failures and dense area warnings. Need to move 50+ units to find a new spot. The Southeast Hub 3 area is too crowded. I'll explore north toward the Residential North Quarter area which has open road connections needed. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:24",
+    "agent": "mouse",
+    "message": "5 build failures, dense area warning, no safe build spots. Need to move 50+ units away from this crowded Southeast Hub area to find open space. Moving to a new area to continue building. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:31",
+    "agent": "mouse",
+    "message": "I'm at the midpoint for a potential road connection (280,267). The system flagged build failures due to density. I need to move to a clearer spot, then build a road to connect the missing edge between Residential East Hub 2 and Tech Southeast Hub 2. First, let me reposition. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:19:38",
+    "agent": "oracle",
+    "message": "Multiple build failures, I will move away from the dense area and propose a directive to connect Tech Southeast Hub 2 to Residential Southeast Hub 3. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:05",
+    "agent": "oracle",
+    "message": "The area is too dense. I will move away from the current location and then build a structure. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:13",
+    "agent": "clank",
+    "message": "I'm at my outpost node 'Residential Southeast Hub 4' which only has 1 structure (a tree). It needs 4+ more to become a neighborhood. The system flagged high density but I'm 6u from the center - let me move closer to the actual center at (283, 311) and build there. I'll try a SMALL_HOUSE blueprint to add residential variety. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:17",
+    "agent": "clank",
+    "message": "3 consecutive build failures in a dense area. Moving 60+ units southeast to find open space near existing nodes to continue expanding the network. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:23",
+    "agent": "mouse",
+    "message": "5 consecutive build failures in a dense area. Moving to my claimed outpost at (283, 311) - Residential Southeast Hub 4 only has 1 shape and needs 4+ more to become a Neighborhood. That's my canvas. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:28",
+    "agent": "mouse",
+    "message": "I'm stuck in a dense build area with 5 consecutive failures. The system says NO SAFE BUILD SPOTS FOUND and suggests moving 50+ units. I should relocate to find new canvas. Looking at the world graph, I see there's an unconnected road between 'Residential East Hub 2' and 'Tech Southeast Hub 2' - that's a good target. Let me move toward that area to find open space for a landmark build. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:39",
+    "agent": "oracle",
+    "message": "I see a lot of builds near me. I will propose a directive to connect the isolated node.  | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:20:52",
+    "agent": "clank",
+    "message": "Too many build failures in this dense area. The system says NO SAFE BUILD SPOTS FOUND - 62 shapes within 15 units. I need to move to a less crowded outpost. I'll head to 'Residential Southeast Hub 4' at (283, 311) which only has 1 shape and needs 4+ more to become a neighborhood. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:21:05",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:21:05",
+    "agent": "oracle",
+    "message": "I see a good opportunity to expand the Residential East Hub 2. I will move there and then start building a small house. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:21:11",
+    "agent": "mouse",
+    "message": "I've had 5 build failures in a dense area. Need to relocate to a less crowded spot. I see 'Southeast Hub 3' at (261, 267) has only 3 shapes and needs 2+ more to become a Neighborhood. That's a good target - it's an outpost that needs growth. I'll move toward it. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/mouse/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:21:20",
+    "agent": "agent-smith",
+    "message": "LLM unavailable (Anthropic API error (400): {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the A); sending coordination heartbeat.",
+    "source": "autonomous-agents/agent-smith/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:21:31",
+    "agent": "clank",
+    "message": "3 consecutive build failures in a very dense area. No safe build spots. Need to move 50+ units to find new territory. I'm the explorer - time to find a new node to grow. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/clank/memory/2026-02-17.md"
+  },
+  {
+    "ts": "2026-02-17 04:21:40",
+    "agent": "oracle",
+    "message": "I will build something different to complement the structures at the Residential East Hub 2, since I have 11 build failures. I will try to build a garden. | Communication is overdue; sending coordination update.",
+    "source": "autonomous-agents/oracle/memory/2026-02-17.md"
+  }
+]
