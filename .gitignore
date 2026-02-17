@@ -41,3 +41,8 @@ autonomous-agents/.env.*
 *.njsproj
 *.sln
 *.sw?
+
+# Foundry
+out/
+cache/
+broadcast/

@@ -8,6 +8,15 @@ import { checkRateLimit } from '../throttle.js';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
+import {
+  getOnchainDirective,
+  getOnchainDirectivesPage,
+  isDirectiveChainEnabled,
+  isDirectiveWriteEnabled,
+  submitOnchainGuildDirective,
+  submitOnchainSoloDirective,
+  voteOnchainDirective,
+} from '../directives_chain.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 import {
@@ -829,6 +838,244 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
   fastify.get('/v1/grid/terminal', async (request, reply) => {
     return await db.getTerminalMessages(50);
+  });
+
+  const OnchainDirectiveListQuerySchema = z.object({
+    offset: z.coerce.number().int().min(0).default(0),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+  });
+
+  const OnchainDirectiveCoordsSchema = z.object({
+    x: z.number().int().min(-1_000_000).max(1_000_000),
+    z: z.number().int().min(-1_000_000).max(1_000_000),
+  });
+
+  const SubmitOnchainSoloDirectiveSchema = z.object({
+    objective: z.string().min(1).max(280),
+    agentsNeeded: z.number().int().min(1),
+    hoursDuration: z.number().int().min(1).max(168),
+    coordinates: OnchainDirectiveCoordsSchema,
+  });
+
+  const SubmitOnchainGuildDirectiveSchema = SubmitOnchainSoloDirectiveSchema.extend({
+    guildId: z.number().int().min(1),
+  });
+
+  const VoteOnchainDirectiveSchema = z.object({
+    vote: z.enum(['yes', 'no']),
+  });
+
+  // --- Onchain Directives (Hybrid API) ---
+
+  fastify.get('/v1/grid/directives/onchain', async (request, reply) => {
+    if (!isDirectiveChainEnabled()) {
+      return reply.code(503).send({ error: 'DIRECTIVE_REGISTRY is not configured on server.' });
+    }
+
+    const { offset, limit } = OnchainDirectiveListQuerySchema.parse(request.query);
+    try {
+      const page = await getOnchainDirectivesPage(offset, limit);
+      return {
+        source: 'onchain',
+        offset,
+        limit,
+        totalCount: page.totalCount,
+        directives: page.directives,
+      };
+    } catch (error) {
+      return reply.code(502).send({ error: error instanceof Error ? error.message : 'Failed to read onchain directives' });
+    }
+  });
+
+  fastify.get('/v1/grid/directives/onchain/:id', async (request, reply) => {
+    if (!isDirectiveChainEnabled()) {
+      return reply.code(503).send({ error: 'DIRECTIVE_REGISTRY is not configured on server.' });
+    }
+
+    const { id } = request.params as { id: string };
+    const directiveId = Number(id);
+    if (!Number.isInteger(directiveId) || directiveId <= 0) {
+      return reply.code(400).send({ error: 'Directive id must be a positive integer.' });
+    }
+
+    try {
+      const directive = await getOnchainDirective(directiveId);
+      return { source: 'onchain', directive };
+    } catch (error) {
+      return reply.code(404).send({ error: error instanceof Error ? error.message : 'Directive not found' });
+    }
+  });
+
+  fastify.post('/v1/grid/directives/onchain/solo', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+    if (!isDirectiveChainEnabled()) {
+      return reply.code(503).send({ error: 'DIRECTIVE_REGISTRY is not configured on server.' });
+    }
+    if (!isDirectiveWriteEnabled()) {
+      return reply.code(503).send({ error: 'DIRECTIVE_RELAYER_PK is not configured on server.' });
+    }
+
+    const agent = await db.getAgent(agentId) as any;
+    if (!agent) {
+      return reply.code(404).send({ error: 'Agent not found' });
+    }
+    if (!agent.erc8004AgentId) {
+      return reply.code(400).send({ error: 'Agent has no ERC-8004 token id. Re-enter with onchain identity first.' });
+    }
+
+    const body = SubmitOnchainSoloDirectiveSchema.parse(request.body);
+
+    try {
+      const result = await submitOnchainSoloDirective({
+        proposerAgentTokenId: String(agent.erc8004AgentId),
+        objective: body.objective,
+        agentsNeeded: body.agentsNeeded,
+        x: body.coordinates.x,
+        z: body.coordinates.z,
+        hoursDuration: body.hoursDuration,
+      });
+
+      const directive = result.directiveId ? await getOnchainDirective(result.directiveId).catch(() => null) : null;
+      const summary = directive
+        ? `"${directive.objective}" at (${directive.x}, ${directive.z})`
+        : `"${body.objective}"`;
+
+      const sysMsg = {
+        id: 0,
+        agentId: 'system',
+        agentName: 'System',
+        message: `${agent.name} submitted onchain directive ${summary} [tx: ${result.txHash.slice(0, 10)}...]`,
+        createdAt: Date.now()
+      };
+      await db.writeChatMessage(sysMsg);
+      world.broadcastChat('system', sysMsg.message, 'System');
+
+      return {
+        source: 'onchain',
+        txHash: result.txHash,
+        blockNumber: result.blockNumber,
+        directiveId: result.directiveId,
+        directive,
+      };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : 'Failed to submit onchain directive' });
+    }
+  });
+
+  fastify.post('/v1/grid/directives/onchain/guild', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+    if (!isDirectiveChainEnabled()) {
+      return reply.code(503).send({ error: 'DIRECTIVE_REGISTRY is not configured on server.' });
+    }
+    if (!isDirectiveWriteEnabled()) {
+      return reply.code(503).send({ error: 'DIRECTIVE_RELAYER_PK is not configured on server.' });
+    }
+
+    const agent = await db.getAgent(agentId) as any;
+    if (!agent) {
+      return reply.code(404).send({ error: 'Agent not found' });
+    }
+    if (!agent.erc8004AgentId) {
+      return reply.code(400).send({ error: 'Agent has no ERC-8004 token id. Re-enter with onchain identity first.' });
+    }
+
+    const body = SubmitOnchainGuildDirectiveSchema.parse(request.body);
+
+    try {
+      const result = await submitOnchainGuildDirective({
+        guildId: body.guildId,
+        proposerAgentTokenId: String(agent.erc8004AgentId),
+        objective: body.objective,
+        agentsNeeded: body.agentsNeeded,
+        x: body.coordinates.x,
+        z: body.coordinates.z,
+        hoursDuration: body.hoursDuration,
+      });
+
+      const directive = result.directiveId ? await getOnchainDirective(result.directiveId).catch(() => null) : null;
+      const summary = directive
+        ? `"${directive.objective}" (guild ${directive.guildId})`
+        : `"${body.objective}"`;
+
+      const sysMsg = {
+        id: 0,
+        agentId: 'system',
+        agentName: 'System',
+        message: `${agent.name} submitted onchain guild directive ${summary} [tx: ${result.txHash.slice(0, 10)}...]`,
+        createdAt: Date.now()
+      };
+      await db.writeChatMessage(sysMsg);
+      world.broadcastChat('system', sysMsg.message, 'System');
+
+      return {
+        source: 'onchain',
+        txHash: result.txHash,
+        blockNumber: result.blockNumber,
+        directiveId: result.directiveId,
+        directive,
+      };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : 'Failed to submit onchain guild directive' });
+    }
+  });
+
+  fastify.post('/v1/grid/directives/onchain/:id/vote', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+    if (!isDirectiveChainEnabled()) {
+      return reply.code(503).send({ error: 'DIRECTIVE_REGISTRY is not configured on server.' });
+    }
+    if (!isDirectiveWriteEnabled()) {
+      return reply.code(503).send({ error: 'DIRECTIVE_RELAYER_PK is not configured on server.' });
+    }
+
+    const { id } = request.params as { id: string };
+    const directiveId = Number(id);
+    if (!Number.isInteger(directiveId) || directiveId <= 0) {
+      return reply.code(400).send({ error: 'Directive id must be a positive integer.' });
+    }
+
+    const body = VoteOnchainDirectiveSchema.parse(request.body);
+    const agent = await db.getAgent(agentId) as any;
+    if (!agent) {
+      return reply.code(404).send({ error: 'Agent not found' });
+    }
+    if (!agent.erc8004AgentId) {
+      return reply.code(400).send({ error: 'Agent has no ERC-8004 token id. Re-enter with onchain identity first.' });
+    }
+
+    try {
+      const result = await voteOnchainDirective({
+        directiveId,
+        voterAgentTokenId: String(agent.erc8004AgentId),
+        support: body.vote === 'yes',
+      });
+
+      const directive = await getOnchainDirective(directiveId).catch(() => null);
+      const stateSuffix = directive
+        ? ` -> ${directive.status.toUpperCase()} (${directive.yesVotes} yes / ${directive.noVotes} no)`
+        : '';
+      const sysMsg = {
+        id: 0,
+        agentId: 'system',
+        agentName: 'System',
+        message: `${agent.name} voted ${body.vote} on onchain directive #${directiveId}${stateSuffix}`,
+        createdAt: Date.now()
+      };
+      await db.writeChatMessage(sysMsg);
+      world.broadcastChat('system', sysMsg.message, 'System');
+
+      return {
+        source: 'onchain',
+        txHash: result.txHash,
+        blockNumber: result.blockNumber,
+        directive,
+      };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : 'Failed to vote on onchain directive' });
+    }
   });
 
   // --- Directives ---

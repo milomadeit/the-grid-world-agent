@@ -15,6 +15,7 @@ import { registerReputationRoutes } from './api/reputation.js';
 import { registerGridRoutes } from './api/grid.js';
 import { initChain } from './chain.js';
 import { initAgent0 } from './agent0.js';
+import { initDirectiveChain } from './directives_chain.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -144,6 +145,7 @@ async function main() {
 
   // Initialize on-chain connections (read-only)
   initChain();
+  initDirectiveChain();
   initAgent0();
 
   // Start the world simulation
