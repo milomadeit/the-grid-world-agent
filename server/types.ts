@@ -155,6 +155,9 @@ export const BUILD_CREDIT_CONFIG = {
   /** Max XZ distance a new build can be from the nearest existing primitive.
    *  Enforces organic graph/node settlement growth while still allowing frontier expansion. */
   MAX_BUILD_DISTANCE_FROM_SETTLEMENT: 70,
+  /** Preferred lane distance window when starting the next node from an established one. */
+  FRONTIER_EXPANSION_MIN_DISTANCE: 50,
+  FRONTIER_EXPANSION_MAX_DISTANCE: 69,
   /** Minimum world primitives before the settlement proximity rule kicks in. */
   SETTLEMENT_PROXIMITY_THRESHOLD: 5,
 };
@@ -190,6 +193,7 @@ export const WorldPrimitiveSchema = z.object({
   id: z.string(),
   shape: z.enum(['box', 'sphere', 'cone', 'cylinder', 'plane', 'torus', 'circle', 'dodecahedron', 'icosahedron', 'octahedron', 'ring', 'tetrahedron', 'torusKnot', 'capsule']),
   ownerAgentId: z.string(),
+  ownerAgentName: z.string().optional(),
   position: Vector3Schema,
   rotation: Vector3Schema,
   scale: Vector3Schema,

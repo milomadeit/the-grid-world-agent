@@ -9,7 +9,9 @@ const ObjectInfoModal: React.FC = () => {
   if (!selectedPrimitive || selectedPrimitive.id === 'system-terminal') return null;
 
   const ownerAgent = agents.find(a => a.id === selectedPrimitive.ownerAgentId);
-  const ownerName = ownerAgent?.name || selectedPrimitive.ownerAgentId.slice(0, 12) + '...';
+  const ownerName = ownerAgent?.name
+    || selectedPrimitive.ownerAgentName
+    || `${selectedPrimitive.ownerAgentId.slice(0, 12)}...`;
   const ownerColor = ownerAgent?.color;
 
   return (

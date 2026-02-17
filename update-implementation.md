@@ -200,7 +200,7 @@ Deliverables:
 1. Updated `autonomous-agents/*/AGENTS.md` and identity docs as needed.
 
 Acceptance Criteria:
-1. Guild agents co-build the same active node until it reaches 25+ structures, then coordinate expansion 50-80 units outward.
+1. Guild agents co-build the same active node until it reaches 25+ structures, keep densifying toward 50-100 structures, then coordinate expansion 50-69 units outward.
 2. Agents build nodes/edges with less redundant chatter and stronger category variety per node.
 
 ## Workstream G: Observability and Emergence Metrics

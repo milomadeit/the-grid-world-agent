@@ -209,6 +209,7 @@ const NODE_CATEGORY_BASE: Exclude<NodeCategory, 'mixed'>[] = [
   'art',
   'nature',
 ];
+const NODE_EXPANSION_GATE = 25;
 
 const DIRECTION_LABELS: Record<string, string> = {
   C: 'Central',
@@ -674,14 +675,26 @@ function classifyOpenAreaType(
   nearestPrimitiveDist: number,
   maxNodeDistance: number
 ): OpenAreaSummary['type'] | null {
-  if (nearestPrimitiveDist >= 12 && nearestPrimitiveDist <= 38) return 'growth';
-  if (nearestPrimitiveDist > 38 && nearestPrimitiveDist <= 58) return 'connector';
-  if (nearestPrimitiveDist > 58 && nearestPrimitiveDist <= Math.min(95, maxNodeDistance)) return 'frontier';
+  const frontierMin = BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE;
+  const frontierMax = Math.min(
+    BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MAX_DISTANCE,
+    maxNodeDistance,
+  );
+
+  if (nearestPrimitiveDist >= 12 && nearestPrimitiveDist < 34) return 'growth';
+  if (nearestPrimitiveDist >= 34 && nearestPrimitiveDist < frontierMin) return 'connector';
+  if (nearestPrimitiveDist >= frontierMin && nearestPrimitiveDist <= frontierMax) return 'frontier';
   return null;
 }
 
 function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveLike[]): OpenAreaSummary[] {
-  const maxNodeDistance = Math.max(20, BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT - 5);
+  const maxNodeDistance = Math.max(
+    20,
+    Math.min(
+      BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MAX_DISTANCE,
+      BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT - 1,
+    ),
+  );
 
   if (nodes.length === 0) {
     if (primitives.length === 0) {
@@ -696,9 +709,9 @@ function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveL
     // Primitive-based fallback if node model has not formed yet.
     const centroid = computeCentroid(primitives.map((p) => ({ position: p.position })));
     const rings: Array<{ radius: number; type: OpenAreaSummary['type'] }> = [
-      { radius: 70, type: 'frontier' },
-      { radius: 48, type: 'connector' },
-      { radius: 28, type: 'growth' },
+      { radius: 62, type: 'frontier' },
+      { radius: 44, type: 'connector' },
+      { radius: 26, type: 'growth' },
     ];
     const fallback: OpenAreaSummary[] = [];
     const angles = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -780,7 +793,7 @@ function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveL
       }
 
       const nearestPrimitiveDist = distanceToNearestPrimitive(x, z, primitives);
-      if (nearestPrimitiveDist < 10 || nearestPrimitiveDist > maxNodeDistance) continue;
+      if (nearestPrimitiveDist < 12 || nearestPrimitiveDist > maxNodeDistance) continue;
 
       const type = classifyOpenAreaType(nearestPrimitiveDist, maxNodeDistance);
       if (!type) continue;
@@ -788,8 +801,8 @@ function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveL
       const distFromWorldCenter = pointDistanceXZ({ x, z }, worldCenter);
       const targetDist =
         type === 'growth' ? 24 :
-        type === 'connector' ? 48 :
-        72;
+        type === 'connector' ? 42 :
+        62;
 
       let score = Math.abs(nearestPrimitiveDist - targetDist);
       if (type === 'frontier') {
@@ -848,6 +861,7 @@ function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveL
       if (originDist < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) continue;
       const nearestPrimitiveDist = distanceToNearestPrimitive(x, z, primitives);
       if (nearestPrimitiveDist > maxNodeDistance) continue;
+      if (nearestPrimitiveDist < 34) continue;
       fallback.push({
         x,
         z,
@@ -887,6 +901,47 @@ function distanceToNearestPrimitive(
     if (dist < minDist) minDist = dist;
   }
   return minDist;
+}
+
+function getExpansionGateViolation(
+  x: number,
+  z: number,
+  primitives: PrimitiveLike[],
+): { blocked: boolean; nearestNodeName?: string; nearestNodeCount?: number } {
+  if (primitives.length < BUILD_CREDIT_CONFIG.SETTLEMENT_PROXIMITY_THRESHOLD) {
+    return { blocked: false };
+  }
+
+  const nearestBuildDist = distanceToNearestPrimitive(x, z, primitives);
+  if (nearestBuildDist < BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE) {
+    return { blocked: false };
+  }
+
+  const connectorPrimitives = primitives.filter(isConnectorPrimitive);
+  const structures = buildStructureSummaries(primitives);
+  const nodes = buildSettlementNodes(structures, connectorPrimitives);
+  if (nodes.length === 0) return { blocked: false };
+
+  let nearestNode = nodes[0];
+  let nearestEdgeDist = Infinity;
+  for (const node of nodes) {
+    const edgeDist = pointDistanceXZ({ x, z }, node.center) - node.radius;
+    if (edgeDist < nearestEdgeDist) {
+      nearestEdgeDist = edgeDist;
+      nearestNode = node;
+    }
+  }
+
+  const nearestNodeCount = nearestNode.structureCount || 0;
+  if (nearestNodeCount >= NODE_EXPANSION_GATE) {
+    return { blocked: false, nearestNodeName: nearestNode.name, nearestNodeCount };
+  }
+
+  return {
+    blocked: true,
+    nearestNodeName: nearestNode.name,
+    nearestNodeCount,
+  };
 }
 
 export async function registerGridRoutes(fastify: FastifyInstance) {
@@ -994,6 +1049,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           error: `Too far from any existing build (${distToSettlement.toFixed(0)} units). Build within ${BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT} units of existing structures to grow the settlement organically. Use GET /v1/grid/spatial-summary to find active neighborhoods.`
         });
       }
+      if (distToSettlement >= BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE) {
+        const gate = getExpansionGateViolation(
+          body.position.x,
+          body.position.z,
+          allPrimitives as unknown as PrimitiveLike[],
+        );
+        if (gate.blocked) {
+          return reply.status(409).send({
+            error: `Expansion gate active: nearest node "${gate.nearestNodeName || 'unknown'}" has ${gate.nearestNodeCount || 0} structures. Densify a node to ${NODE_EXPANSION_GATE}+ structures before placing new frontier builds (${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE}-${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MAX_DISTANCE}u lanes).`,
+          });
+        }
+      }
     }
 
     // Validate build position (no floating shapes) — use in-memory cache, not DB
@@ -1014,10 +1081,14 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       body.position.y = validation.correctedY;
     }
 
+    const builder = await db.getAgent(agentId);
+    const builderName = builder?.name || agentId;
+
     const primitive = {
       id: `prim_${randomUUID()}`,
       shape: body.shape as 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule',
       ownerAgentId: agentId,
+      ownerAgentName: builderName,
       position: body.position,
       rotation: body.rotation,
       scale: body.scale,
@@ -1039,8 +1110,6 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     world.addWorldPrimitive(primitive);
 
     // Write build confirmation to chat feed so other agents see it
-    const builder = await db.getAgent(agentId);
-    const builderName = builder?.name || agentId;
     const pos = body.position;
     const sysMsg = {
       id: 0,
@@ -1164,6 +1233,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         return reply.code(400).send({
           error: `Blueprint anchor too far from any existing build (${distToSettlement.toFixed(0)} units). Place within ${BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT} units of existing structures. Use GET /v1/grid/spatial-summary to find active neighborhoods.`
         });
+      }
+      if (distToSettlement >= BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE) {
+        const gate = getExpansionGateViolation(
+          body.anchorX,
+          body.anchorZ,
+          existingWorldPrims as unknown as PrimitiveLike[],
+        );
+        if (gate.blocked) {
+          return reply.code(409).send({
+            error: `Expansion gate active: nearest node "${gate.nearestNodeName || 'unknown'}" has ${gate.nearestNodeCount || 0} structures. Densify a node to ${NODE_EXPANSION_GATE}+ structures before starting new frontier blueprints (${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE}-${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MAX_DISTANCE}u lanes).`,
+          });
+        }
       }
     }
 
@@ -1358,6 +1439,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           id: `prim_${randomUUID()}`,
           shape: prim.shape as any,
           ownerAgentId: agentId,
+          ownerAgentName: builderName,
           position,
           rotation: prim.rotation,
           scale: prim.scale,
@@ -1512,7 +1594,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const minDistance = parsed.data.minDistance ?? 120;
+    const minDistance = parsed.data.minDistance ?? BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MAX_DISTANCE;
     const preferredType = parsed.data.preferredType ?? 'frontier';
 
     const agent = world.getAgent(agentId);
@@ -1534,9 +1616,11 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }
 
     const otherAgents = world.getAgents().filter(a => a.id !== agentId);
-    const targetDistance = Math.max(130, minDistance);
+    const targetDistance = Math.max(BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE, minDistance);
 
-    const buildReachableAreas = openAreas.filter((area) => area.nearestBuild <= 95);
+    const buildReachableAreas = openAreas.filter(
+      (area) => area.nearestBuild <= BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT,
+    );
     const candidateAreas = buildReachableAreas.length > 0 ? buildReachableAreas : openAreas;
 
     const scored = candidateAreas.map((area) => {
@@ -1549,7 +1633,10 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       const preferredBonus = type === preferredType ? -22 : type === 'frontier' ? -10 : 6;
       const underDistancePenalty = distToSelf < minDistance ? (minDistance - distToSelf) * 8 : 0;
 
-      const buildReachPenalty = area.nearestBuild > 95 ? (area.nearestBuild - 95) * 3 : 0;
+      const buildReachPenalty =
+        area.nearestBuild > BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT
+          ? (area.nearestBuild - BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT) * 3
+          : 0;
       let score = Math.abs(distToSelf - targetDistance) + underDistancePenalty + buildReachPenalty;
       score -= Math.min(35, nearestOtherAgent / 5);
       score += preferredBonus;
@@ -1590,7 +1677,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         nearestBuild: chosen.area.nearestBuild,
         nearestNodeName: chosen.area.nearestNodeName,
       },
-      guidance: 'Relocated to a frontier expansion lane. Start or continue builds from this area.',
+      guidance: `Relocated to a buildable lane. Frontier expansion is strongest around ${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE}-${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MAX_DISTANCE} units from existing geometry.`,
     };
   });
 

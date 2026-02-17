@@ -690,13 +690,20 @@ export async function deleteWorldPrimitive(id: string): Promise<boolean> {
 
 export async function getWorldPrimitive(id: string): Promise<WorldPrimitive | null> {
   if (!pool) return null;
-  const result = await pool.query('SELECT * FROM world_primitives WHERE id = $1', [id]);
+  const result = await pool.query(
+    `SELECT wp.*, a.visual_name AS owner_agent_name
+     FROM world_primitives wp
+     LEFT JOIN agents a ON a.id = wp.owner_agent_id
+     WHERE wp.id = $1`,
+    [id]
+  );
   if (result.rows.length === 0) return null;
   const row = result.rows[0];
   return {
     id: row.id,
     shape: row.shape,
     ownerAgentId: row.owner_agent_id,
+    ownerAgentName: row.owner_agent_name || row.owner_agent_id,
     position: { x: row.x, y: row.y, z: row.z },
     rotation: { x: row.rot_x, y: row.rot_y, z: row.rot_z },
     scale: { x: row.scale_x, y: row.scale_y, z: row.scale_z },
@@ -707,11 +714,17 @@ export async function getWorldPrimitive(id: string): Promise<WorldPrimitive | nu
 
 export async function getAllWorldPrimitives(): Promise<WorldPrimitive[]> {
   if (!pool) return [];
-  const result = await pool.query('SELECT * FROM world_primitives ORDER BY created_at ASC');
+  const result = await pool.query(
+    `SELECT wp.*, a.visual_name AS owner_agent_name
+     FROM world_primitives wp
+     LEFT JOIN agents a ON a.id = wp.owner_agent_id
+     ORDER BY wp.created_at ASC`
+  );
   return result.rows.map(row => ({
     id: row.id,
     shape: row.shape,
     ownerAgentId: row.owner_agent_id,
+    ownerAgentName: row.owner_agent_name || row.owner_agent_id,
     position: { x: row.x, y: row.y, z: row.z },
     rotation: { x: row.rot_x, y: row.rot_y, z: row.rot_z },
     scale: { x: row.scale_x, y: row.scale_y, z: row.scale_z },

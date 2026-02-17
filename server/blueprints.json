@@ -1987,5 +1987,295 @@
 				]
 			}
 		]
+	},
+	"MEGA_SERVER_SPIRE": {
+		"description": "Massive server-stack skyscraper with reinforced base and ultra-tall antenna spire",
+		"category": "technology",
+		"tags": [
+			"mega",
+			"skyscraper",
+			"landmark",
+			"mouse-signature"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 25,
+		"customization": "Designed to be the center of a mega-node. Keep dark metallic tones for server-core vibes or swap accent colors to your agent palette.",
+		"phases": [
+			{
+				"name": "Foundation Platform",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.2,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 0.4,
+						"scaleZ": 14,
+						"color": "#1F2937"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.9,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 1,
+						"scaleZ": 10,
+						"color": "#374151"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 2.5,
+						"z": 0,
+						"scaleX": 5,
+						"scaleY": 3,
+						"scaleZ": 5,
+						"color": "#4B5563"
+					},
+					{
+						"shape": "box",
+						"x": 4.5,
+						"y": 1.4,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2.4,
+						"scaleZ": 5,
+						"color": "#334155"
+					},
+					{
+						"shape": "box",
+						"x": -4.5,
+						"y": 1.4,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2.4,
+						"scaleZ": 5,
+						"color": "#334155"
+					}
+				]
+			},
+			{
+				"name": "Buttress + Lower Core",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.4,
+						"z": 4.5,
+						"scaleX": 5,
+						"scaleY": 2.4,
+						"scaleZ": 2,
+						"color": "#334155"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.4,
+						"z": -4.5,
+						"scaleX": 5,
+						"scaleY": 2.4,
+						"scaleZ": 2,
+						"color": "#334155"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 6.2,
+						"z": 0,
+						"scaleX": 4.2,
+						"scaleY": 4.4,
+						"scaleZ": 4.2,
+						"color": "#64748B"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 8.8,
+						"z": 0,
+						"scaleX": 6,
+						"scaleY": 0.5,
+						"scaleZ": 6,
+						"color": "#0EA5E9"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.5,
+						"z": -6.4,
+						"scaleX": 4,
+						"scaleY": 3,
+						"scaleZ": 1.4,
+						"color": "#475569"
+					}
+				]
+			},
+			{
+				"name": "Mid Core Stack",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 12.5,
+						"z": 0,
+						"scaleX": 3.4,
+						"scaleY": 8,
+						"scaleZ": 3.4,
+						"color": "#94A3B8"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 17,
+						"z": 0,
+						"scaleX": 2.8,
+						"scaleY": 1,
+						"scaleZ": 2.8,
+						"color": "#CBD5E1"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 20.5,
+						"z": 0,
+						"scaleX": 2.8,
+						"scaleY": 6,
+						"scaleZ": 2.8,
+						"color": "#64748B"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 23.8,
+						"z": 0,
+						"scaleX": 3.8,
+						"scaleY": 0.4,
+						"scaleZ": 3.8,
+						"color": "#22D3EE"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 24.6,
+						"z": 0,
+						"scaleX": 1.6,
+						"scaleY": 1.6,
+						"scaleZ": 1.6,
+						"color": "#38BDF8"
+					}
+				]
+			},
+			{
+				"name": "Upper Core Columns",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 28.6,
+						"z": 0,
+						"scaleX": 2.3,
+						"scaleY": 8,
+						"scaleZ": 2.3,
+						"color": "#94A3B8"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 34.1,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 3,
+						"scaleZ": 2,
+						"color": "#E2E8F0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 40.1,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 9,
+						"scaleZ": 2,
+						"color": "#64748B"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 44.9,
+						"z": 0,
+						"scaleX": 2.8,
+						"scaleY": 0.5,
+						"scaleZ": 2.8,
+						"color": "#67E8F9"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 45.9,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 1.5,
+						"color": "#22D3EE"
+					}
+				]
+			},
+			{
+				"name": "Antenna Crown",
+				"primitives": [
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 52.4,
+						"z": 0,
+						"scaleX": 1.8,
+						"scaleY": 13,
+						"scaleZ": 1.8,
+						"color": "#CBD5E1"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 60.4,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 3,
+						"scaleZ": 0.8,
+						"color": "#E2E8F0"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 63.9,
+						"z": 0,
+						"scaleX": 0.6,
+						"scaleY": 4,
+						"scaleZ": 0.6,
+						"color": "#F8FAFC"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 60.6,
+						"z": 0,
+						"scaleX": 1.4,
+						"scaleY": 0.4,
+						"scaleZ": 1.4,
+						"color": "#7DD3FC"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 66.6,
+						"z": 0,
+						"scaleX": 1.4,
+						"scaleY": 1.4,
+						"scaleZ": 1.4,
+						"color": "#FDE68A"
+					}
+				]
+			}
+		]
 	}
 }

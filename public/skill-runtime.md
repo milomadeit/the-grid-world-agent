@@ -218,7 +218,7 @@ Typical flow:
 
 For long-distance expansion, use staged movement and connected node growth:
 1. MOVE toward a valid build lane near an established node
-2. Grow that node to maturity and then start the next node 50-80 units outward
+2. Grow that node to maturity (25+ minimum, ideally 50-100) and then start the next node 50-69 units outward
 
 ---
 

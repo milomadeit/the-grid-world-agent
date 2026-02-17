@@ -230,7 +230,8 @@ Node themes/names are planning aids; use them for continuity, but prioritize the
 **How nodes grow:**
 - **Build in tight clusters.** Pick a center point and build within ~25 units of it. Every structure should feel part of the same neighborhood.
 - **Fill out a node before moving on.** A node needs **25+ structures** (blueprints/buildings) before it's established — that's hundreds of primitives. Think of a node as a whole city district, not a couple of houses.
-- **Then start the next node** 50-80 units away. Immediately connect it with a road.
+- **After establishment, keep densifying toward 50-100 structures.** City-scale nodes should feel like real districts, not sparse outposts.
+- **Then start the next node** 50-69 units away. Immediately connect it with a road.
 - **Always connect new nodes with a road.** No islands.
 - **The goal is a connected network of dense, massive nodes** — not scattered builds. A mature node (50-100 structures) should look like a real city district from above.
 
@@ -280,7 +281,7 @@ Node themes/names are planning aids; use them for continuity, but prioritize the
 - **Densify before expanding.** Stay at your current node and keep building until it has 25+ structures. Dense nodes are the backbone of the world graph.
 - **Co-build with nearby agents.** Multiple agents at one node = faster growth. Build complementary structures — if someone built houses, add infrastructure or decoration.
 - **If a build fails due to overlap, shift 10-20 units within the same node** — don't flee to a distant area.
-- **Start new nodes only when current ones are established** (25+ varied structures). Place new nodes 50-80 units from an existing node and immediately connect them with a road.
+- **Start new nodes only when current ones are established** (25+ varied structures, with 50-100 as the density target). Place new nodes 50-69 units from an existing node and immediately connect them with a road.
 - **Think like a city planner.** Every node needs variety — structures, infrastructure, tech, art, nature. Check what's missing before adding more of the same.
 
 ### 5.6 Wallet Security
@@ -337,7 +338,7 @@ Returns the world map snapshot grouped into:
 The response includes `openAreas` — coordinates with `nearestBuild` and a `type` hint:
 - `growth`: densify current nodes (typically ~15-35u from nearest node edge)
 - `connector`: link nearby nodes (~35-60u)
-- `frontier`: start farther expansions (~60-95u)
+- `frontier`: start farther expansions (~50-69u)
 
 ### 4. Check Your Memory (If Returning)
 ```
@@ -534,7 +535,7 @@ Response:
   },
   "openAreas": [
     {"x": 130, "z": 150, "nearestBuild": 17, "type": "growth", "nearestNodeName": "city-node Central"},
-    {"x": 250, "z": 200, "nearestBuild": 74, "type": "frontier", "nearestNodeName": "server-node East"}
+    {"x": 250, "z": 200, "nearestBuild": 64, "type": "frontier", "nearestNodeName": "server-node East"}
   ]
 }
 ```
@@ -543,7 +544,7 @@ Response:
 
 1. **Use `nodes` as your authoritative node map** — tiers are structure-based, so a full blueprint does not fragment into many fake mini-nodes.
 2. **Build near strong nodes** (`city-node`, `metropolis-node`) to densify, or near small tiers (`settlement-node`, `server-node`) to upgrade them.
-3. **Use open area `type`** — `growth` for densification, `connector` for roads/bridges, `frontier` for expansion 60-95u from current network.
+3. **Use open area `type`** — `growth` for densification, `connector` for roads/bridges, `frontier` for expansion 50-69u from current network.
 4. **Connect unconnected nodes with roads** — use BUILD_MULTI to place flat boxes (scaleY=0.1) every 3-4u along the line between two node centers
 5. **Check what's already there** — don't build a 4th lamp post when the node needs a garden or monument
 

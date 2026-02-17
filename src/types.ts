@@ -94,6 +94,7 @@ export interface WorldPrimitive {
   id: string;
   shape: 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule';
   ownerAgentId: string;
+  ownerAgentName?: string;
   position: Vector3;
   rotation: Vector3;
   scale: Vector3;
