@@ -38,6 +38,14 @@ function envFirst(...keys: string[]): string {
   return '';
 }
 
+function envSeconds(defaultValue: number, ...keys: string[]): number {
+  const raw = envFirst(...keys);
+  if (!raw) return defaultValue;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 5) return defaultValue;
+  return Math.floor(parsed);
+}
+
 // ERC-8004 registry on Monad Mainnet
 const AGENT_REGISTRY = envFirst('AGENT_REGISTRY') || 'eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
 
@@ -46,6 +54,7 @@ const GEMINI_KEY = envFirst('GEMINI_API_KEY');
 const ANTHROPIC_KEY = envFirst('ANTHROPIC_API_KEY');
 const OPENAI_KEY = envFirst('GPT_API_KEY', 'OPENAI_API_KEY');
 const MINIMAX_KEY = envFirst('MINI_MAX_API_KEY', 'MINIMAX_API_KEY');
+const DEFAULT_HEARTBEAT_SECONDS = envSeconds(60, 'AGENT_HEARTBEAT_SECONDS');
 
 // Which agent to start (default: all)
 const target = process.argv[2] || 'all';
@@ -79,7 +88,7 @@ const agents: Record<string, AgentDef> = {
     privateKey: envFirst('AGENT_SMITH_PK', 'SMITH_PK'),
     walletAddress: envFirst('AGENT_SMITH_WALLET', 'SMITH_WALLET'),
     erc8004AgentId: envFirst('AGENT_SMITH_ID', 'SMITH_AGENT_ID', 'SMITH_ID'),
-    heartbeatSeconds: 60,
+    heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'AGENT_SMITH_HEARTBEAT_SECONDS'),
     llmProvider: 'minimax',
     llmModel: 'MiniMax-M2.5-highspeed',
     llmApiKey: MINIMAX_KEY,
@@ -93,7 +102,7 @@ const agents: Record<string, AgentDef> = {
     privateKey: envFirst('ORACLE_PK'),
     walletAddress: envFirst('ORACLE_WALLET'),
     erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
-    heartbeatSeconds: 60,
+    heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'ORACLE_HEARTBEAT_SECONDS'),
     llmProvider: 'gemini',
     llmModel: 'gemini-2.0-flash-lite',
     llmApiKey: GEMINI_KEY,
@@ -104,7 +113,7 @@ const agents: Record<string, AgentDef> = {
     privateKey: envFirst('CLANK_PK'),
     walletAddress: envFirst('CLANK_WALLET'),
     erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
-    heartbeatSeconds: 60,
+    heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'CLANK_HEARTBEAT_SECONDS'),
     llmProvider: 'minimax',
     llmModel: 'MiniMax-M2.5-highspeed',
     llmApiKey: MINIMAX_KEY,
@@ -115,7 +124,7 @@ const agents: Record<string, AgentDef> = {
     privateKey: envFirst('MOUSE_PK'),
     walletAddress: envFirst('MOUSE_WALLET'),
     erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
-    heartbeatSeconds: 60,
+    heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'MOUSE_HEARTBEAT_SECONDS'),
     llmProvider: 'minimax',
     llmModel: 'MiniMax-M2.5-highspeed',
     llmApiKey: MINIMAX_KEY,

@@ -307,6 +307,35 @@ function chooseLoopBreakMoveTarget(
   return candidates[0] || null;
 }
 
+const BLUEPRINT_FALLBACK_PRIORITY = ['LAMP_POST', 'SMALL_HOUSE', 'SHOP', 'FOUNTAIN', 'TREE'];
+
+function pickFallbackBlueprintName(blueprints: Record<string, any>): string | null {
+  const names = Object.keys(blueprints || {});
+  if (names.length === 0) return null;
+
+  for (const preferred of BLUEPRINT_FALLBACK_PRIORITY) {
+    if (blueprints[preferred] && !blueprints[preferred]?.advanced) {
+      return preferred;
+    }
+  }
+
+  const firstNonAdvanced = names.find((name) => !blueprints[name]?.advanced);
+  return firstNonAdvanced || names[0] || null;
+}
+
+function pickSafeBuildAnchor(
+  safeSpots: Array<{ x: number; z: number }>,
+  self?: { x: number; z: number },
+): { anchorX: number; anchorZ: number } | null {
+  if (safeSpots.length > 0) {
+    return { anchorX: Math.round(safeSpots[0].x), anchorZ: Math.round(safeSpots[0].z) };
+  }
+  if (self) {
+    return { anchorX: Math.round(self.x + 8), anchorZ: Math.round(self.z + 8) };
+  }
+  return null;
+}
+
 function isRateLimitErrorMessage(message: string): boolean {
   const m = message.toLowerCase();
   return (
@@ -2216,6 +2245,65 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       }
 
+      // Build-action guardrails: keep agents building even when model picks invalid blueprint actions.
+      const activeBlueprint = Boolean(blueprintStatus?.active);
+      const selfPos = self?.position ? { x: self.position.x, z: self.position.z } : undefined;
+      if (decision.action === 'BUILD_CONTINUE' && !activeBlueprint) {
+        const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
+        const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
+        if (fallbackBlueprint && fallbackAnchor) {
+          console.log(`[${agentName}] Build guard: no active plan; switching BUILD_CONTINUE -> BUILD_BLUEPRINT (${fallbackBlueprint})`);
+          decision = {
+            thought: `${decision.thought} | Build guard: no active plan detected, starting ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}).`,
+            action: 'BUILD_BLUEPRINT',
+            payload: {
+              name: fallbackBlueprint,
+              anchorX: fallbackAnchor.anchorX,
+              anchorZ: fallbackAnchor.anchorZ,
+            },
+          };
+        }
+      }
+
+      if (decision.action === 'BUILD_BLUEPRINT') {
+        if (activeBlueprint) {
+          console.log(`[${agentName}] Build guard: active plan exists; switching BUILD_BLUEPRINT -> BUILD_CONTINUE`);
+          decision = {
+            thought: `${decision.thought} | Build guard: active blueprint already in progress, continuing it.`,
+            action: 'BUILD_CONTINUE',
+            payload: {},
+          };
+        } else {
+          const payload = { ...((decision.payload as Record<string, unknown>) || {}) };
+          const requestedName = String(payload.name || '').trim();
+          const requestedBlueprint = requestedName ? blueprints?.[requestedName] : null;
+          if (!requestedBlueprint || requestedBlueprint?.advanced) {
+            const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
+            if (fallbackBlueprint) {
+              if (requestedName && requestedBlueprint?.advanced) {
+                console.log(`[${agentName}] Build guard: "${requestedName}" is reputation-gated; using ${fallbackBlueprint}`);
+              } else {
+                console.log(`[${agentName}] Build guard: invalid blueprint "${requestedName || '(missing)'}"; using ${fallbackBlueprint}`);
+              }
+              payload.name = fallbackBlueprint;
+            }
+          }
+
+          const anchorX = Number(payload.anchorX);
+          const anchorZ = Number(payload.anchorZ);
+          const invalidAnchor = !Number.isFinite(anchorX) || !Number.isFinite(anchorZ);
+          if (invalidAnchor) {
+            const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
+            if (fallbackAnchor) {
+              payload.anchorX = fallbackAnchor.anchorX;
+              payload.anchorZ = fallbackAnchor.anchorZ;
+            }
+          }
+
+          decision.payload = payload;
+        }
+      }
+
       const buildActionChosen = ['BUILD_BLUEPRINT', 'BUILD_CONTINUE', 'BUILD_PRIMITIVE', 'BUILD_MULTI'].includes(decision.action);
       if (forceChatCadence && chatDue && !lowSignalChatLoopDetected && decision.action !== 'CHAT' && !buildActionChosen && !rateLimitWaitThisTick) {
         const forcedMessage = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
@@ -2246,6 +2334,47 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       // 6. Execute action
       console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
       let buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
+      if (buildError) {
+        const noActivePlanError = /No active build plan/i.test(buildError);
+        const alreadyActivePlanError = /already have an active build plan/i.test(buildError);
+        if (decision.action === 'BUILD_CONTINUE' && noActivePlanError) {
+          const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
+          const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
+          if (fallbackBlueprint && fallbackAnchor) {
+            const retryDecision: AgentDecision = {
+              thought: 'Build recovery: continue failed due no active plan; starting fallback blueprint.',
+              action: 'BUILD_BLUEPRINT',
+              payload: {
+                name: fallbackBlueprint,
+                anchorX: fallbackAnchor.anchorX,
+                anchorZ: fallbackAnchor.anchorZ,
+              },
+            };
+            console.log(`[${agentName}] Build recovery retry -> BUILD_BLUEPRINT (${fallbackBlueprint})`);
+            const retryError = await executeAction(api, agentName, retryDecision, selfPos);
+            if (!retryError) {
+              decision = retryDecision;
+              buildError = null;
+            } else {
+              buildError = `${buildError} | retry failed: ${retryError}`;
+            }
+          }
+        } else if (decision.action === 'BUILD_BLUEPRINT' && alreadyActivePlanError) {
+          const retryDecision: AgentDecision = {
+            thought: 'Build recovery: start failed because active plan exists; continuing active blueprint.',
+            action: 'BUILD_CONTINUE',
+            payload: {},
+          };
+          console.log(`[${agentName}] Build recovery retry -> BUILD_CONTINUE`);
+          const retryError = await executeAction(api, agentName, retryDecision, selfPos);
+          if (!retryError) {
+            decision = retryDecision;
+            buildError = null;
+          } else {
+            buildError = `${buildError} | retry failed: ${retryError}`;
+          }
+        }
+      }
       if (buildError) {
         console.warn(`[${agentName}] Action error: ${buildError}`);
         if (isRateLimitErrorMessage(buildError)) {
