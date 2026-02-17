@@ -1418,7 +1418,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       'rest:grid:relocate:frontier',
       agentId,
       1,
-      60_000
+      20_000
     );
     if (!relocateThrottle.allowed) {
       return reply.code(429).send({

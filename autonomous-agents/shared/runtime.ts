@@ -448,6 +448,42 @@ function chooseLoopBreakMoveTarget(
   return candidates[0] || null;
 }
 
+function chooseLocalMoveTarget(
+  self: { x: number; z: number } | undefined,
+  safeSpots: Array<{ x: number; z: number }>,
+  maxDistance = 95,
+): { x: number; z: number } | null {
+  if (!self) return null;
+
+  if (safeSpots.length === 0) return null;
+
+  const withDistance = safeSpots.map((spot) => ({
+    spot,
+    dist: Math.hypot(spot.x - self.x, spot.z - self.z),
+  }));
+
+  const nearby = withDistance
+    .filter((entry) => entry.dist > 8 && entry.dist <= maxDistance)
+    .sort((a, b) => a.dist - b.dist);
+
+  if (nearby.length > 0) {
+    return {
+      x: Math.round(nearby[0].spot.x),
+      z: Math.round(nearby[0].spot.z),
+    };
+  }
+
+  const nearest = withDistance.sort((a, b) => a.dist - b.dist)[0];
+  if (!nearest || nearest.dist <= 1) return null;
+
+  const step = Math.min(55, nearest.dist);
+  const ratio = step / nearest.dist;
+  return {
+    x: Math.round(self.x + (nearest.spot.x - self.x) * ratio),
+    z: Math.round(self.z + (nearest.spot.z - self.z) * ratio),
+  };
+}
+
 const BLUEPRINT_FALLBACK_PRIORITY = ['LAMP_POST', 'SMALL_HOUSE', 'SHOP', 'FOUNTAIN', 'TREE'];
 
 function pickFallbackBlueprintName(blueprints: Record<string, any>): string | null {
@@ -540,6 +576,14 @@ function isRateLimitErrorMessage(message: string): boolean {
 
 function parseRateLimitCooldownSeconds(message: string, fallbackSeconds: number): number {
   const lower = message.toLowerCase();
+  const retryAfterMsMatch = lower.match(/retryafterms[^0-9]{0,8}(\d+)/);
+  if (retryAfterMsMatch) {
+    const ms = Number(retryAfterMsMatch[1]);
+    if (Number.isFinite(ms) && ms > 0) {
+      return Math.max(5, Math.ceil(ms / 1000));
+    }
+  }
+
   const match = lower.match(/(?:retry|wait|after|in|reset)[^0-9]{0,20}(\d+)\s*(ms|milliseconds?|s|sec|secs|seconds?|m|min|mins|minutes?)/);
   if (!match) return fallbackSeconds;
 
@@ -1909,6 +1953,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const parsedMaxSkip = Number(process.env.AGENT_MAX_SKIP_TICKS || '3');
   const MAX_SKIP_TICKS = Number.isFinite(parsedMaxSkip) && parsedMaxSkip >= 1 ? Math.floor(parsedMaxSkip) : 3; // Force an LLM call at least every N ticks
   let rateLimitCooldownUntil = 0;
+  let relocateCooldownUntil = 0;
+  let postRelocateSettleUntil = 0;
   let tickInProgress = false;
   let cachedWorldState: Awaited<ReturnType<typeof api.getWorldState>> | null = null;
   let smithGuildBootstrapped = false;
@@ -2490,11 +2536,30 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           : lowerName.includes('clank')
             ? 150
             : 130;
-        decision = {
-          thought: `Build recovery policy: ${priorConsecutiveBuildFails} consecutive build failures. Relocating to a far ${preferredType} lane before retrying builds.`,
-          action: 'RELOCATE_FRONTIER',
-          payload: { minDistance, preferredType },
-        };
+        if (Date.now() < relocateCooldownUntil) {
+          const moveTarget = chooseLocalMoveTarget(
+            self?.position ? { x: self.position.x, z: self.position.z } : undefined,
+            safeSpots,
+          );
+          if (moveTarget) {
+            decision = {
+              thought: `Build recovery policy: relocation cooldown active. Moving to (${moveTarget.x}, ${moveTarget.z}) while waiting to relocate.`,
+              action: 'MOVE',
+              payload: moveTarget,
+            };
+          } else {
+            decision = {
+              thought: 'Build recovery policy: relocation cooldown active and no clear move lane. Waiting this tick.',
+              action: 'IDLE',
+            };
+          }
+        } else {
+          decision = {
+            thought: `Build recovery policy: ${priorConsecutiveBuildFails} consecutive build failures. Relocating to a far ${preferredType} lane before retrying builds.`,
+            action: 'RELOCATE_FRONTIER',
+            payload: { minDistance, preferredType },
+          };
+        }
       } else if (lowSignalChatLoopDetected) {
         if (blueprintStatus?.active) {
           decision = {
@@ -2529,24 +2594,60 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             payload: {},
           };
         } else {
-          // Keep autonomy alive: on unchanged-state ticks, take a deterministic movement step
-          // toward clearer frontier lanes instead of idling.
-          const moveTarget = chooseLoopBreakMoveTarget(
-            self?.position ? { x: self.position.x, z: self.position.z } : undefined,
-            safeSpots,
-            otherAgents,
-          );
-          if (moveTarget) {
-            decision = {
-              thought: `State unchanged. Policy step: reposition to (${moveTarget.x}, ${moveTarget.z}) to create expansion opportunities.`,
-              action: 'MOVE',
-              payload: moveTarget,
-            };
+          const now = Date.now();
+          const selfPosForPolicy = self?.position ? { x: self.position.x, z: self.position.z } : undefined;
+          if (now < postRelocateSettleUntil && selfPosForPolicy) {
+            const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
+            const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPosForPolicy);
+            const anchorInRange = fallbackAnchor
+              ? Math.hypot(fallbackAnchor.anchorX - selfPosForPolicy.x, fallbackAnchor.anchorZ - selfPosForPolicy.z) <= 20
+              : false;
+
+            if (fallbackBlueprint && fallbackAnchor && anchorInRange) {
+              decision = {
+                thought: `State unchanged after relocation. Policy step: start ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}) to lock in frontier growth.`,
+                action: 'BUILD_BLUEPRINT',
+                payload: {
+                  name: fallbackBlueprint,
+                  anchorX: fallbackAnchor.anchorX,
+                  anchorZ: fallbackAnchor.anchorZ,
+                },
+              };
+            } else {
+              const localMove = chooseLocalMoveTarget(selfPosForPolicy, safeSpots);
+              if (localMove) {
+                decision = {
+                  thought: `State unchanged after relocation. Policy step: take a short positioning move to (${localMove.x}, ${localMove.z}) before building.`,
+                  action: 'MOVE',
+                  payload: localMove,
+                };
+              } else {
+                decision = {
+                  thought: 'State unchanged after relocation and no short move lane found. Idling this tick.',
+                  action: 'IDLE',
+                };
+              }
+            }
           } else {
-            decision = {
-              thought: 'State unchanged and no clear policy move target. Idling until next reasoning tick.',
-              action: 'IDLE',
-            };
+            // Keep autonomy alive: on unchanged-state ticks, take a deterministic movement step
+            // toward clearer frontier lanes instead of idling.
+            const moveTarget = chooseLoopBreakMoveTarget(
+              selfPosForPolicy,
+              safeSpots,
+              otherAgents,
+            );
+            if (moveTarget) {
+              decision = {
+                thought: `State unchanged. Policy step: reposition to (${moveTarget.x}, ${moveTarget.z}) to create expansion opportunities.`,
+                action: 'MOVE',
+                payload: moveTarget,
+              };
+            } else {
+              decision = {
+                thought: 'State unchanged and no clear policy move target. Idling until next reasoning tick.',
+                action: 'IDLE',
+              };
+            }
           }
         }
       } else {
@@ -2722,7 +2823,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       }
 
       // Long-distance hops are better as server-side relocation than many MOVE ticks.
-      if (decision.action === 'MOVE' && selfPos && !activeBlueprint) {
+      if (
+        decision.action === 'MOVE' &&
+        selfPos &&
+        !activeBlueprint &&
+        Date.now() >= relocateCooldownUntil &&
+        Date.now() >= postRelocateSettleUntil
+      ) {
         const tx = Number((decision.payload as any)?.x);
         const tz = Number((decision.payload as any)?.z);
         if (Number.isFinite(tx) && Number.isFinite(tz)) {
@@ -2846,9 +2953,33 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         console.warn(`[${agentName}] Action error: ${buildError}`);
         if (isRateLimitErrorMessage(buildError)) {
           const waitSeconds = parseRateLimitCooldownSeconds(buildError, 20);
+          if (decision.action === 'RELOCATE_FRONTIER') {
+            relocateCooldownUntil = Math.max(relocateCooldownUntil, Date.now() + waitSeconds * 1000);
+            if (selfPos) {
+              const moveTarget = chooseLocalMoveTarget(selfPos, safeSpots)
+                || chooseLoopBreakMoveTarget(selfPos, safeSpots, otherAgents);
+              if (moveTarget) {
+                const retryDecision: AgentDecision = {
+                  thought: `Relocation cooldown active (${waitSeconds}s). Moving to (${moveTarget.x}, ${moveTarget.z}) while waiting to relocate again.`,
+                  action: 'MOVE',
+                  payload: moveTarget,
+                };
+                console.log(`[${agentName}] Relocation rate-limited -> MOVE fallback (${moveTarget.x}, ${moveTarget.z})`);
+                const retryError = await executeAction(api, agentName, retryDecision, selfPos);
+                if (!retryError) {
+                  decision = retryDecision;
+                  buildError = null;
+                } else {
+                  buildError = `${buildError} | fallback move failed: ${retryError}`;
+                }
+              }
+            }
+          }
           rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + waitSeconds * 1000);
-          console.warn(`[${agentName}] Rate-limited on ${decision.action}. Cooling down ${waitSeconds}s before retry.`);
-          buildError = `${buildError} — Rate-limited; waiting ${waitSeconds}s before retry.`;
+          if (buildError) {
+            console.warn(`[${agentName}] Rate-limited on ${decision.action}. Cooling down ${waitSeconds}s before retry.`);
+            buildError = `${buildError} — Rate-limited; waiting ${waitSeconds}s before retry.`;
+          }
         } else if (safeSpots.length > 0) {
           // Enrich non-rate-limit build errors with nearest safe spot coordinates
           const myPos = self?.position || { x: 0, z: 0 };
@@ -2862,6 +2993,10 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const spotList = nearest3.map(s => `(${s.x}, ${s.z})`).join(', ');
           buildError = `${buildError} — Try these clear spots instead: ${spotList}`;
         }
+      }
+
+      if (decision.action === 'RELOCATE_FRONTIER' && !buildError) {
+        postRelocateSettleUntil = Math.max(postRelocateSettleUntil, Date.now() + 45_000);
       }
 
       let actionChatSent = false;
