@@ -189,6 +189,105 @@ function makeCoordinationChat(
   return 'Status update: continuing objective and avoiding chat-only loops.';
 }
 
+function formatActionUpdateChat(
+  decision: AgentDecision,
+  tick: number,
+  actionError?: string | null,
+): string | null {
+  const payload = decision.payload || {};
+
+  const coord = (x: unknown, z: unknown): string | null => {
+    const nx = Number(x);
+    const nz = Number(z);
+    if (!Number.isFinite(nx) || !Number.isFinite(nz)) return null;
+    return `(${Math.round(nx)}, ${Math.round(nz)})`;
+  };
+
+  if (actionError) {
+    const compact = actionError.replace(/\s+/g, ' ').slice(0, 120);
+    return `${decision.action} failed at tick ${tick}: ${compact}`;
+  }
+
+  switch (decision.action) {
+    case 'MOVE': {
+      const target = coord(payload.x, payload.z);
+      return target
+        ? `Moved toward ${target} on tick ${tick}; scanning open build lanes.`
+        : `Moved on tick ${tick}; scanning open build lanes.`;
+    }
+    case 'BUILD_PRIMITIVE': {
+      const target = coord(payload.x, payload.z);
+      const shape = String(payload.shape || 'primitive');
+      return target
+        ? `Built ${shape} at ${target} on tick ${tick}.`
+        : `Built ${shape} on tick ${tick}.`;
+    }
+    case 'BUILD_MULTI': {
+      const primitives = Array.isArray(payload.primitives) ? payload.primitives : [];
+      const first = (primitives[0] || {}) as Record<string, unknown>;
+      const target = coord(first.x, first.z);
+      if (target) {
+        return `Built ${primitives.length} primitives near ${target} on tick ${tick}.`;
+      }
+      return `Built ${primitives.length} primitives on tick ${tick}.`;
+    }
+    case 'BUILD_BLUEPRINT': {
+      const name = String(payload.name || 'blueprint');
+      const anchor = coord(payload.anchorX, payload.anchorZ);
+      return anchor
+        ? `Started ${name} blueprint at ${anchor} on tick ${tick}.`
+        : `Started ${name} blueprint on tick ${tick}.`;
+    }
+    case 'BUILD_CONTINUE':
+      return `Continued active blueprint on tick ${tick}.`;
+    case 'CANCEL_BUILD':
+      return `Cancelled active blueprint on tick ${tick}; selecting a new lane.`;
+    case 'VOTE': {
+      const vote = String(payload.vote || 'yes');
+      const directiveId = String(payload.directiveId || 'directive');
+      return `Voted ${vote} on ${directiveId} at tick ${tick}.`;
+    }
+    case 'SUBMIT_DIRECTIVE': {
+      const description = String(payload.description || '').slice(0, 90);
+      return description
+        ? `Submitted directive on tick ${tick}: ${description}`
+        : `Submitted directive on tick ${tick}.`;
+    }
+    case 'TRANSFER_CREDITS': {
+      const amount = Number(payload.amount);
+      const toAgentId = String(payload.toAgentId || 'agent');
+      const shownAmount = Number.isFinite(amount) ? Math.round(amount) : '?';
+      return `Transferred ${shownAmount} credits to ${toAgentId} on tick ${tick}.`;
+    }
+    default:
+      return null;
+  }
+}
+
+async function emitActionUpdateChat(
+  api: GridAPIClient,
+  agentName: string,
+  decision: AgentDecision,
+  tick: number,
+  actionError?: string | null,
+): Promise<boolean> {
+  const message = formatActionUpdateChat(decision, tick, actionError);
+  if (!message) return false;
+
+  const trimmed = message.trim().slice(0, 220);
+  if (!trimmed) return false;
+
+  try {
+    await api.action('CHAT', { message: trimmed });
+    console.log(`[${agentName}] Action update chat: "${trimmed.slice(0, 80)}..."`);
+    return true;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.warn(`[${agentName}] Action update chat failed: ${errMsg.slice(0, 140)}`);
+    return false;
+  }
+}
+
 const LOW_SIGNAL_ACK_PATTERN = /\b(?:acknowledg(?:e|ed|ing)?|saw your ping|ping received|sync received|acting on it(?: now)?|copy that|roger|heard you|on it(?: now)?)\b/;
 
 function normalizeChatText(message: string): string {
@@ -208,8 +307,18 @@ function shouldSuppressChatMessage(
   const normalized = normalizeChatText(message);
   if (!normalized) return { suppress: true, reason: 'empty message' };
 
+  const selfName = agentName.toLowerCase();
+  const hasRecentDirectMention = recentMessages
+    .slice(-6)
+    .some((m) => {
+      const speaker = (m.agentName || '').toLowerCase();
+      if (!speaker || speaker === selfName || speaker === 'system') return false;
+      const text = (m.message || '').toLowerCase();
+      return text.includes(selfName);
+    });
+
   // Prevent back-to-back chat bursts; this is where loops commonly start.
-  if (ticksSinceChat < 2) {
+  if (ticksSinceChat < 2 && !hasRecentDirectMention) {
     return { suppress: true, reason: 'chat cadence too fast' };
   }
 
@@ -217,7 +326,6 @@ function shouldSuppressChatMessage(
     return { suppress: true, reason: 'low-signal acknowledgment loop risk' };
   }
 
-  const selfName = agentName.toLowerCase();
   const recentOwn = recentMessages
     .filter((m) => (m.agentName || '').toLowerCase() === selfName)
     .slice(-4)
@@ -1451,8 +1559,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '',
     '## Action Discipline',
     '- **Follow your OPERATING MANUAL priorities.** Your AGENTS.md defines your specific role — builder, connector, or explorer. Follow those priorities, not chat pressure.',
-    '- **Don\'t chat more than you act.** Max 1 chat per 3-4 actions. If you chatted last tick, build or move this tick.',
-    '- **Don\'t respond to every mention.** Ignore low-signal pings and acknowledgments. Chat only when you add concrete coordinates, progress, or blockers.',
+    '- **Keep explicit CHAT actions sparse.** Aim for ~1 coordination chat per 3-4 actions; brief action-status updates may be auto-emitted by runtime.',
+    '- **Don\'t respond to every mention.** When directly addressed, reply once with concrete coordinates/progress/blockers, then return to execution.',
     '- **Spread out.** Check Nearby Agents. If others are at your node, move to a different one.',
     '- **If a build fails, relocate.** Don\'t retry at the same spot. Move 30+ units away.',
     '',
@@ -1617,7 +1725,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   // --- Heartbeat Loop ---
   console.log(`[${agentName}] Heartbeat started (every ${config.heartbeatSeconds}s)`);
   const forceChatCadence = process.env.AGENT_FORCE_CHAT_CADENCE === 'true';
+  const emitActionChatUpdates = process.env.AGENT_ACTION_CHAT_UPDATES !== 'false';
   console.log(`[${agentName}] Chat cadence override: ${forceChatCadence ? 'enabled' : 'disabled'}`);
+  console.log(`[${agentName}] Action chat updates: ${emitActionChatUpdates ? 'enabled' : 'disabled'}`);
 
   // Change detection gate — skip LLM calls when world state hasn't meaningfully changed
   let lastWorldHash = '';
@@ -2397,6 +2507,22 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       }
 
+      let actionChatSent = false;
+      if (
+        emitActionChatUpdates &&
+        decision.action !== 'CHAT' &&
+        decision.action !== 'IDLE' &&
+        decision.action !== 'TERMINAL'
+      ) {
+        actionChatSent = await emitActionUpdateChat(
+          api,
+          agentName,
+          decision,
+          world.tick,
+          buildError || null,
+        );
+      }
+
       // 7. Update working memory (DO NOT include agent names — prevents hallucination from stale memory)
       // Track consecutive same-action count for loop detection
       const prevActionMatch = workingMemory?.match(/Last action: (\w+)/);
@@ -2483,7 +2609,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           else if (!declinedRecruitment.includes(name)) declinedRecruitment = `${declinedRecruitment}, ${name}`;
         }
       }
-      const ticksSinceChat = decision.action === 'CHAT' ? 0 : currentTicksSinceChat;
+      const ticksSinceChat = (decision.action === 'CHAT' || actionChatSent) ? 0 : currentTicksSinceChat;
 
       const newWorking = [
         `# Working Memory`,
@@ -2916,7 +3042,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             wm || '_No working memory._',
             '',
             '---',
-            '**Chat is for coordination, not conversation.** No acknowledgment-only replies. Share concrete coordinates/progress, then keep building.',
+            '**Chat should be conversational and informative.** No acknowledgment-only replies. Share concrete coordinates/progress/next step, then keep building.',
             '',
             // Build error warnings for bootstrap tick
             ...(wm ? (() => {

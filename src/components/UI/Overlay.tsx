@@ -41,15 +41,13 @@ const Overlay: React.FC<OverlayProps> = ({
   const [copied, setCopied] = useState(false);
   const walletDropdownRef = useRef<HTMLDivElement>(null);
   const chatMessages = useWorldStore((state) => state.chatMessages);
+  const terminalMessages = useWorldStore((state) => state.terminalMessages);
   const terminalScrollRef = useRef<HTMLDivElement>(null);
+  const CHAT_RENDER_LIMIT = 300;
 
-  // Hide noisy system chat so agent-to-agent conversation stays visible.
-  const visibleChatMessages = chatMessages.filter(
-    (msg) => msg.agentName.toLowerCase() !== 'system'
-  );
-
-  // Keep this panel focused on agent conversation only.
-  const conversationMessages = [...visibleChatMessages]
+  // Unified terminal feed: coordination chat + server terminal events.
+  const conversationMessages = [...chatMessages, ...terminalMessages]
+    .filter((msg) => Boolean(msg?.message?.trim()))
     .sort((a, b) => a.createdAt - b.createdAt);
 
   // Auto-scroll terminal to bottom when messages change
@@ -256,13 +254,17 @@ const Overlay: React.FC<OverlayProps> = ({
                   <span className="opacity-60">awaiting transmission...</span>
                 </div>
               ) : (
-                conversationMessages.slice(-20).map((msg, i) => (
+                conversationMessages.slice(-CHAT_RENDER_LIMIT).map((msg, i) => (
                   <div
-                    key={msg.id || i}
+                    key={`${msg.id || i}-${msg.createdAt}-${msg.agentId}`}
                     className={`py-1.5 px-2 rounded ${isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100/50'}`}
                   >
                     <div className="flex items-baseline gap-2">
-                      <span className={`font-semibold truncate max-w-[70px] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                      <span className={`font-semibold truncate max-w-[70px] ${
+                        msg.agentName.toLowerCase() === 'system'
+                          ? (isDarkMode ? 'text-amber-300' : 'text-amber-600')
+                          : (isDarkMode ? 'text-emerald-400' : 'text-emerald-600')
+                      }`}>
                         {msg.agentName}
                       </span>
                       <span className={`text-[8px] tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>

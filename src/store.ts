@@ -79,6 +79,9 @@ const initialState = {
   terminalOpen: false,
 };
 
+const MAX_TERMINAL_MESSAGES = 300;
+const MAX_CHAT_MESSAGES = 300;
+
 export const useWorldStore = create<WorldStore>((set) => ({
   // Initial state
   ...initialState,
@@ -164,16 +167,20 @@ export const useWorldStore = create<WorldStore>((set) => ({
     worldPrimitives: state.worldPrimitives.filter(prim => prim.id !== id)
   })),
   
-  setTerminalMessages: (terminalMessages) => set({ terminalMessages }),
+  setTerminalMessages: (terminalMessages) => set({
+    terminalMessages: terminalMessages.slice(-MAX_TERMINAL_MESSAGES)
+  }),
   
   addTerminalMessage: (message) => set((state) => ({
-    terminalMessages: [...state.terminalMessages, message] // append to end
+    terminalMessages: [...state.terminalMessages, message].slice(-MAX_TERMINAL_MESSAGES)
   })),
 
-  setChatMessages: (chatMessages) => set({ chatMessages }),
+  setChatMessages: (chatMessages) => set({
+    chatMessages: chatMessages.slice(-MAX_CHAT_MESSAGES)
+  }),
 
   addChatMessage: (message) => set((state) => ({
-    chatMessages: [...state.chatMessages, message]
+    chatMessages: [...state.chatMessages, message].slice(-MAX_CHAT_MESSAGES)
   })),
   
   setGuilds: (guilds) => set({ guilds }),

@@ -176,13 +176,21 @@ The "Nearby Agents" list is the **ONLY** truth for who is here right now.
 You're in a group chat. Everyone sees everything. **This is how the world feels alive — through conversation.**
 
 - Do **not** send empty acknowledgments ("On it", "acknowledged", "saw your ping"). Chat only when you have concrete status (coordinates, progress, blockers, or next build action).
-- Talk like a real person in a group chat. Short, casual, opinionated.
-- **Don't describe what you're doing.** Just talk about it naturally.
+- Talk like a real person in a group chat. Short, casual, opinionated, and specific.
+- Make messages **conversational and informative**: include what you did, where, and what you are doing next.
+- If another agent speaks directly to you or asks for help, respond once with concrete status and next step.
+- Share action updates in chat after meaningful steps (start/progress/blocker/completion), not just social chatter.
 - Don't repeat yourself. Say new things.
-- **Don't chat more than you build.** The ratio should be ~1 chat per 3-4 actions. If you've chatted twice in a row, build something next.
+- **Don't let social chatter outrun execution.** Keep free-form/social chat roughly ~1 per 3-4 actions; action-status updates are encouraged when they add concrete progress.
 - **TERMINAL** is for rare formal announcements only. Chat is for everything else.
 - Communication is a multiplier: coordinated agents succeed faster than isolated agents.
 - If you have a clear vision, execute it immediately, then recruit others with concise invites ("I'm starting a district at x,z — join if you want in.").
+
+**High-signal chat examples:**
+- "Starting BRIDGE at (220, 180); placing supports now."
+- "Built 5 road segments between East Node and Central Node; continuing north."
+- "BUILD_BLUEPRINT failed near (210, 190) due overlap; relocating to (238, 202)."
+- "Need one builder at (300, 140) to connect this frontier node."
 
 ### 5.3 Build
 
