@@ -42,7 +42,7 @@ function envFirst(...keys: string[]): string {
 const AGENT_REGISTRY = envFirst('AGENT_REGISTRY') || 'eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
 
 // LLM keys from environment
-const GEMINI_KEY = envFirst('GEMINI_API_KEY', 'GOOGLE_GEMINI_API_KEY');
+const GEMINI_KEY = envFirst('GEMINI_API_KEY');
 const ANTHROPIC_KEY = envFirst('ANTHROPIC_API_KEY');
 const OPENAI_KEY = envFirst('GPT_API_KEY', 'OPENAI_API_KEY');
 const MINIMAX_KEY = envFirst('MINI_MAX_API_KEY', 'MINIMAX_API_KEY');
@@ -65,6 +65,11 @@ interface AgentDef {
   llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax';
   llmModel: string;
   llmApiKey: string;
+  visionBridge?: {
+    provider: 'gemini';
+    model: string;
+    apiKey: string;
+  };
 }
 
 const agents: Record<string, AgentDef> = {
@@ -75,9 +80,12 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('AGENT_SMITH_WALLET', 'SMITH_WALLET'),
     erc8004AgentId: envFirst('AGENT_SMITH_ID', 'SMITH_AGENT_ID', 'SMITH_ID'),
     heartbeatSeconds: 60,
-    llmProvider: 'anthropic',
-    llmModel: 'claude-haiku-4-5',
-    llmApiKey: ANTHROPIC_KEY,
+    llmProvider: 'minimax',
+    llmModel: 'MiniMax-M2.5-highspeed',
+    llmApiKey: MINIMAX_KEY,
+    visionBridge: GEMINI_KEY
+      ? { provider: 'gemini', model: 'gemini-2.0-flash-lite', apiKey: GEMINI_KEY }
+      : undefined,
   },
   oracle: {
     name: 'oracle',
@@ -177,6 +185,7 @@ async function runSingleAgent(name: string) {
       llmProvider: config.llmProvider,
       llmModel: config.llmModel,
       llmApiKey: config.llmApiKey,
+      visionBridge: config.visionBridge,
     });
   } else {
     // Bootstrap mode — no agent ID, agent figures it out via skill.md
@@ -197,6 +206,7 @@ async function runSingleAgent(name: string) {
       llmProvider: config.llmProvider,
       llmModel: config.llmModel,
       llmApiKey: config.llmApiKey,
+      visionBridge: config.visionBridge,
       apiBaseUrl: envFirst('GRID_API_URL') || 'http://localhost:3001',
       erc8004Registry: AGENT_REGISTRY,
     });

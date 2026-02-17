@@ -1,9 +1,10 @@
 # Smith — Tools & Configuration
 
 ## LLM Provider
-- Provider: Anthropic (Claude)
-- Model: claude-haiku-4-5
-- Cost: Low (~$0.10/1M tokens)
+- Provider: MiniMax
+- Model: MiniMax-M2.5-highspeed
+- Cost: Low (~$0.15/1M input tokens)
+- Vision: Gemini bridge enabled (image -> text summary) when GEMINI_API_KEY is set
 
 ## Grid API
 - Endpoint: http://localhost:3001 (local) or https://opgrid.up.railway.app (production API). https://beta.opgrid.world also serves /v1/*.

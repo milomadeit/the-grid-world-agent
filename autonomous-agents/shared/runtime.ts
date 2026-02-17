@@ -42,6 +42,12 @@ interface AgentConfig {
   llmModel: string;
   /** API key for the LLM */
   llmApiKey: string;
+  /** Optional vision-to-text bridge for providers that do not support image inputs */
+  visionBridge?: {
+    provider: 'gemini';
+    model: string;
+    apiKey: string;
+  };
 }
 
 interface BootstrapConfig {
@@ -59,6 +65,12 @@ interface BootstrapConfig {
   llmModel: string;
   /** API key for the LLM */
   llmApiKey: string;
+  /** Optional vision-to-text bridge for providers that do not support image inputs */
+  visionBridge?: {
+    provider: 'gemini';
+    model: string;
+    apiKey: string;
+  };
   /** Base URL for the grid API */
   apiBaseUrl: string;
   /** ERC-8004 registry URI */
@@ -902,6 +914,10 @@ function promptBudgetForProvider(provider: AgentConfig['llmProvider']): { maxCha
   return { maxChars: 32000, tailChars: 12000 };
 }
 
+function providerSupportsVisionInput(provider: AgentConfig['llmProvider']): boolean {
+  return provider !== 'minimax';
+}
+
 function trimPromptForLLM(prompt: string, maxChars = 32000, tailChars = 12000): string {
   if (prompt.length <= maxChars) return prompt;
 
@@ -950,6 +966,45 @@ async function callGemini(apiKey: string, model: string, systemPrompt: string, u
     ? { inputTokens: data.usageMetadata.promptTokenCount || 0, outputTokens: data.usageMetadata.candidatesTokenCount || 0 }
     : null;
   return { text: data.candidates?.[0]?.content?.parts?.[0]?.text || '{}', usage };
+}
+
+async function summarizeImageWithGemini(apiKey: string, model: string, imageBase64: string): Promise<string> {
+  const prompt = [
+    'You are assisting an autonomous world-building agent.',
+    'Summarize the image for tactical decisions in OpGrid.',
+    'Return plain text with up to 8 short bullet lines including:',
+    '- dense build clusters and rough coordinates',
+    '- open frontier areas that look buildable',
+    '- visible roads/bridges and missing connections',
+    '- visible agent positions/crowding if apparent',
+    'Keep it concise and concrete.',
+  ].join('\n');
+
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: 'image/jpeg', data: imageBase64 } },
+        ],
+      }],
+      generationConfig: {
+        temperature: 0.2,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gemini vision summary error (${res.status}): ${text}`);
+  }
+
+  const data = await res.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  return (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
 async function callAnthropic(apiKey: string, model: string, systemPrompt: string, userPrompt: string, imageBase64?: string | null): Promise<LLMResponse> {
@@ -1647,15 +1702,40 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       ].join('\n');
 
       // 5. Capture View & Call LLM
-      const imageBase64 = await captureWorldView(api.getAgentId() || config.erc8004AgentId);
-      if (imageBase64) {
-        console.log(`[${agentName}] Captured visual input`);
+      let imageBase64: string | null = null;
+      let visualSummary: string | null = null;
+      if (providerSupportsVisionInput(config.llmProvider)) {
+        imageBase64 = await captureWorldView(api.getAgentId() || config.erc8004AgentId);
+        if (imageBase64) {
+          console.log(`[${agentName}] Captured visual input`);
+        }
+      } else if (config.visionBridge?.provider === 'gemini' && config.visionBridge.apiKey) {
+        imageBase64 = await captureWorldView(api.getAgentId() || config.erc8004AgentId);
+        if (imageBase64) {
+          console.log(`[${agentName}] Captured visual input (bridge)`);
+          try {
+            visualSummary = await summarizeImageWithGemini(
+              config.visionBridge.apiKey,
+              config.visionBridge.model,
+              imageBase64,
+            );
+            if (visualSummary) {
+              console.log(`[${agentName}] Vision bridge summary generated (${visualSummary.length} chars)`);
+            }
+          } catch (visionErr) {
+            const visionMsg = visionErr instanceof Error ? visionErr.message : String(visionErr);
+            console.warn(`[${agentName}] Vision bridge failed: ${visionMsg.slice(0, 160)}`);
+          }
+        }
       }
 
+      const llmInputPrompt = visualSummary
+        ? `${userPrompt}\n\n## VISUAL SUMMARY (Gemini)\n${visualSummary}`
+        : userPrompt;
       const budget = promptBudgetForProvider(config.llmProvider);
-      const modelPrompt = trimPromptForLLM(userPrompt, budget.maxChars, budget.tailChars);
-      if (modelPrompt.length !== userPrompt.length) {
-        console.log(`[${agentName}] Prompt trimmed ${userPrompt.length} -> ${modelPrompt.length} chars`);
+      const modelPrompt = trimPromptForLLM(llmInputPrompt, budget.maxChars, budget.tailChars);
+      if (modelPrompt.length !== llmInputPrompt.length) {
+        console.log(`[${agentName}] Prompt trimmed ${llmInputPrompt.length} -> ${modelPrompt.length} chars`);
       }
       let decision: AgentDecision;
       let rateLimitWaitThisTick = false;
@@ -2116,6 +2196,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
         llmProvider: config.llmProvider,
         llmModel: config.llmModel,
         llmApiKey: config.llmApiKey,
+        visionBridge: config.visionBridge,
       };
 
       // Build the full system prompt now that we're in
@@ -2315,11 +2396,36 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             '**BUILD DISTANCE RULE:** You must be within 20 units (XZ plane) of the target coordinates to build there. If you are too far away, the server will reject your build. MOVE to the location first, THEN build.',
           ].join('\n');
 
-          const imageBase64 = await captureWorldView(api.getAgentId() || newAgentId.toString());
-          if (imageBase64) {
-             console.log(`[${agentName}] Captured visual input`);
+          let imageBase64: string | null = null;
+          let visualSummary: string | null = null;
+          if (providerSupportsVisionInput(fullConfig.llmProvider)) {
+            imageBase64 = await captureWorldView(api.getAgentId() || newAgentId.toString());
+            if (imageBase64) {
+              console.log(`[${agentName}] Captured visual input`);
+            }
+          } else if (fullConfig.visionBridge?.provider === 'gemini' && fullConfig.visionBridge.apiKey) {
+            imageBase64 = await captureWorldView(api.getAgentId() || newAgentId.toString());
+            if (imageBase64) {
+              console.log(`[${agentName}] Captured visual input (bridge)`);
+              try {
+                visualSummary = await summarizeImageWithGemini(
+                  fullConfig.visionBridge.apiKey,
+                  fullConfig.visionBridge.model,
+                  imageBase64,
+                );
+                if (visualSummary) {
+                  console.log(`[${agentName}] Vision bridge summary generated (${visualSummary.length} chars)`);
+                }
+              } catch (visionErr) {
+                const visionMsg = visionErr instanceof Error ? visionErr.message : String(visionErr);
+                console.warn(`[${agentName}] Vision bridge failed: ${visionMsg.slice(0, 160)}`);
+              }
+            }
           }
-          const llmResponse = await callLLM(fullConfig, fullSystemPrompt, userPrompt, imageBase64);
+          const llmInputPrompt = visualSummary
+            ? `${userPrompt}\n\n## VISUAL SUMMARY (Gemini)\n${visualSummary}`
+            : userPrompt;
+          const llmResponse = await callLLM(fullConfig, fullSystemPrompt, llmInputPrompt, imageBase64);
           const raw = llmResponse.text;
           console.log(`[${agentName}] ${formatTokenLog(fullConfig.llmProvider, llmResponse.usage)}`);
           let decision: AgentDecision;
