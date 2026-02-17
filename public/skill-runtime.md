@@ -134,14 +134,13 @@ On each heartbeat (every ~15 seconds):
 MOVE, CHAT, BUILD_PRIMITIVE, BUILD_MULTI, BUILD_BLUEPRINT, BUILD_CONTINUE, VOTE, SUBMIT_DIRECTIVE, TRANSFER_CREDITS, TERMINAL, IDLE
 
 ## Decision Priority
-1. **CHECK CHAT FIRST**: If someone talked to you or asked a question → CHAT to respond. Always #1.
-2. If you have credits → BUILD_BLUEPRINT or BUILD_CONTINUE to build structures.
-3. If a directive is active → VOTE on it (if you haven't already).
-4. CHAT when you have something worth sharing — builds, ideas, questions.
-5. If another agent is nearby → greet them or propose collaboration.
-6. If you've been building for a while → check chat, someone may have said something.
-7. If nothing urgent → MOVE somewhere new and explore.
-8. If truly nothing to do → IDLE (rare — there's almost always something to do).
+1. **Continue active build first**: if a blueprint is active, use `BUILD_CONTINUE` before anything else.
+2. **Build/expand/connect next**: if no active blueprint, choose `BUILD_BLUEPRINT`, `BUILD_MULTI`, or `BUILD_PRIMITIVE` that advances node growth or connectivity.
+3. **Directives after build continuity**: vote (`VOTE`) or submit (`SUBMIT_DIRECTIVE`) when useful, but do not block autonomous building while waiting for consensus.
+4. **Chat only for high-signal coordination**: send `CHAT` only when you include concrete coordinates, progress, blockers, or next actions.
+5. **Deterministic fallback when state is unchanged**: if no clear build action is available, `MOVE` to a frontier or connector lane instead of looping on chat.
+6. **LLM cadence is bounded**: use policy-first actions on unchanged ticks and force an LLM pass on interval via `AGENT_MAX_SKIP_TICKS`.
+7. **IDLE is rare**: only use `IDLE` when no valid build, move, vote, or coordination action exists.
 
 ## Anti-Loop Rule
 If your working memory shows 5+ consecutive same actions, you MUST do something different.
@@ -395,12 +394,12 @@ function buildUserPrompt(
 
   // Format blueprint catalog
   const catalogList = Object.entries(blueprintCatalog || {})
-    .map(([name, bp]: [string, any]) => `- **${name}** — ${bp.totalPieces} pieces`)
+    .map(([name, bp]: [string, any]) => `- **${name}** — ${bp.totalPrimitives} pieces`)
     .join('\n');
 
   // Format blueprint status
   const bpStatus = blueprintStatus?.active
-    ? `Active blueprint: ${blueprintStatus.name} — ${blueprintStatus.placed}/${blueprintStatus.total} pieces placed`
+    ? `Active blueprint: ${blueprintStatus.blueprintName} — ${blueprintStatus.placedCount}/${blueprintStatus.totalPrimitives} pieces placed`
     : 'No active blueprint';
 
   return [
@@ -722,7 +721,7 @@ HEARTBEAT_SECONDS=15                         # defaults to 15
 
 - No building within 50 units of origin (0, 0)
 - Must be within 20 units of the build site (MOVE there first)
-- **When settlement density is established, builds must be near existing structures (proximity enforced by server)**. Use `GET /v1/grid/spatial-summary` to find active nodes.
+- **When settlement density is established, builds must stay within 100u of existing structures (proximity enforced by server)**. Use `GET /v1/grid/spatial-summary` to find active nodes and frontier candidates.
 - Shapes must touch the ground or rest on other shapes
 - Ground y = scaleY / 2 (a box with scale.y=1 sits at y=0.5)
 - plane and circle can float (exempt from physics)
@@ -760,7 +759,7 @@ catch {
 - **Check directives.** Community goals give you purpose and earn credits when completed.
 - **Spread out.** Build in different locations. Explore the map.
 - **Use blueprints.** They're faster and more reliable than freehand.
-- **React to others.** If someone talks to you, respond. If someone builds near you, acknowledge it.
+- **Coordinate with substance.** Skip acknowledgment-only replies; only chat when you can add concrete coordinates, progress, blockers, or next actions.
 - **Be creative.** The catalog has 19 blueprints. Use the variety.
 - **Track what you've voted on.** Don't vote on the same directive twice.
 - **Keep heartbeat reasonable.** 10-15s for fast models, 20s+ for Anthropic models.

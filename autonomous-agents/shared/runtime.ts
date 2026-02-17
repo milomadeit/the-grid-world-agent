@@ -161,7 +161,7 @@ function makeCoordinationChat(
     (m.agentName || '').toLowerCase() !== selfName
   );
   if (mention?.agentName) {
-    return `${mention.agentName}, acknowledged. I saw your ping and I am acting on it now.`;
+    return 'Status: continuing active build lane. Next update will include concrete progress coordinates.';
   }
 
   const coordinationAsk = latestMessages.find((m) =>
@@ -169,24 +169,142 @@ function makeCoordinationChat(
     (m.agentName || '').toLowerCase() !== selfName
   );
   if (coordinationAsk?.agentName) {
-    return `${coordinationAsk.agentName}, yes - syncing now. I will post progress shortly.`;
+    return 'Status: operating in a separate lane to avoid overlap. Will report after a completed build step.';
   }
 
   if (directives.length > 0) {
     const d = directives[0];
     const shortId = d.id.slice(0, 8);
-    return `I am working directive ${shortId}. ${d.description.slice(0, 80)}. Reply if you are nearby to split tasks.`;
+    const pos = self ? ` at (${Math.round(self.position.x)}, ${Math.round(self.position.z)})` : '';
+    return `Status${pos}: executing directive ${shortId} — ${d.description.slice(0, 80)}.`;
   }
 
   if (self) {
-    const neighbors = otherAgents.slice(0, 2).map(a => a.name).join(', ');
-    if (neighbors) {
-      return `I am at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}). ${neighbors}, confirm your lanes and I will take one side.`;
+    if (otherAgents.length > 0) {
+      return `Status: at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}), taking an open lane and continuing build work.`;
     }
     return `I am at (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) and pushing this area forward.`;
   }
 
-  return 'Quick sync check-in: what zone should we focus next?';
+  return 'Status update: continuing objective and avoiding chat-only loops.';
+}
+
+const LOW_SIGNAL_ACK_PATTERN = /\b(?:acknowledg(?:e|ed|ing)?|saw your ping|ping received|sync received|acting on it(?: now)?|copy that|roger|heard you|on it(?: now)?)\b/;
+
+function normalizeChatText(message: string): string {
+  return message
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function shouldSuppressChatMessage(
+  agentName: string,
+  message: string,
+  recentMessages: Array<{ agentName?: string; message?: string }>,
+  ticksSinceChat: number,
+): { suppress: boolean; reason?: string } {
+  const normalized = normalizeChatText(message);
+  if (!normalized) return { suppress: true, reason: 'empty message' };
+
+  // Prevent back-to-back chat bursts; this is where loops commonly start.
+  if (ticksSinceChat < 2) {
+    return { suppress: true, reason: 'chat cadence too fast' };
+  }
+
+  if (LOW_SIGNAL_ACK_PATTERN.test(normalized)) {
+    return { suppress: true, reason: 'low-signal acknowledgment loop risk' };
+  }
+
+  const selfName = agentName.toLowerCase();
+  const recentOwn = recentMessages
+    .filter((m) => (m.agentName || '').toLowerCase() === selfName)
+    .slice(-4)
+    .map((m) => normalizeChatText(m.message || ''))
+    .filter(Boolean);
+  if (recentOwn.includes(normalized)) {
+    return { suppress: true, reason: 'duplicate self message' };
+  }
+
+  const recentGlobal = recentMessages
+    .slice(-8)
+    .map((m) => normalizeChatText(m.message || ''))
+    .filter(Boolean);
+  const duplicateCount = recentGlobal.filter((m) => m === normalized).length;
+  if (duplicateCount > 0) {
+    return { suppress: true, reason: 'global duplicate message' };
+  }
+
+  return { suppress: false };
+}
+
+function isLowSignalCoordinationMessage(message: string): boolean {
+  const normalized = normalizeChatText(message);
+  if (!normalized) return true;
+  if (LOW_SIGNAL_ACK_PATTERN.test(normalized)) return true;
+  // Generic status chatter without concrete payload (coords/progress/next step).
+  const hasCoordinate = /\(\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*\)/.test(message);
+  const hasProgressVerb = /\b(?:built|building|moving|connect|connected|road|bridge|blueprint|failed|retry|anchor)\b/i.test(message);
+  if (!hasCoordinate && !hasProgressVerb && normalized.split(' ').length <= 12) return true;
+  return false;
+}
+
+function detectLowSignalChatLoop(recentMessages: Array<{ agentName?: string; message?: string }>): boolean {
+  const recent = recentMessages
+    .slice(-10)
+    .filter((m) => (m.agentName || '').toLowerCase() !== 'system');
+  if (recent.length < 5) return false;
+
+  const lowSignalCount = recent.filter((m) => isLowSignalCoordinationMessage(m.message || '')).length;
+  const normalizedSet = new Set(
+    recent.map((m) => normalizeChatText(m.message || '')).filter(Boolean),
+  );
+
+  return lowSignalCount >= Math.ceil(recent.length * 0.7) && normalizedSet.size <= Math.max(3, Math.floor(recent.length * 0.6));
+}
+
+function chooseLoopBreakMoveTarget(
+  self: { x: number; z: number } | undefined,
+  safeSpots: Array<{ x: number; z: number }>,
+  otherAgents: Array<{ position: { x: number; z: number } }>,
+): { x: number; z: number } | null {
+  if (!self) return null;
+
+  if (safeSpots.length > 0) {
+    const scored = safeSpots.map((spot) => {
+      const distFromSelf = Math.hypot(spot.x - self.x, spot.z - self.z);
+      const nearestOther = otherAgents.length > 0
+        ? Math.min(...otherAgents.map((a) => Math.hypot(spot.x - a.position.x, spot.z - a.position.z)))
+        : 80;
+      const score = Math.abs(distFromSelf - 70) - Math.min(12, nearestOther / 8);
+      return { spot, score };
+    });
+    scored.sort((a, b) => a.score - b.score);
+    return { x: Math.round(scored[0].spot.x), z: Math.round(scored[0].spot.z) };
+  }
+
+  const offsets = [
+    { x: 70, z: 0 },
+    { x: -70, z: 0 },
+    { x: 0, z: 70 },
+    { x: 0, z: -70 },
+    { x: 50, z: 50 },
+    { x: -50, z: 50 },
+    { x: 50, z: -50 },
+    { x: -50, z: -50 },
+  ];
+  const candidates = offsets.map((o) => ({ x: Math.round(self.x + o.x), z: Math.round(self.z + o.z) }));
+  candidates.sort((a, b) => {
+    const da = otherAgents.length > 0
+      ? Math.min(...otherAgents.map((agent) => Math.hypot(a.x - agent.position.x, a.z - agent.position.z)))
+      : 0;
+    const db = otherAgents.length > 0
+      ? Math.min(...otherAgents.map((agent) => Math.hypot(b.x - agent.position.x, b.z - agent.position.z)))
+      : 0;
+    return db - da;
+  });
+  return candidates[0] || null;
 }
 
 function isRateLimitErrorMessage(message: string): boolean {
@@ -367,7 +485,17 @@ function formatOtherBuildsCompact(
 
 // --- Settlement Node Computation ---
 
-type NodeTier = 'Capital' | 'District' | 'Neighborhood' | 'Outpost';
+type NodeTier =
+  | 'Capital'
+  | 'District'
+  | 'Neighborhood'
+  | 'Outpost'
+  | 'settlement-node'
+  | 'server-node'
+  | 'forest-node'
+  | 'city-node'
+  | 'metropolis-node'
+  | 'megaopolis-node';
 type NodeTheme = 'residential' | 'tech' | 'art' | 'nature' | 'mixed';
 type BuildCategory = 'structure' | 'infrastructure' | 'decoration' | 'signature';
 
@@ -382,6 +510,31 @@ interface SettlementNode {
   name: string;
   missingCategories: BuildCategory[];
   connections: Array<{ targetIdx: number; distance: number; hasBridge: boolean }>;
+}
+
+function tierWeight(tier: NodeTier): number {
+  switch (tier) {
+    case 'megaopolis-node': return 10;
+    case 'metropolis-node': return 9;
+    case 'city-node': return 8;
+    case 'forest-node': return 7;
+    case 'server-node': return 6;
+    case 'settlement-node': return 5;
+    case 'Capital': return 10;
+    case 'District': return 8;
+    case 'Neighborhood': return 6;
+    case 'Outpost': return 4;
+    default: return 0;
+  }
+}
+
+function isSmallTier(tier: NodeTier): boolean {
+  return tier === 'Outpost' || tier === 'settlement-node' || tier === 'server-node';
+}
+
+function tierLabel(tier: NodeTier): string {
+  if (tier.includes('-node')) return tier;
+  return tier.toLowerCase();
 }
 
 // Shape-to-category mappings for "what's missing" analysis
@@ -698,21 +851,86 @@ function computeSettlementNodes(
   return nodes;
 }
 
+function nodeThemeFromCategory(category: string): NodeTheme {
+  if (category === 'architecture') return 'residential';
+  if (category === 'technology') return 'tech';
+  if (category === 'art') return 'art';
+  if (category === 'nature') return 'nature';
+  return 'mixed';
+}
+
+function mapMissingCategories(categories: string[] | undefined): BuildCategory[] {
+  if (!categories || categories.length === 0) return [];
+  const mapped: BuildCategory[] = [];
+  if (categories.includes('architecture') && !mapped.includes('structure')) mapped.push('structure');
+  if (categories.includes('infrastructure') && !mapped.includes('infrastructure')) mapped.push('infrastructure');
+  if ((categories.includes('art') || categories.includes('nature')) && !mapped.includes('decoration')) mapped.push('decoration');
+  if (categories.includes('technology') && !mapped.includes('signature')) mapped.push('signature');
+  return mapped;
+}
+
+function settlementNodesFromServer(serverNodes: any[]): SettlementNode[] {
+  if (!Array.isArray(serverNodes) || serverNodes.length === 0) return [];
+
+  const idToIndex = new Map<string, number>();
+  for (let i = 0; i < serverNodes.length; i++) {
+    const id = String(serverNodes[i]?.id || `node_${i}`);
+    idToIndex.set(id, i);
+  }
+
+  const nodes: SettlementNode[] = serverNodes.map((node: any, idx: number) => {
+    const center = {
+      x: Number(node?.center?.x) || 0,
+      z: Number(node?.center?.z) || 0,
+    };
+    const tier = (node?.tier || 'settlement-node') as NodeTier;
+    const missingCategories = mapMissingCategories(node?.missingCategories);
+    const connections = Array.isArray(node?.connections)
+      ? node.connections
+          .map((conn: any) => {
+            const targetIdx = idToIndex.get(String(conn?.targetId || ''));
+            if (typeof targetIdx !== 'number') return null;
+            return {
+              targetIdx,
+              distance: Number(conn?.distance) || 0,
+              hasBridge: Boolean(conn?.hasConnector),
+            };
+          })
+          .filter((conn: any): conn is { targetIdx: number; distance: number; hasBridge: boolean } => conn !== null)
+      : [];
+
+    return {
+      center,
+      count: Number(node?.structureCount) || Number(node?.primitiveCount) || 0,
+      radius: Number(node?.radius) || 1,
+      structures: [String(node?.dominantCategory || 'mixed')],
+      builders: Array.isArray(node?.builders) ? node.builders.map((b: any) => String(b)) : [],
+      tier,
+      theme: nodeThemeFromCategory(String(node?.dominantCategory || 'mixed')),
+      name: String(node?.name || `Node ${idx + 1}`),
+      missingCategories,
+      connections,
+    };
+  });
+
+  return nodes;
+}
+
 /**
  * Pre-compute safe build spots by checking clearance against existing primitives.
  * A spot is "safe" if it has CLEARANCE from all existing geometry AND is within
- * MAX_DIST_FROM_BUILD of at least one existing primitive (server 60u rule).
+ * MAX_DIST_FROM_BUILD of at least one existing primitive (server 100u rule).
  *
- * Searches in expanding rings around the world centroid for spots that
- * have clearance from geometry AND are within 55u of existing builds.
+ * Searches in expanding rings around world centroid + current agent position for
+ * spots that have clearance from geometry and stay inside settlement growth limits.
  */
 function findSafeBuildSpots(
   agentPos: { x: number; z: number },
   primitives: { position: { x: number; z: number }; scale: { x: number; z: number }; shape: string }[],
   maxResults = 8
 ): { x: number; z: number; nearestBuild: number }[] {
-  const CLEARANCE = 6;
-  const MAX_DIST_FROM_BUILD = 55; // server enforces 60u — stay under
+  const CLEARANCE = 7;
+  const MAX_DIST_FROM_BUILD = 95; // server enforces 100u — stay under
   const MIN_DIST_FROM_ORIGIN = 50;
   const EXEMPT = new Set(['plane', 'circle']);
 
@@ -741,18 +959,26 @@ function findSafeBuildSpots(
     return { clear: !overlaps && nearestDist <= MAX_DIST_FROM_BUILD, nearestDist };
   }
 
+  const scanCenters = [worldCenter, agentPos];
   const safe: { x: number; z: number; nearestBuild: number }[] = [];
-  for (const radius of [5, 10, 15, 20, 25, 30, 40, 50]) {
-    const steps = Math.max(12, Math.floor(radius * 1.2));
-    for (let i = 0; i < steps; i++) {
-      const angle = (2 * Math.PI * i) / steps;
-      const cx = Math.round(worldCenter.x + radius * Math.cos(angle));
-      const cz = Math.round(worldCenter.z + radius * Math.sin(angle));
-      const result = checkSpot(cx, cz);
-      if (result.clear) {
-        safe.push({ x: cx, z: cz, nearestBuild: Math.round(result.nearestDist) });
-        if (safe.length >= maxResults) return safe;
+  const seen = new Set<string>();
+  for (const base of scanCenters) {
+    for (const radius of [15, 25, 35, 50, 65, 80, 95]) {
+      const steps = Math.max(16, Math.floor(radius * 1.1));
+      for (let i = 0; i < steps; i++) {
+        const angle = (2 * Math.PI * i) / steps;
+        const cx = Math.round(base.x + radius * Math.cos(angle));
+        const cz = Math.round(base.z + radius * Math.sin(angle));
+        const key = `${cx},${cz}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const result = checkSpot(cx, cz);
+        if (result.clear) {
+          safe.push({ x: cx, z: cz, nearestBuild: Math.round(result.nearestDist) });
+          if (safe.length >= maxResults) return safe;
+        }
       }
+      if (safe.length >= maxResults) break;
     }
     if (safe.length >= maxResults) break;
   }
@@ -769,12 +995,18 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
   const worldCenterX = totalCount > 0 ? Math.round(totalX / totalCount) : 0;
   const worldCenterZ = totalCount > 0 ? Math.round(totalZ / totalCount) : 0;
 
-  const capitalNode = nodes.find(n => n.tier === 'Capital');
-  const capitalLabel = capitalNode ? `Capital: "${capitalNode.name}" (${capitalNode.count} shapes).` : '';
+  const primaryNode = [...nodes].sort((a, b) => {
+    const tierDelta = tierWeight(b.tier) - tierWeight(a.tier);
+    if (tierDelta !== 0) return tierDelta;
+    return b.count - a.count;
+  })[0];
+  const primaryLabel = primaryNode
+    ? `Primary: "${primaryNode.name}" (${primaryNode.count} structures, ${tierLabel(primaryNode.tier)}).`
+    : '';
 
   const lines = [
     `## World Graph`,
-    `${nodes.length} nodes. ${capitalLabel} World center: (${worldCenterX}, ${worldCenterZ}).`,
+    `${nodes.length} nodes. ${primaryLabel} World center: (${worldCenterX}, ${worldCenterZ}).`,
     '',
   ];
 
@@ -790,7 +1022,7 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
     if (dist < closestDist) { closestDist = dist; closestNode = node; }
 
     const builderStr = node.builders.length > 0 ? ` | ${node.builders.join(', ')}` : '';
-    lines.push(`- **${node.tier} "${node.name}"** (${node.center.x.toFixed(0)}, ${node.center.z.toFixed(0)}) — ${node.count} shapes, ${node.theme}${builderStr}`);
+    lines.push(`- **${tierLabel(node.tier)} "${node.name}"** (${node.center.x.toFixed(0)}, ${node.center.z.toFixed(0)}) — ${node.count} structures, ${node.theme}${builderStr}`);
 
     // Show connections
     if (node.connections.length > 0) {
@@ -799,7 +1031,7 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
         const bridgeLabel = conn.hasBridge ? 'ROAD exists' : 'NO ROAD';
         lines.push(`  → Connected to "${target.name}" (${conn.distance}u, ${bridgeLabel})`);
       }
-    } else if (node.tier !== 'Outpost') {
+    } else if (!isSmallTier(node.tier)) {
       lines.push(`  → ISOLATED — no connections to any node`);
     }
 
@@ -808,23 +1040,24 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
       lines.push(`  → Missing: ${node.missingCategories.join(', ')}`);
     }
 
-    // Outpost growth hint
-    if (node.tier === 'Outpost') {
-      lines.push(`  → Needs ${5 - node.count}+ more shapes to become a Neighborhood`);
+    // Frontier growth hint
+    if (isSmallTier(node.tier)) {
+      const needs = Math.max(1, 6 - node.count);
+      lines.push(`  → Frontier node: add ~${needs} varied structures to graduate this node`);
     }
   }
 
   // YOUR NODE suggestion
   if (closestNode) {
     lines.push('');
-    lines.push(`YOUR NODE: ${closestNode.tier} "${closestNode.name}" (${closestDist.toFixed(0)}u away)`);
+    lines.push(`YOUR NODE: ${tierLabel(closestNode.tier)} "${closestNode.name}" (${closestDist.toFixed(0)}u away)`);
 
     // Find nodes without visible road connections and suggest building roads
     const unconnectedPairs: Array<{ from: SettlementNode; to: SettlementNode; dist: number }> = [];
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const hasBridgeConn = nodes[i].connections.some(c => c.targetIdx === j && c.hasBridge);
-        if (!hasBridgeConn && nodes[i].tier !== 'Outpost' && nodes[j].tier !== 'Outpost') {
+        if (!hasBridgeConn && !isSmallTier(nodes[i].tier) && !isSmallTier(nodes[j].tier)) {
           const dx = nodes[i].center.x - nodes[j].center.x;
           const dz = nodes[i].center.z - nodes[j].center.z;
           unconnectedPairs.push({ from: nodes[i], to: nodes[j], dist: Math.round(Math.sqrt(dx * dx + dz * dz)) });
@@ -850,10 +1083,11 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
       }
     }
 
-    // Outpost growth
-    const outposts = nodes.filter(n => n.tier === 'Outpost');
+    // Frontier growth
+    const outposts = nodes.filter(n => isSmallTier(n.tier));
     for (const o of outposts.slice(0, 2)) {
-      allSuggestions.push(`GROW outpost "${o.name}" (${o.center.x.toFixed(0)},${o.center.z.toFixed(0)}): needs ${5 - o.count}+ structures to become a Neighborhood.`);
+      const need = Math.max(1, 6 - o.count);
+      allSuggestions.push(`GROW frontier node "${o.name}" (${o.center.x.toFixed(0)},${o.center.z.toFixed(0)}): add ~${need} varied structures to level it up.`);
     }
 
     if (allSuggestions.length > 0) {
@@ -1184,12 +1418,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '- **Hub-and-spoke**: One central PLAZA/FOUNTAIN, roads radiating outward to surrounding nodes',
     '- **Ring road**: Circular path connecting all perimeter nodes, with radial roads to center',
     '- **Grid**: Parallel roads forming blocks (build roads first, then fill blocks with structures)',
-    '- **The Capital node should be the hub.** Build roads FROM it TO other nodes.',
+    '- **The largest node should be the hub.** Build roads FROM it TO other nodes.',
     '',
     '## Action Discipline',
     '- **Follow your OPERATING MANUAL priorities.** Your AGENTS.md defines your specific role — builder, connector, or explorer. Follow those priorities, not chat pressure.',
     '- **Don\'t chat more than you act.** Max 1 chat per 3-4 actions. If you chatted last tick, build or move this tick.',
-    '- **Don\'t respond to every mention.** A brief acknowledgment is fine. Then get back to your objective.',
+    '- **Don\'t respond to every mention.** Ignore low-signal pings and acknowledgments. Chat only when you add concrete coordinates, progress, or blockers.',
     '- **Spread out.** Check Nearby Agents. If others are at your node, move to a different one.',
     '- **If a build fails, relocate.** Don\'t retry at the same spot. Move 30+ units away.',
     '',
@@ -1287,6 +1521,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
   // Fetch skill.md from server and append to system prompt
   let skillDoc = '';
+  let primeDirectiveDoc = '';
   try {
     const skillRes = await fetch(`${process.env.GRID_API_URL || 'http://localhost:3001'}/skill.md`);
     if (skillRes.ok) {
@@ -1296,11 +1531,23 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   } catch (err) {
     console.warn(`[${agentName}] Could not fetch skill.md:`, err);
   }
+  try {
+    primeDirectiveDoc = await api.getPrimeDirective();
+    if (primeDirectiveDoc) {
+      console.log(`[${agentName}] Loaded prime-directive (${primeDirectiveDoc.length} chars)`);
+    } else {
+      console.warn(`[${agentName}] Prime Directive endpoint returned empty text; continuing without it.`);
+    }
+  } catch (err) {
+    console.warn(`[${agentName}] Could not fetch prime-directive:`, err);
+  }
 
-  // Rebuild system prompt with skill.md appended
-  const fullSystemPrompt = skillDoc
-    ? systemPrompt + '\n---\n# SERVER SKILL DOCUMENT\n' + skillDoc
-    : systemPrompt;
+  // Rebuild system prompt with server contracts appended.
+  const fullSystemPrompt = [
+    systemPrompt,
+    primeDirectiveDoc ? '\n---\n# PRIME DIRECTIVE (SERVER CONSTITUTION)\n' + primeDirectiveDoc : '',
+    skillDoc ? '\n---\n# SERVER SKILL DOCUMENT\n' + skillDoc : '',
+  ].join('');
 
   // --- Static Prompt Sections (cached, refreshed every 50 ticks) ---
   // These sections rarely change and don't need to be rebuilt every tick
@@ -1340,15 +1587,17 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
   // --- Heartbeat Loop ---
   console.log(`[${agentName}] Heartbeat started (every ${config.heartbeatSeconds}s)`);
-  const forceChatCadence = true;
-  console.log(`[${agentName}] Chat cadence override: enabled`);
+  const forceChatCadence = process.env.AGENT_FORCE_CHAT_CADENCE === 'true';
+  console.log(`[${agentName}] Chat cadence override: ${forceChatCadence ? 'enabled' : 'disabled'}`);
 
   // Change detection gate — skip LLM calls when world state hasn't meaningfully changed
   let lastWorldHash = '';
   let ticksSinceLastLLMCall = 0;
-  const MAX_SKIP_TICKS = 5; // Force an LLM call at least every 5 ticks
+  const parsedMaxSkip = Number(process.env.AGENT_MAX_SKIP_TICKS || '3');
+  const MAX_SKIP_TICKS = Number.isFinite(parsedMaxSkip) && parsedMaxSkip >= 1 ? Math.floor(parsedMaxSkip) : 3; // Force an LLM call at least every N ticks
   let rateLimitCooldownUntil = 0;
   let tickInProgress = false;
+  let cachedWorldState: Awaited<ReturnType<typeof api.getWorldState>> | null = null;
 
   const tick = async () => {
     if (tickInProgress) {
@@ -1368,7 +1617,20 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const workingMemory = readMd(join(memoryDir, 'WORKING.md'));
 
       // 2. Fetch world state
-      const world = await api.getWorldState();
+      let world: Awaited<ReturnType<typeof api.getWorldState>>;
+      try {
+        const lite = await api.getStateLite();
+        if (lite.notModified && cachedWorldState) {
+          world = cachedWorldState;
+        } else {
+          world = await api.getWorldState();
+          cachedWorldState = world;
+        }
+      } catch {
+        // Fall back to full snapshot if lite sync is unavailable.
+        world = await api.getWorldState();
+        cachedWorldState = world;
+      }
       const directives = await api.getDirectives();
       const credits = await api.getCredits();
 
@@ -1397,7 +1659,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       }
 
       // Safe build spots — hoisted to tick scope for use in both prompt and error enrichment
-      let safeSpots: { x: number; z: number; nearestBuild: number }[] = [];
+      let safeSpots: Array<{
+        x: number;
+        z: number;
+        nearestBuild: number;
+        type?: 'growth' | 'connector' | 'frontier';
+        nearestNodeName?: string;
+      }> = [];
 
       // Debug: log what agents actually receive
       console.log(`[${agentName}] State: ${world.agents.length} agents, ${(world.chatMessages||[]).length} chat msgs, ${(world.messages||[]).length} terminal msgs, ${directives.length} directives`);
@@ -1422,6 +1690,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const allChatMessages = [...chatMessages, ...terminalMessages]
         .sort((a, b) => a.createdAt - b.createdAt)
         .slice(-15);
+      const lowSignalChatLoopDetected = detectLowSignalChatLoop(allChatMessages);
 
       // Track which messages are new since last tick
       const lastSeenId = parseInt(workingMemory?.match(/Last seen message id: (\d+)/)?.[1] || '0');
@@ -1429,7 +1698,19 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const newMessages = allChatMessages.filter(m => (m.id || 0) > lastSeenId);
       const prevTicksSinceChat = parseInt(workingMemory?.match(/Ticks since chat: (\d+)/)?.[1] || '0');
       const currentTicksSinceChat = prevTicksSinceChat + 1;
-      const chatDue = currentTicksSinceChat >= 2 && otherAgents.length > 0;
+      const coordinationContext = newMessages.some((m) => {
+        const speaker = (m.agentName || '').toLowerCase();
+        const text = (m.message || '').toLowerCase();
+        if (speaker === agentName.toLowerCase()) return false;
+        if (text.includes(agentName.toLowerCase())) return true;
+        if (/sync|coordinate|join|help|who can|can you|\?/.test(text)) return true;
+        if (speaker === 'system' && /directive|connect|road|bridge|completed/.test(text)) return true;
+        return false;
+      });
+      const chatDue =
+        currentTicksSinceChat >= 10 &&
+        otherAgents.length > 0 &&
+        coordinationContext;
 
       // Format messages with NEW tags (no mention pressure — agents should prioritize their objective)
       const formatMessage = (m: typeof allChatMessages[0]) => {
@@ -1453,6 +1734,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         .join(',');
       const worldHash = [
         selfPosKey,
+        typeof world.primitiveRevision === 'number' ? world.primitiveRevision : 'no-rev',
         world.agents.length,
         world.primitives.length,
         latestMsgId,
@@ -1462,14 +1744,17 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       ].join('|');
 
       ticksSinceLastLLMCall++;
+      const unchangedWorldState = worldHash === lastWorldHash && !mentionsMe && !chatDue;
+      const skipLLMForUnchangedState = unchangedWorldState && ticksSinceLastLLMCall < MAX_SKIP_TICKS;
 
-      if (worldHash === lastWorldHash && !mentionsMe && !chatDue && ticksSinceLastLLMCall < MAX_SKIP_TICKS) {
-        console.log(`[${agentName}] No meaningful change, skipping LLM call (tick ${ticksSinceLastLLMCall}/${MAX_SKIP_TICKS})`);
-        return;
+      if (skipLLMForUnchangedState) {
+        console.log(`[${agentName}] No meaningful change, using policy action without LLM (tick ${ticksSinceLastLLMCall}/${MAX_SKIP_TICKS})`);
       }
 
       lastWorldHash = worldHash;
-      ticksSinceLastLLMCall = 0;
+      if (!skipLLMForUnchangedState) {
+        ticksSinceLastLLMCall = 0;
+      }
 
       // Cached settlement nodes — computed once, reused in world graph + blueprint catalog
       let cachedNodes: SettlementNode[] = [];
@@ -1477,6 +1762,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const userPrompt = [
         '# CURRENT WORLD STATE',
         `Tick: ${world.tick}`,
+        `World revision: ${typeof world.primitiveRevision === 'number' ? world.primitiveRevision : 'unknown'}`,
         `Your position: (${self?.position.x.toFixed(1)}, ${self?.position.z.toFixed(1)})`,
         `Your status: ${self?.status || 'unknown'}`,
         `Your credits: ${credits}`,
@@ -1498,8 +1784,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '',
         '## Communication Cadence',
         chatDue
-          ? `You have gone ${currentTicksSinceChat} ticks without a CHAT action. Send one short coordination chat this tick unless you are handling a blocking build/action error.`
-          : `Ticks since your last CHAT action: ${currentTicksSinceChat}. Keep chat concise and useful.`,
+          ? `You have gone ${currentTicksSinceChat} ticks without a CHAT action and there is fresh coordination context. Send at most one short coordination chat only if it adds concrete coordinates/progress; never send acknowledgments.`
+          : `Ticks since your last CHAT action: ${currentTicksSinceChat}. Avoid chatter loops; chat only when it adds coordination value.`,
         '',
         `## Active Directives (${directives.length}) — THIS IS GROUND TRUTH`,
         directives.length > 0
@@ -1534,12 +1820,53 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             )
           : '_No other builds yet._',
         '',
+        ...(() => {
+          if (!serverSpatial) {
+            return [
+              '## Server Spatial Summary (authoritative)',
+              '_Unavailable this tick (rate-limited or transient error)._',
+              '',
+            ];
+          }
+
+          const center = serverSpatial.world.center;
+          const centerLabel = center
+            ? `(${center.x}, ${center.z})`
+            : 'unknown';
+          const topCells = serverSpatial.grid.cells
+            .slice(0, 5)
+            .map(c => `- Cell (${c.x}, ${c.z}) — ${c.count} shapes, maxHeight ${c.maxHeight}, builders: ${c.agents.join(', ') || 'none'}`);
+          const topNodes = (serverSpatial.nodes || [])
+            .slice(0, 6)
+            .map(n => `- ${n.name} (${n.tier}) at (${n.center.x}, ${n.center.z}) — ${n.structureCount} structures, ${n.primitiveCount} primitives`);
+          const open = serverSpatial.openAreas
+            .slice(0, 6)
+            .map(a => {
+              const areaType = a.type || 'growth';
+              const nodeHint = a.nearestNodeName ? ` near "${a.nearestNodeName}"` : '';
+              return `- (${a.x}, ${a.z}) — ${a.nearestBuild}u from nearest build (${areaType}${nodeHint})`;
+            });
+
+          return [
+            '## Server Spatial Summary (authoritative)',
+            `Revision ${serverSpatial.primitiveRevision} | Node model v${serverSpatial.nodeModelVersion || 1} | World center ${centerLabel} | ${serverSpatial.world.totalPrimitives} primitives, ${serverSpatial.world.totalStructures} structures, ${serverSpatial.world.totalNodes} nodes, ${serverSpatial.world.totalBuilders} builders`,
+            topNodes.length > 0 ? 'Settlement nodes:\n' + topNodes.join('\n') : 'Settlement nodes: (none)',
+            topCells.length > 0 ? 'Dense cells:\n' + topCells.join('\n') : 'Dense cells: (none)',
+            open.length > 0 ? 'Open areas:\n' + open.join('\n') : 'Open areas: (none)',
+            '',
+          ];
+        })(),
+        '',
         // World Graph — hierarchical node view of all world builds
         // Compute settlement nodes once, reuse for both world graph and blueprint catalog
         (() => {
-          const allPrims = world.primitives as PrimitiveWithOwner[];
           const myPos = self?.position || { x: 0, z: 0 };
-          cachedNodes = computeSettlementNodes(allPrims, agentNameMap);
+          if (Array.isArray(serverSpatial?.nodes) && serverSpatial.nodes.length > 0) {
+            cachedNodes = settlementNodesFromServer(serverSpatial.nodes);
+          } else {
+            const allPrims = world.primitives as PrimitiveWithOwner[];
+            cachedNodes = computeSettlementNodes(allPrims, agentNameMap);
+          }
           return formatSettlementMap(cachedNodes, myPos, agentName);
         })(),
         '',
@@ -1547,7 +1874,52 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         ...(() => {
           const myPos = self?.position || { x: 0, z: 0 };
           const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
-          safeSpots = findSafeBuildSpots(myPos, primData);
+          const localSafeSpots = findSafeBuildSpots(myPos, primData);
+          const merged = new Map<string, { x: number; z: number; nearestBuild: number; type?: 'growth' | 'connector' | 'frontier'; nearestNodeName?: string }>();
+          for (const spot of serverSpatial?.openAreas || []) {
+            merged.set(`${spot.x},${spot.z}`, {
+              x: spot.x,
+              z: spot.z,
+              nearestBuild: spot.nearestBuild,
+              type: spot.type,
+              nearestNodeName: spot.nearestNodeName,
+            });
+          }
+          for (const spot of localSafeSpots) {
+            const key = `${spot.x},${spot.z}`;
+            if (!merged.has(key)) {
+              merged.set(key, spot);
+            }
+          }
+
+          const lowerName = agentName.toLowerCase();
+          const frontierBias = lowerName.includes('mouse') || lowerName.includes('clank') || lowerName.includes('smith');
+          const connectorBias = lowerName.includes('oracle');
+          const scored = Array.from(merged.values()).map((spot) => {
+            const distFromAgent = Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2);
+            const nearestOtherAgent = otherAgents.length > 0
+              ? Math.min(...otherAgents.map(a => Math.sqrt((spot.x - a.position.x) ** 2 + (spot.z - a.position.z) ** 2)))
+              : 80;
+            const targetDist = frontierBias ? 70 : connectorBias ? 55 : 45;
+            let score = Math.abs(distFromAgent - targetDist);
+            score -= Math.min(12, nearestOtherAgent / 8); // prefer spots farther from other agents
+            if (frontierBias) {
+              if (spot.type === 'frontier') score -= 18;
+              if (spot.type === 'connector') score -= 6;
+            } else if (connectorBias) {
+              if (spot.type === 'connector') score -= 16;
+              if (spot.type === 'growth') score -= 4;
+            } else if (spot.type === 'growth') {
+              score -= 8;
+            }
+            return { spot, score };
+          });
+
+          safeSpots = scored
+            .sort((a, b) => a.score - b.score)
+            .slice(0, 8)
+            .map(entry => entry.spot);
+
           if (safeSpots.length === 0) {
             return [
               '## ⚠ NO SAFE BUILD SPOTS FOUND',
@@ -1556,10 +1928,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             ];
           }
           const lines: string[] = [];
-          lines.push('## SAFE BUILD SPOTS (verified clear of overlap)');
+          lines.push('## SAFE BUILD SPOTS (server map + local clearance heuristic)');
           for (const spot of safeSpots) {
             const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
-            lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build`);
+            const typeLabel = spot.type ? `, ${spot.type}` : '';
+            const nodeLabel = spot.nearestNodeName ? `, near "${spot.nearestNodeName}"` : '';
+            lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build${typeLabel}${nodeLabel}`);
           }
           lines.push('');
           lines.push('**IMPORTANT:** MOVE within 20u of a spot FIRST, then use it as anchorX/anchorZ. You must be within 20u of the build site.');
@@ -1701,91 +2075,149 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         ),
       ].join('\n');
 
-      // 5. Capture View & Call LLM
-      let imageBase64: string | null = null;
-      let visualSummary: string | null = null;
-      if (providerSupportsVisionInput(config.llmProvider)) {
-        imageBase64 = await captureWorldView(api.getAgentId() || config.erc8004AgentId);
-        if (imageBase64) {
-          console.log(`[${agentName}] Captured visual input`);
-        }
-      } else if (config.visionBridge?.provider === 'gemini' && config.visionBridge.apiKey) {
-        imageBase64 = await captureWorldView(api.getAgentId() || config.erc8004AgentId);
-        if (imageBase64) {
-          console.log(`[${agentName}] Captured visual input (bridge)`);
-          try {
-            visualSummary = await summarizeImageWithGemini(
-              config.visionBridge.apiKey,
-              config.visionBridge.model,
-              imageBase64,
-            );
-            if (visualSummary) {
-              console.log(`[${agentName}] Vision bridge summary generated (${visualSummary.length} chars)`);
-            }
-          } catch (visionErr) {
-            const visionMsg = visionErr instanceof Error ? visionErr.message : String(visionErr);
-            console.warn(`[${agentName}] Vision bridge failed: ${visionMsg.slice(0, 160)}`);
-          }
-        }
-      }
-
-      const llmInputPrompt = visualSummary
-        ? `${userPrompt}\n\n## VISUAL SUMMARY (Gemini)\n${visualSummary}`
-        : userPrompt;
-      const budget = promptBudgetForProvider(config.llmProvider);
-      const modelPrompt = trimPromptForLLM(llmInputPrompt, budget.maxChars, budget.tailChars);
-      if (modelPrompt.length !== llmInputPrompt.length) {
-        console.log(`[${agentName}] Prompt trimmed ${llmInputPrompt.length} -> ${modelPrompt.length} chars`);
-      }
       let decision: AgentDecision;
       let rateLimitWaitThisTick = false;
-      try {
-        const llmResponse = await callLLM(config, fullSystemPrompt, modelPrompt, imageBase64);
-        const raw = llmResponse.text;
-        console.log(`[${agentName}] ${formatTokenLog(config.llmProvider, llmResponse.usage)}`);
-        try {
-          // Extract JSON from response — strip think tags, code fences, then find the first {…} block
-          const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-          // Find the first balanced JSON object in the response
-          const firstBrace = cleaned.indexOf('{');
-          if (firstBrace === -1) throw new Error('No JSON object found');
-          let depth = 0;
-          let lastBrace = -1;
-          for (let i = firstBrace; i < cleaned.length; i++) {
-            if (cleaned[i] === '{') depth++;
-            else if (cleaned[i] === '}') { depth--; if (depth === 0) { lastBrace = i; break; } }
-          }
-          if (lastBrace === -1) throw new Error('Unbalanced braces');
-          const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
-          decision = JSON.parse(jsonStr);
-        } catch {
-          console.warn(`[${agentName}] Failed to parse LLM response, idling. Raw: ${raw.slice(0, 200)}`);
-          decision = { thought: 'Could not parse response', action: 'IDLE' };
-        }
-      } catch (llmErr) {
-        const llmMsg = llmErr instanceof Error ? llmErr.message : String(llmErr);
-        const compact = llmMsg.replace(/\s+/g, ' ').slice(0, 140);
-        console.error(`[${agentName}] LLM call failed: ${compact}`);
-        if (isRateLimitErrorMessage(llmMsg)) {
-          const waitSeconds = parseRateLimitCooldownSeconds(llmMsg, 30);
-          rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + waitSeconds * 1000);
-          rateLimitWaitThisTick = true;
+      if (lowSignalChatLoopDetected) {
+        if (blueprintStatus?.active) {
           decision = {
-            thought: `LLM rate-limited (${compact}); waiting ${waitSeconds}s before retry.`,
-            action: 'IDLE',
-          };
-        } else if (otherAgents.length > 0) {
-          decision = {
-            thought: `LLM unavailable (${compact}); sending coordination heartbeat.`,
-            action: 'CHAT',
-            payload: { message: makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages).slice(0, 220) },
+            thought: 'Low-signal chat loop detected. Skipping LLM call and continuing active blueprint.',
+            action: 'BUILD_CONTINUE',
+            payload: {},
           };
         } else {
-          decision = { thought: `LLM unavailable (${compact}); waiting for next tick.`, action: 'IDLE' };
+          const moveTarget = chooseLoopBreakMoveTarget(
+            self?.position ? { x: self.position.x, z: self.position.z } : undefined,
+            safeSpots,
+            otherAgents,
+          );
+          if (moveTarget) {
+            decision = {
+              thought: `Low-signal chat loop detected. Skipping LLM call and moving to a fresh lane at (${moveTarget.x}, ${moveTarget.z}).`,
+              action: 'MOVE',
+              payload: moveTarget,
+            };
+          } else {
+            decision = {
+              thought: 'Low-signal chat loop detected. Skipping LLM call this tick to avoid token burn.',
+              action: 'IDLE',
+            };
+          }
+        }
+      } else if (skipLLMForUnchangedState) {
+        if (blueprintStatus?.active) {
+          decision = {
+            thought: 'State unchanged. Policy step: continue active blueprint without LLM.',
+            action: 'BUILD_CONTINUE',
+            payload: {},
+          };
+        } else {
+          // Keep autonomy alive: on unchanged-state ticks, take a deterministic movement step
+          // toward clearer frontier lanes instead of idling.
+          const moveTarget = chooseLoopBreakMoveTarget(
+            self?.position ? { x: self.position.x, z: self.position.z } : undefined,
+            safeSpots,
+            otherAgents,
+          );
+          if (moveTarget) {
+            decision = {
+              thought: `State unchanged. Policy step: reposition to (${moveTarget.x}, ${moveTarget.z}) to create expansion opportunities.`,
+              action: 'MOVE',
+              payload: moveTarget,
+            };
+          } else {
+            decision = {
+              thought: 'State unchanged and no clear policy move target. Idling until next reasoning tick.',
+              action: 'IDLE',
+            };
+          }
+        }
+      } else {
+        // 5. Capture view + call LLM only when we actually need model inference.
+        let imageBase64: string | null = null;
+        let visualSummary: string | null = null;
+        if (providerSupportsVisionInput(config.llmProvider)) {
+          imageBase64 = await captureWorldView(api.getAgentId() || config.erc8004AgentId);
+          if (imageBase64) {
+            console.log(`[${agentName}] Captured visual input`);
+          }
+        } else if (config.visionBridge?.provider === 'gemini' && config.visionBridge.apiKey) {
+          imageBase64 = await captureWorldView(api.getAgentId() || config.erc8004AgentId);
+          if (imageBase64) {
+            console.log(`[${agentName}] Captured visual input (bridge)`);
+            try {
+              visualSummary = await summarizeImageWithGemini(
+                config.visionBridge.apiKey,
+                config.visionBridge.model,
+                imageBase64,
+              );
+              if (visualSummary) {
+                console.log(`[${agentName}] Vision bridge summary generated (${visualSummary.length} chars)`);
+              }
+            } catch (visionErr) {
+              const visionMsg = visionErr instanceof Error ? visionErr.message : String(visionErr);
+              console.warn(`[${agentName}] Vision bridge failed: ${visionMsg.slice(0, 160)}`);
+            }
+          }
+        }
+
+        const llmInputPrompt = visualSummary
+          ? `${userPrompt}\n\n## VISUAL SUMMARY (Gemini)\n${visualSummary}`
+          : userPrompt;
+        const budget = promptBudgetForProvider(config.llmProvider);
+        const modelPrompt = trimPromptForLLM(llmInputPrompt, budget.maxChars, budget.tailChars);
+        if (modelPrompt.length !== llmInputPrompt.length) {
+          console.log(`[${agentName}] Prompt trimmed ${llmInputPrompt.length} -> ${modelPrompt.length} chars`);
+        }
+
+        try {
+          const llmResponse = await callLLM(config, fullSystemPrompt, modelPrompt, imageBase64);
+          const raw = llmResponse.text;
+          console.log(`[${agentName}] ${formatTokenLog(config.llmProvider, llmResponse.usage)}`);
+          try {
+            // Extract JSON from response — strip think tags, code fences, then find the first {…} block
+            const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            // Find the first balanced JSON object in the response
+            const firstBrace = cleaned.indexOf('{');
+            if (firstBrace === -1) throw new Error('No JSON object found');
+            let depth = 0;
+            let lastBrace = -1;
+            for (let i = firstBrace; i < cleaned.length; i++) {
+              if (cleaned[i] === '{') depth++;
+              else if (cleaned[i] === '}') { depth--; if (depth === 0) { lastBrace = i; break; } }
+            }
+            if (lastBrace === -1) throw new Error('Unbalanced braces');
+            const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
+            decision = JSON.parse(jsonStr);
+          } catch {
+            console.warn(`[${agentName}] Failed to parse LLM response, idling. Raw: ${raw.slice(0, 200)}`);
+            decision = { thought: 'Could not parse response', action: 'IDLE' };
+          }
+        } catch (llmErr) {
+          const llmMsg = llmErr instanceof Error ? llmErr.message : String(llmErr);
+          const compact = llmMsg.replace(/\s+/g, ' ').slice(0, 140);
+          console.error(`[${agentName}] LLM call failed: ${compact}`);
+          if (isRateLimitErrorMessage(llmMsg)) {
+            const waitSeconds = parseRateLimitCooldownSeconds(llmMsg, 30);
+            rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + waitSeconds * 1000);
+            rateLimitWaitThisTick = true;
+            decision = {
+              thought: `LLM rate-limited (${compact}); waiting ${waitSeconds}s before retry.`,
+              action: 'IDLE',
+            };
+          } else if (otherAgents.length > 0) {
+            decision = {
+              thought: `LLM unavailable (${compact}); sending coordination heartbeat.`,
+              action: 'CHAT',
+              payload: { message: makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages).slice(0, 220) },
+            };
+          } else {
+            decision = { thought: `LLM unavailable (${compact}); waiting for next tick.`, action: 'IDLE' };
+          }
         }
       }
 
-      if (forceChatCadence && chatDue && decision.action !== 'CHAT' && !(blueprintStatus?.active && decision.action === 'BUILD_CONTINUE') && !rateLimitWaitThisTick) {
+      const buildActionChosen = ['BUILD_BLUEPRINT', 'BUILD_CONTINUE', 'BUILD_PRIMITIVE', 'BUILD_MULTI'].includes(decision.action);
+      if (forceChatCadence && chatDue && !lowSignalChatLoopDetected && decision.action !== 'CHAT' && !buildActionChosen && !rateLimitWaitThisTick) {
         const forcedMessage = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
         console.log(`[${agentName}] Communication cadence override -> CHAT`);
         decision = {
@@ -1793,6 +2225,22 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           action: 'CHAT',
           payload: { message: forcedMessage.slice(0, 220) },
         };
+      }
+
+      if (decision.action === 'CHAT') {
+        const rawMessage = String((decision.payload as any)?.message || '').trim();
+        const fallbackMessage = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
+        const chatMessage = rawMessage || fallbackMessage;
+        const suppress = shouldSuppressChatMessage(agentName, chatMessage, allChatMessages, currentTicksSinceChat);
+        if (suppress.suppress) {
+          console.log(`[${agentName}] CHAT suppressed: ${suppress.reason || 'loop guard'}`);
+          decision = {
+            thought: `${decision.thought} | Chat suppressed (${suppress.reason || 'loop guard'}); returning to action loop.`,
+            action: 'IDLE',
+          };
+        } else {
+          decision.payload = { ...(decision.payload || {}), message: chatMessage.slice(0, 220) };
+        }
       }
 
       // 6. Execute action
@@ -2034,6 +2482,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
   // Step 2: Fetch skill.md onboarding doc
   log('Step 2: Fetching skill.md onboarding document...');
   let skillDoc = '';
+  let primeDirectiveDoc = '';
   try {
     const skillRes = await fetch(`${config.apiBaseUrl}/skill.md`);
     if (skillRes.ok) {
@@ -2044,6 +2493,18 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
     }
   } catch (err) {
     log(`Failed to fetch skill.md: ${err}`);
+  }
+  try {
+    const primeRes = await fetch(`${config.apiBaseUrl}/v1/grid/prime-directive`);
+    if (primeRes.ok) {
+      const primeJson = await primeRes.json() as { text?: string };
+      primeDirectiveDoc = typeof primeJson.text === 'string' ? primeJson.text : '';
+      log(`Fetched prime-directive (${primeDirectiveDoc.length} chars)`);
+    } else {
+      log(`prime-directive not available (${primeRes.status})`);
+    }
+  } catch (err) {
+    log(`Failed to fetch prime-directive: ${err}`);
   }
 
   // Step 3: Check wallet and balance
@@ -2082,6 +2543,8 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
     entryError,
     '',
     skillDoc ? '## Onboarding Document (skill.md)\n' + skillDoc : '## Onboarding Document\n_Could not fetch._',
+    '',
+    primeDirectiveDoc ? '## Prime Directive\n' + primeDirectiveDoc : '## Prime Directive\n_Could not fetch._',
     '',
     '## Your Wallet Status',
     config.walletAddress ? `Address: ${config.walletAddress}` : 'No wallet configured.',
@@ -2211,10 +2674,12 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
         readMd(join(config.dir, 'MEMORY.md')),
       ].join('\n');
 
-      // Append skill.md so bootstrap agents get behavioral rules in post-bootstrap ticks
-      const fullSystemPrompt = skillDoc
-        ? postBootstrapSystemPrompt + '\n---\n# SERVER SKILL DOCUMENT\n' + skillDoc
-        : postBootstrapSystemPrompt;
+      // Append server contracts so bootstrap agents run the same constitutional context.
+      const fullSystemPrompt = [
+        postBootstrapSystemPrompt,
+        primeDirectiveDoc ? '\n---\n# PRIME DIRECTIVE (SERVER CONSTITUTION)\n' + primeDirectiveDoc : '',
+        skillDoc ? '\n---\n# SERVER SKILL DOCUMENT\n' + skillDoc : '',
+      ].join('');
 
       // Start the heartbeat loop (reuse the tick logic from startAgent)
       let bootstrapTickInProgress = false;
@@ -2322,7 +2787,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             wm || '_No working memory._',
             '',
             '---',
-            '**Chat is for coordination, not conversation.** Keep messages brief. Focus on building and exploring.',
+            '**Chat is for coordination, not conversation.** No acknowledgment-only replies. Share concrete coordinates/progress, then keep building.',
             '',
             // Build error warnings for bootstrap tick
             ...(wm ? (() => {

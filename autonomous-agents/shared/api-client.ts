@@ -25,6 +25,7 @@ interface EnterResponse {
 
 interface WorldState {
   tick: number;
+  primitiveRevision?: number;
   agents: Array<{
     id: string;
     name: string;
@@ -73,11 +74,68 @@ interface WorldPrimitive {
 
 
 interface ServerSpatialSummary {
-  totalPrimitives: number;
-  boundingBox: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
-  centroid: { x: number; y: number; z: number };
-  gridCells: Array<{ cellX: number; cellZ: number; count: number; center: { x: number; z: number } }>;
-  openAreas: Array<{ x: number; z: number; nearestBuildDist: number }>;
+  primitiveRevision: number;
+  nodeModelVersion?: number;
+  world: {
+    totalPrimitives: number;
+    totalStructures: number;
+    totalNodes: number;
+    totalBuilders: number;
+    boundingBox: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number } | null;
+    highestPoint: number;
+    center: { x: number; z: number } | null;
+  };
+  agents: Array<{
+    agentId: string;
+    agentName: string;
+    primitiveCount: number;
+    structureCount?: number;
+    center: { x: number; z: number };
+    boundingBox: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
+    highestPoint: number;
+    clusters: Array<{ center: { x: number; z: number }; count: number; maxHeight: number }>;
+  }>;
+  grid: {
+    cellSize: number;
+    cells: Array<{ x: number; z: number; count: number; maxHeight: number; agents: string[] }>;
+  };
+  nodes: Array<{
+    id: string;
+    name: string;
+    tier: 'settlement-node' | 'server-node' | 'forest-node' | 'city-node' | 'metropolis-node' | 'megaopolis-node';
+    center: { x: number; z: number };
+    radius: number;
+    structureCount: number;
+    primitiveCount: number;
+    footprintArea: number;
+    dominantCategory: 'architecture' | 'infrastructure' | 'technology' | 'art' | 'nature' | 'mixed';
+    missingCategories: Array<'architecture' | 'infrastructure' | 'technology' | 'art' | 'nature'>;
+    builders: string[];
+    connections: Array<{
+      targetId: string;
+      targetName: string;
+      distance: number;
+      hasConnector: boolean;
+    }>;
+  }>;
+  openAreas: Array<{
+    x: number;
+    z: number;
+    nearestBuild: number;
+    type?: 'growth' | 'connector' | 'frontier';
+    nearestNodeId?: string;
+    nearestNodeName?: string;
+    nearestNodeTier?: 'settlement-node' | 'server-node' | 'forest-node' | 'city-node' | 'metropolis-node' | 'megaopolis-node';
+  }>;
+}
+
+interface GridStateLite {
+  tick: number;
+  primitiveRevision: number;
+  agentsOnline: number;
+  primitiveCount: number;
+  latestTerminalMessageId: number;
+  latestChatMessageId: number;
 }
 
 interface Directive {
@@ -94,6 +152,7 @@ interface Directive {
 export class GridAPIClient {
   private token: string | null = null;
   private agentId: string | null = null;
+  private stateLiteEtag: string | null = null;
   private entryConfig: {
     privateKey: string;
     erc8004AgentId: string;
@@ -262,12 +321,14 @@ export class GridAPIClient {
 
       this.token = secondResult.token;
       this.agentId = secondResult.agentId;
+      this.stateLiteEtag = null;
       return secondResult;
     }
 
     // Already paid or first-time with embedded tx hash
     this.token = firstResult.token;
     this.agentId = firstResult.agentId;
+    this.stateLiteEtag = null;
     return firstResult;
   }
 
@@ -305,6 +366,54 @@ export class GridAPIClient {
     state.primitives = state.primitives || [];
     state.agents = state.agents || [];
     return state;
+  }
+
+  /**
+   * Get lightweight world sync metadata.
+   * Uses ETag/If-None-Match so unchanged responses return 304.
+   */
+  async getStateLite(allowTokenRefresh = true): Promise<{ notModified: boolean; data?: GridStateLite }> {
+    const headers = this.headers();
+    if (this.stateLiteEtag) {
+      headers['If-None-Match'] = this.stateLiteEtag;
+    }
+
+    const res = await fetch(`${getBaseUrl()}/v1/grid/state-lite`, {
+      method: 'GET',
+      headers,
+    });
+
+    if (res.status === 304) {
+      const etag = res.headers.get('etag');
+      if (etag) this.stateLiteEtag = etag;
+      return { notModified: true };
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      const shouldTryRefresh =
+        allowTokenRefresh &&
+        res.status === 401 &&
+        !!this.entryConfig;
+
+      if (shouldTryRefresh) {
+        await this.refreshSessionToken();
+        return this.getStateLite(false);
+      }
+
+      throw new Error(`API GET /v1/grid/state-lite failed (${res.status}): ${text}`);
+    }
+
+    const etag = res.headers.get('etag');
+    if (etag) this.stateLiteEtag = etag;
+    const data = await res.json() as GridStateLite;
+    return { notModified: false, data };
+  }
+
+  /** Get the server's Prime Directive text (runtime constitution). */
+  async getPrimeDirective(): Promise<string> {
+    const resp = await this.request<{ text?: string }>('GET', '/v1/grid/prime-directive');
+    return typeof resp.text === 'string' ? resp.text : '';
   }
 
   /** Get active directives. */
