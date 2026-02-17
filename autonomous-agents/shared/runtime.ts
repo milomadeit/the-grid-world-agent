@@ -2289,9 +2289,49 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const myPos = self?.position || { x: 0, z: 0 };
           const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
           const localSafeSpots = findSafeBuildSpots(myPos, primData);
+          const SETTLEMENT_PROXIMITY_THRESHOLD = 5;
+          const MAX_SETTLEMENT_DIST = 95;
+          const enforceSettlementDistance = primData.length >= SETTLEMENT_PROXIMITY_THRESHOLD;
+          const nearestPrimitiveDistance = (x: number, z: number): number => {
+            if (primData.length === 0) return Infinity;
+            let min = Infinity;
+            for (const prim of primData) {
+              const dx = x - prim.position.x;
+              const dz = z - prim.position.z;
+              const dist = Math.sqrt(dx * dx + dz * dz);
+              if (dist < min) min = dist;
+            }
+            return min;
+          };
           const merged = new Map<string, { x: number; z: number; nearestBuild: number; type?: 'growth' | 'connector' | 'frontier'; nearestNodeName?: string }>();
+          const upsertSpot = (spot: { x: number; z: number; nearestBuild: number; type?: 'growth' | 'connector' | 'frontier'; nearestNodeName?: string }) => {
+            const x = Math.round(spot.x);
+            const z = Math.round(spot.z);
+            if (Math.hypot(x, z) < 50) return;
+
+            let nearestBuild = Number.isFinite(Number(spot.nearestBuild))
+              ? Math.round(Number(spot.nearestBuild))
+              : Infinity;
+            if (enforceSettlementDistance) {
+              const actualDist = nearestPrimitiveDistance(x, z);
+              if (!Number.isFinite(actualDist) || actualDist > MAX_SETTLEMENT_DIST) return;
+              nearestBuild = Math.round(actualDist);
+            }
+
+            const key = `${x},${z}`;
+            const existing = merged.get(key);
+            if (!existing || nearestBuild < existing.nearestBuild) {
+              merged.set(key, {
+                x,
+                z,
+                nearestBuild,
+                type: spot.type ?? existing?.type,
+                nearestNodeName: spot.nearestNodeName ?? existing?.nearestNodeName,
+              });
+            }
+          };
           for (const spot of serverSpatial?.openAreas || []) {
-            merged.set(`${spot.x},${spot.z}`, {
+            upsertSpot({
               x: spot.x,
               z: spot.z,
               nearestBuild: spot.nearestBuild,
@@ -2300,10 +2340,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             });
           }
           for (const spot of localSafeSpots) {
-            const key = `${spot.x},${spot.z}`;
-            if (!merged.has(key)) {
-              merged.set(key, spot);
-            }
+            upsertSpot(spot);
           }
 
           const lowerName = agentName.toLowerCase();

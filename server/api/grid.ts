@@ -674,14 +674,73 @@ function buildSettlementNodes(
   return nodes;
 }
 
-function computeOpenAreas(nodes: SettlementNodeSummary[]): OpenAreaSummary[] {
+function classifyOpenAreaType(
+  nearestPrimitiveDist: number,
+  maxNodeDistance: number
+): OpenAreaSummary['type'] | null {
+  if (nearestPrimitiveDist >= 12 && nearestPrimitiveDist <= 38) return 'growth';
+  if (nearestPrimitiveDist > 38 && nearestPrimitiveDist <= 58) return 'connector';
+  if (nearestPrimitiveDist > 58 && nearestPrimitiveDist <= Math.min(95, maxNodeDistance)) return 'frontier';
+  return null;
+}
+
+function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveLike[]): OpenAreaSummary[] {
+  const maxNodeDistance = Math.max(20, BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT - 5);
+
   if (nodes.length === 0) {
-    return [
-      { x: 100, z: 100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
-      { x: -100, z: 100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
-      { x: 100, z: -100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
-      { x: -100, z: -100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+    if (primitives.length === 0) {
+      return [
+        { x: 100, z: 100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+        { x: -100, z: 100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+        { x: 100, z: -100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+        { x: -100, z: -100, nearestBuild: 0, type: 'frontier', nearestNodeId: 'none', nearestNodeName: 'seed', nearestNodeTier: 'settlement-node' },
+      ];
+    }
+
+    // Primitive-based fallback if node model has not formed yet.
+    const centroid = computeCentroid(primitives.map((p) => ({ position: p.position })));
+    const rings: Array<{ radius: number; type: OpenAreaSummary['type'] }> = [
+      { radius: 70, type: 'frontier' },
+      { radius: 48, type: 'connector' },
+      { radius: 28, type: 'growth' },
     ];
+    const fallback: OpenAreaSummary[] = [];
+    const angles = [0, 45, 90, 135, 180, 225, 270, 315];
+    for (const ring of rings) {
+      for (const deg of angles) {
+        const rad = (deg * Math.PI) / 180;
+        const x = Math.round(centroid.x + Math.cos(rad) * ring.radius);
+        const z = Math.round(centroid.z + Math.sin(rad) * ring.radius);
+        const originDist = Math.sqrt(x * x + z * z);
+        if (originDist < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) continue;
+        const nearestPrimitiveDist = distanceToNearestPrimitive(x, z, primitives);
+        const type = classifyOpenAreaType(nearestPrimitiveDist, maxNodeDistance);
+        if (!type) continue;
+        fallback.push({
+          x,
+          z,
+          nearestBuild: Math.round(nearestPrimitiveDist),
+          type,
+          nearestNodeId: 'none',
+          nearestNodeName: 'seed',
+          nearestNodeTier: 'settlement-node',
+        });
+      }
+    }
+    if (fallback.length > 0) {
+      return fallback.slice(0, 12);
+    }
+
+    const p = primitives[0];
+    return [{
+      x: Math.round(p.position.x + 60),
+      z: Math.round(p.position.z),
+      nearestBuild: Math.round(distanceToNearestPrimitive(Math.round(p.position.x + 60), Math.round(p.position.z), primitives)),
+      type: 'frontier',
+      nearestNodeId: 'none',
+      nearestNodeName: 'seed',
+      nearestNodeTier: 'settlement-node',
+    }];
   }
 
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -708,7 +767,6 @@ function computeOpenAreas(nodes: SettlementNodeSummary[]): OpenAreaSummary[] {
   const candidates: Array<OpenAreaSummary & { score: number }> = [];
   const SCAN_STEP = 20;
   const SCAN_PAD = 120;
-  const maxNodeDistance = Math.max(20, BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT - 5);
 
   for (let x = Math.floor((minX - SCAN_PAD) / SCAN_STEP) * SCAN_STEP; x <= Math.ceil((maxX + SCAN_PAD) / SCAN_STEP) * SCAN_STEP; x += SCAN_STEP) {
     for (let z = Math.floor((minZ - SCAN_PAD) / SCAN_STEP) * SCAN_STEP; z <= Math.ceil((maxZ + SCAN_PAD) / SCAN_STEP) * SCAN_STEP; z += SCAN_STEP) {
@@ -725,12 +783,10 @@ function computeOpenAreas(nodes: SettlementNodeSummary[]): OpenAreaSummary[] {
         }
       }
 
-      if (nearestEdgeDist < 10 || nearestEdgeDist > maxNodeDistance) continue;
+      const nearestPrimitiveDist = distanceToNearestPrimitive(x, z, primitives);
+      if (nearestPrimitiveDist < 10 || nearestPrimitiveDist > maxNodeDistance) continue;
 
-      let type: OpenAreaSummary['type'] | null = null;
-      if (nearestEdgeDist >= 12 && nearestEdgeDist <= 38) type = 'growth';
-      else if (nearestEdgeDist > 38 && nearestEdgeDist <= 58) type = 'connector';
-      else if (nearestEdgeDist > 58 && nearestEdgeDist <= Math.min(95, maxNodeDistance)) type = 'frontier';
+      const type = classifyOpenAreaType(nearestPrimitiveDist, maxNodeDistance);
       if (!type) continue;
 
       const distFromWorldCenter = pointDistanceXZ({ x, z }, worldCenter);
@@ -739,7 +795,7 @@ function computeOpenAreas(nodes: SettlementNodeSummary[]): OpenAreaSummary[] {
         type === 'connector' ? 48 :
         72;
 
-      let score = Math.abs(nearestEdgeDist - targetDist);
+      let score = Math.abs(nearestPrimitiveDist - targetDist);
       if (type === 'frontier') {
         score -= Math.min(6, distFromWorldCenter / 50);
       }
@@ -750,7 +806,7 @@ function computeOpenAreas(nodes: SettlementNodeSummary[]): OpenAreaSummary[] {
       candidates.push({
         x,
         z,
-        nearestBuild: Math.max(0, Math.round(nearestEdgeDist)),
+        nearestBuild: Math.max(0, Math.round(nearestPrimitiveDist)),
         type,
         nearestNodeId: nearestNode.id,
         nearestNodeName: nearestNode.name,
@@ -786,20 +842,27 @@ function computeOpenAreas(nodes: SettlementNodeSummary[]): OpenAreaSummary[] {
   }
 
   if (deduped.length === 0) {
-    const fallback = nodes.slice(0, 4).map((node, idx) => {
+    const fallback: OpenAreaSummary[] = [];
+    for (const [idx, node] of nodes.slice(0, 4).entries()) {
       const angle = (Math.PI / 2) * idx;
       const radius = Math.max(20, Math.min(80, node.radius + 45));
-      return {
-        x: Math.round(node.center.x + Math.cos(angle) * radius),
-        z: Math.round(node.center.z + Math.sin(angle) * radius),
-        nearestBuild: Math.round(radius - node.radius),
+      const x = Math.round(node.center.x + Math.cos(angle) * radius);
+      const z = Math.round(node.center.z + Math.sin(angle) * radius);
+      const originDist = Math.sqrt(x * x + z * z);
+      if (originDist < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) continue;
+      const nearestPrimitiveDist = distanceToNearestPrimitive(x, z, primitives);
+      if (nearestPrimitiveDist > maxNodeDistance) continue;
+      fallback.push({
+        x,
+        z,
+        nearestBuild: Math.round(nearestPrimitiveDist),
         type: 'connector' as const,
         nearestNodeId: node.id,
         nearestNodeName: node.name,
         nearestNodeTier: node.tier,
-      };
-    });
-    return fallback;
+      });
+    }
+    if (fallback.length > 0) return fallback;
   }
 
   return deduped;
@@ -1448,7 +1511,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const connectorPrimitives = primitiveInput.filter(isConnectorPrimitive);
     const structures = buildStructureSummaries(primitiveInput);
     const nodes = buildSettlementNodes(structures, connectorPrimitives);
-    const openAreas = computeOpenAreas(nodes);
+    const openAreas = computeOpenAreas(nodes, primitiveInput);
 
     if (openAreas.length === 0) {
       return reply.code(409).send({
@@ -2017,7 +2080,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }).sort((a, b) => b.count - a.count); // densest first
 
     // --- Open areas (growth + connector + frontier candidates) ---
-    const openAreas = computeOpenAreas(settlementNodes);
+    const openAreas = computeOpenAreas(settlementNodes, primitiveInput);
 
     // --- World-level stats ---
     const worldStats = primitives.length > 0
