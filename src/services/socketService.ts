@@ -202,11 +202,17 @@ class SocketService {
     // Handle world updates — batch all agent updates into a single state change
     this.socket.on('world:update', (data: WorldUpdate) => {
       const store = useWorldStore.getState();
+      const localAgentId = this.agentId;
 
       const batch = data.updates.map(update => ({
         id: update.id,
         changes: {
           position: { x: update.x, y: update.y, z: update.z },
+          // AgentBlob animates toward targetPosition. Keep non-local targets in sync
+          // with server movement updates so spectators and other players see movement live.
+          ...((!localAgentId || update.id !== localAgentId) && {
+            targetPosition: { x: update.x, y: update.y, z: update.z }
+          }),
           ...(update.status && { status: update.status as 'idle' | 'moving' | 'acting' })
         } as Partial<Agent>
       }));
