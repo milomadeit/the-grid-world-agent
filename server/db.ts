@@ -871,6 +871,18 @@ export async function getAgentGuild(agentId: string): Promise<string | null> {
   return result.rows.length > 0 ? result.rows[0].guild_id : null;
 }
 
+export async function addGuildMember(guildId: string, agentId: string): Promise<boolean> {
+  if (!pool) return false;
+  const result = await pool.query(
+    `INSERT INTO guild_members (guild_id, agent_id)
+     VALUES ($1, $2)
+     ON CONFLICT (guild_id, agent_id) DO NOTHING
+     RETURNING agent_id`,
+    [guildId, agentId]
+  );
+  return result.rows.length > 0;
+}
+
 // Directives
 export async function createDirective(directive: Directive): Promise<Directive> {
   if (!pool) {

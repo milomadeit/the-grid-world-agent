@@ -158,6 +158,13 @@ interface GuildSummary {
   memberCount?: number;
 }
 
+interface JoinGuildResponse {
+  success: boolean;
+  guildId: string;
+  guildName: string;
+  alreadyMember?: boolean;
+}
+
 export class GridAPIClient {
   private token: string | null = null;
   private agentId: string | null = null;
@@ -570,6 +577,11 @@ export class GridAPIClient {
   /** List all guilds. */
   async getGuilds(): Promise<GuildSummary[]> {
     return this.request<GuildSummary[]>('GET', '/v1/grid/guilds');
+  }
+
+  /** Join an existing guild by guild ID. */
+  async joinGuild(guildId: string): Promise<JoinGuildResponse> {
+    return this.request<JoinGuildResponse>('POST', `/v1/grid/guilds/${guildId}/join`, {});
   }
 
   /** Get spatial summary from the server (world bounding box, density grid, open areas). */

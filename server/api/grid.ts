@@ -1624,6 +1624,39 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     return guild;
   });
 
+  fastify.post('/v1/grid/guilds/:id/join', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const { id } = request.params as { id: string };
+    const guild = await db.getGuild(id);
+    if (!guild) return reply.status(404).send({ error: 'Guild not found' });
+
+    const currentGuild = await db.getAgentGuild(agentId);
+    if (currentGuild === id) {
+      return { success: true, guildId: id, guildName: guild.name, alreadyMember: true };
+    }
+    if (currentGuild) {
+      return reply.status(400).send({ error: 'You are already in a guild' });
+    }
+
+    await db.addGuildMember(id, agentId);
+
+    const joiner = await db.getAgent(agentId);
+    const joinerName = joiner?.name || agentId;
+    const joinMsg = {
+      id: 0,
+      agentId: 'system',
+      agentName: 'System',
+      message: `${joinerName} joined guild "${guild.name}"`,
+      createdAt: Date.now()
+    };
+    await db.writeChatMessage(joinMsg);
+    world.broadcastChat('system', joinMsg.message, 'System');
+
+    return { success: true, guildId: id, guildName: guild.name, alreadyMember: false };
+  });
+
   // --- Credits ---
 
   fastify.get('/v1/grid/credits', async (request, reply) => {
