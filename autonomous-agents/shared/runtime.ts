@@ -79,7 +79,7 @@ interface BootstrapConfig {
 
 interface AgentDecision {
   thought: string;
-  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'RELOCATE_FRONTIER' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'TRANSFER_CREDITS' | 'IDLE';
+  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'TRANSFER_CREDITS' | 'IDLE';
   payload?: Record<string, unknown>;
 }
 
@@ -89,6 +89,28 @@ interface EnterGuildStatus {
   guildName?: string;
   role?: 'commander' | 'vice' | 'member';
   advice: string;
+}
+
+type ServerSpatialSnapshot = NonNullable<Awaited<ReturnType<GridAPIClient['getSpatialSummary']>>>;
+
+interface SpatialGrowthTracker {
+  initialized: boolean;
+  seenNodeIds: Set<string>;
+  maturedNodeIds: Set<string>;
+  lastMaturityTick: number | null;
+  maturityIntervals: number[];
+  coordinatedExpansionEvents: number;
+}
+
+interface SpatialTickMetrics {
+  nodes: number;
+  matureNodes: number;
+  connectorEdges: number;
+  newNodes: number;
+  newlyMatured: number;
+  avgMaturityCadenceTicks: number | null;
+  coordinatedExpansionEvents: number;
+  meanAgentDistance: number | null;
 }
 
 // --- File Helpers ---
@@ -273,8 +295,6 @@ function formatActionUpdateChat(
       return `Continued active blueprint on tick ${tick}.`;
     case 'CANCEL_BUILD':
       return `Cancelled active blueprint on tick ${tick}; selecting a new lane.`;
-    case 'RELOCATE_FRONTIER':
-      return `Relocated to a frontier lane on tick ${tick}; resuming expansion from new coordinates.`;
     case 'VOTE': {
       const vote = String(payload.vote || 'yes');
       const directiveId = String(payload.directiveId || 'directive');
@@ -418,7 +438,7 @@ function chooseLoopBreakMoveTarget(
       const nearestOther = otherAgents.length > 0
         ? Math.min(...otherAgents.map((a) => Math.hypot(spot.x - a.position.x, spot.z - a.position.z)))
         : 80;
-      const score = Math.abs(distFromSelf - 70) - Math.min(12, nearestOther / 8);
+      const score = Math.abs(distFromSelf - 25) - Math.min(12, nearestOther / 8);
       return { spot, score };
     });
     scored.sort((a, b) => a.score - b.score);
@@ -426,14 +446,14 @@ function chooseLoopBreakMoveTarget(
   }
 
   const offsets = [
-    { x: 70, z: 0 },
-    { x: -70, z: 0 },
-    { x: 0, z: 70 },
-    { x: 0, z: -70 },
-    { x: 50, z: 50 },
-    { x: -50, z: 50 },
-    { x: 50, z: -50 },
-    { x: -50, z: -50 },
+    { x: 25, z: 0 },
+    { x: -25, z: 0 },
+    { x: 0, z: 25 },
+    { x: 0, z: -25 },
+    { x: 18, z: 18 },
+    { x: -18, z: 18 },
+    { x: 18, z: -18 },
+    { x: -18, z: -18 },
   ];
   const candidates = offsets.map((o) => ({ x: Math.round(self.x + o.x), z: Math.round(self.z + o.z) }));
   candidates.sort((a, b) => {
@@ -451,7 +471,7 @@ function chooseLoopBreakMoveTarget(
 function chooseLocalMoveTarget(
   self: { x: number; z: number } | undefined,
   safeSpots: Array<{ x: number; z: number }>,
-  maxDistance = 95,
+  maxDistance = 40,
 ): { x: number; z: number } | null {
   if (!self) return null;
 
@@ -484,20 +504,177 @@ function chooseLocalMoveTarget(
   };
 }
 
-const BLUEPRINT_FALLBACK_PRIORITY = ['LAMP_POST', 'SMALL_HOUSE', 'SHOP', 'FOUNTAIN', 'TREE'];
+function roundTo(value: number, decimals = 2): number {
+  const scale = 10 ** decimals;
+  return Math.round(value * scale) / scale;
+}
 
-function pickFallbackBlueprintName(blueprints: Record<string, any>): string | null {
-  const names = Object.keys(blueprints || {});
-  if (names.length === 0) return null;
+function meanPairwiseAgentDistance(
+  agents: Array<{ position: { x: number; z: number } }>,
+): number | null {
+  if (agents.length < 2) return null;
 
-  for (const preferred of BLUEPRINT_FALLBACK_PRIORITY) {
-    if (blueprints[preferred] && !blueprints[preferred]?.advanced) {
-      return preferred;
+  let sum = 0;
+  let pairs = 0;
+  for (let i = 0; i < agents.length; i++) {
+    for (let j = i + 1; j < agents.length; j++) {
+      sum += Math.hypot(
+        agents[i].position.x - agents[j].position.x,
+        agents[i].position.z - agents[j].position.z,
+      );
+      pairs += 1;
     }
   }
+  if (pairs === 0) return null;
+  return roundTo(sum / pairs, 1);
+}
 
-  const firstNonAdvanced = names.find((name) => !blueprints[name]?.advanced);
-  return firstNonAdvanced || names[0] || null;
+function connectorEdgeCount(nodes: ServerSpatialSnapshot['nodes']): number {
+  if (!Array.isArray(nodes) || nodes.length === 0) return 0;
+  const seen = new Set<string>();
+
+  for (const node of nodes) {
+    const nodeId = String(node?.id || '');
+    for (const conn of node?.connections || []) {
+      if (!conn?.hasConnector) continue;
+      const targetId = String(conn.targetId || '');
+      if (!nodeId || !targetId) continue;
+      const key = nodeId < targetId ? `${nodeId}|${targetId}` : `${targetId}|${nodeId}`;
+      seen.add(key);
+    }
+  }
+  return seen.size;
+}
+
+function computeSpatialTickMetrics(
+  tick: number,
+  worldAgents: Array<{ position: { x: number; z: number } }>,
+  serverSpatial: ServerSpatialSnapshot,
+  tracker: SpatialGrowthTracker,
+): SpatialTickMetrics {
+  const nodes = Array.isArray(serverSpatial.nodes) ? serverSpatial.nodes : [];
+  const maturityThreshold = 25;
+
+  if (!tracker.initialized) {
+    for (const node of nodes) {
+      const id = String(node?.id || '');
+      if (!id) continue;
+      tracker.seenNodeIds.add(id);
+      if ((Number(node?.structureCount) || 0) >= maturityThreshold) {
+        tracker.maturedNodeIds.add(id);
+      }
+    }
+    tracker.initialized = true;
+    return {
+      nodes: nodes.length,
+      matureNodes: nodes.filter((node) => (Number(node?.structureCount) || 0) >= maturityThreshold).length,
+      connectorEdges: connectorEdgeCount(nodes),
+      newNodes: 0,
+      newlyMatured: 0,
+      avgMaturityCadenceTicks: null,
+      coordinatedExpansionEvents: tracker.coordinatedExpansionEvents,
+      meanAgentDistance: meanPairwiseAgentDistance(worldAgents),
+    };
+  }
+
+  const nodeById = new Map<string, ServerSpatialSnapshot['nodes'][number]>();
+  for (const node of nodes) {
+    const id = String(node?.id || '');
+    if (id) nodeById.set(id, node);
+  }
+
+  let newNodes = 0;
+  let newlyMatured = 0;
+
+  for (const node of nodes) {
+    const id = String(node?.id || '');
+    if (!id) continue;
+
+    if (!tracker.seenNodeIds.has(id)) {
+      tracker.seenNodeIds.add(id);
+      newNodes += 1;
+    }
+
+    const structureCount = Number(node?.structureCount) || 0;
+    const isMature = structureCount >= maturityThreshold;
+    if (!isMature || tracker.maturedNodeIds.has(id)) continue;
+
+    newlyMatured += 1;
+
+    if (tracker.lastMaturityTick !== null) {
+      tracker.maturityIntervals.push(Math.max(1, tick - tracker.lastMaturityTick));
+    }
+    tracker.lastMaturityTick = tick;
+
+    const nearestPreviouslyMatureDist = (() => {
+      let nearest = Number.POSITIVE_INFINITY;
+      for (const matureId of tracker.maturedNodeIds) {
+        const matureNode = nodeById.get(matureId);
+        if (!matureNode) continue;
+        const dist = Math.hypot(
+          (node.center?.x || 0) - (matureNode.center?.x || 0),
+          (node.center?.z || 0) - (matureNode.center?.z || 0),
+        );
+        if (dist < nearest) nearest = dist;
+      }
+      return nearest;
+    })();
+
+    if (Number.isFinite(nearestPreviouslyMatureDist) && nearestPreviouslyMatureDist >= 50 && nearestPreviouslyMatureDist <= 80) {
+      tracker.coordinatedExpansionEvents += 1;
+    }
+
+    tracker.maturedNodeIds.add(id);
+  }
+
+  const avgMaturityCadenceTicks =
+    tracker.maturityIntervals.length > 0
+      ? roundTo(
+          tracker.maturityIntervals.reduce((sum, value) => sum + value, 0) /
+            tracker.maturityIntervals.length,
+          1,
+        )
+      : null;
+
+  return {
+    nodes: nodes.length,
+    matureNodes: nodes.filter((node) => (Number(node?.structureCount) || 0) >= maturityThreshold).length,
+    connectorEdges: connectorEdgeCount(nodes),
+    newNodes,
+    newlyMatured,
+    avgMaturityCadenceTicks,
+    coordinatedExpansionEvents: tracker.coordinatedExpansionEvents,
+    meanAgentDistance: meanPairwiseAgentDistance(worldAgents),
+  };
+}
+
+function pickFallbackBlueprintName(blueprints: Record<string, any>): string | null {
+  const entries = Object.entries(blueprints || {}).filter(([, bp]) => !bp?.advanced);
+  if (entries.length === 0) return null;
+
+  const preferredNamePattern = /(BRIDGE|DATACENTER|SERVER|ANTENNA|WATCHTOWER|TOWER|HOUSE|SHOP|FOUNTAIN)/i;
+  const tinySpamPattern = /(LAMP_POST|TREE)/i;
+
+  const scored = entries.map(([name, bp]) => {
+    const total = Number(bp?.totalPrimitives) || 0;
+    const category = String(bp?.category || '').toLowerCase();
+    let score = 0;
+
+    if (preferredNamePattern.test(name)) score -= 24;
+    if (tinySpamPattern.test(name)) score += 35;
+
+    if (total >= 10 && total <= 32) score -= 18;
+    else if (total >= 7) score -= 8;
+    else score += 16;
+
+    if (category === 'infrastructure' || category === 'architecture' || category === 'technology') score -= 8;
+    if (category === 'decoration') score += 10;
+
+    return { name, score };
+  });
+
+  scored.sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
+  return scored[0]?.name || null;
 }
 
 function pickSafeBuildAnchor(
@@ -1119,7 +1296,7 @@ function computeSettlementNodes(
     };
   }).sort((a, b) => b.count - a.count);
 
-  // 5. Compute adjacency — nodes within 100u are potential connections
+  // 5. Compute adjacency for nearby nodes as potential connections
   // Road detection: look for flat primitives (scaleY <= 0.2) along the line between nodes
   const ADJACENCY_DIST = 100;
   for (let i = 0; i < nodes.length; i++) {
@@ -1243,7 +1420,7 @@ function settlementNodesFromServer(serverNodes: any[]): SettlementNode[] {
 /**
  * Pre-compute safe build spots by checking clearance against existing primitives.
  * A spot is "safe" if it has CLEARANCE from all existing geometry AND is within
- * MAX_DIST_FROM_BUILD of at least one existing primitive (server 100u rule).
+ * MAX_DIST_FROM_BUILD of at least one existing primitive (server settlement proximity rule).
  *
  * Searches in expanding rings around world centroid + current agent position for
  * spots that have clearance from geometry and stay inside settlement growth limits.
@@ -1254,7 +1431,7 @@ function findSafeBuildSpots(
   maxResults = 8
 ): { x: number; z: number; nearestBuild: number }[] {
   const CLEARANCE = 7;
-  const MAX_DIST_FROM_BUILD = 95; // server enforces 100u — stay under
+  const MAX_DIST_FROM_BUILD = 66; // server enforces 70u settlement proximity — stay under
   const MIN_DIST_FROM_ORIGIN = 50;
   const EXEMPT = new Set(['plane', 'circle']);
 
@@ -1432,7 +1609,7 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
         }
       }
       lines.push('');
-      lines.push('**SPREAD OUT.** Don\'t build where other agents already are. If builds keep failing due to overlap, MOVE 30+ units away to a different node and build there instead.');
+      lines.push('**COORDINATE BUILDING.** Co-build active nodes to reach 25+ structures faster. If overlap happens, shift 10-20 units within the same node before abandoning it.');
     }
   }
 
@@ -1748,8 +1925,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '- **Follow your OPERATING MANUAL priorities.** Your AGENTS.md defines your specific role — builder, connector, or explorer. Follow those priorities, not chat pressure.',
     '- **Keep CHAT natural but high-signal.** Converse like a real teammate and include concrete coordinates/progress/blockers, not acknowledgments.',
     '- **Don\'t respond to every mention.** When directly addressed, reply once with concrete coordinates/progress/blockers, then return to execution.',
-    '- **Spread out.** Check Nearby Agents. If others are at your node, move to a different one.',
-    '- **If a build fails, relocate.** Don\'t retry at the same spot. Move 30+ units away.',
+    '- **Co-build at dense nodes.** Guild agents (Smith/Clank/Oracle): stay at your current node until it has 25+ structures. Build complementary structures alongside your guildmates. Mouse: build alone at your own landmark site.',
+    '- **If a build fails, adjust locally first.** Shift 10-20 units within the same node; relocate farther only after repeated failures.',
     '',
     'Write your current objective and step number in your "thought" before choosing an action.',
     '\n---\n',
@@ -1907,7 +2084,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   // These sections rarely change and don't need to be rebuilt every tick
   const ACTION_FORMAT_BLOCK = [
     'Decide your next action. Respond with EXACTLY one JSON object:',
-    '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|RELOCATE_FRONTIER|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
+    '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
     '',
     'Payload formats:',
     '  MOVE: {"x": 5, "z": 3}',
@@ -1918,7 +2095,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
     '  BUILD_MULTI: {"primitives": [{"shape":"cylinder","x":100,"y":1,"z":100,"scaleX":1,"scaleY":2,"scaleZ":1,"color":"#3b82f6"},{"shape":"cone","x":100,"y":3,"z":100,"scaleX":2,"scaleY":2,"scaleZ":2,"color":"#f59e0b"}]}  \u2190 up to 5 per tick',
     '    Available shapes: box, sphere, cone, cylinder, plane, torus, dodecahedron, icosahedron, octahedron, torusKnot, capsule',
-    '  RELOCATE_FRONTIER: {"minDistance": 120, "preferredType": "frontier"}  \u2190 instant server relocation to a far open lane',
     '  TRANSFER_CREDITS: {"toAgentId": "agent_xxx", "amount": 25}  \u2190 send credits to another agent',
     '    **USE VARIETY:** Do NOT just build boxes. Use cylinders for pillars, cones for roofs, spheres for decorations, torus for rings/arches.',
     '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 \u2192 y=0.5, scaleY=0.2 \u2192 y=0.1, scaleY=2 \u2192 y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
@@ -1953,9 +2129,15 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const parsedMaxSkip = Number(process.env.AGENT_MAX_SKIP_TICKS || '3');
   const MAX_SKIP_TICKS = Number.isFinite(parsedMaxSkip) && parsedMaxSkip >= 1 ? Math.floor(parsedMaxSkip) : 3; // Force an LLM call at least every N ticks
   let rateLimitCooldownUntil = 0;
-  let relocateCooldownUntil = 0;
-  let postRelocateSettleUntil = 0;
   let tickInProgress = false;
+  const spatialGrowthTracker: SpatialGrowthTracker = {
+    initialized: false,
+    seenNodeIds: new Set<string>(),
+    maturedNodeIds: new Set<string>(),
+    lastMaturityTick: null,
+    maturityIntervals: [],
+    coordinatedExpansionEvents: 0,
+  };
   let cachedWorldState: Awaited<ReturnType<typeof api.getWorldState>> | null = null;
   let smithGuildBootstrapped = false;
   let smithGuildLastAttemptTick = -999999;
@@ -2039,6 +2221,24 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const self = world.agents.find(a => a.id === api.getAgentId());
       const otherAgents = world.agents.filter(a => a.id !== api.getAgentId());
       let smithGuildStatusNote: string | null = null;
+
+      if (serverSpatial) {
+        const spatial = computeSpatialTickMetrics(world.tick, world.agents, serverSpatial, spatialGrowthTracker);
+        const cadenceLabel = spatial.avgMaturityCadenceTicks === null ? 'n/a' : spatial.avgMaturityCadenceTicks.toFixed(1);
+        const distLabel = spatial.meanAgentDistance === null ? 'n/a' : spatial.meanAgentDistance.toFixed(1);
+        console.log(
+          `[${agentName}] METRIC_SPATIAL ` +
+            `tick=${world.tick} ` +
+            `nodes=${spatial.nodes} ` +
+            `matureNodes=${spatial.matureNodes} ` +
+            `connectorEdges=${spatial.connectorEdges} ` +
+            `newNodes=${spatial.newNodes} ` +
+            `newlyMatured=${spatial.newlyMatured} ` +
+            `avgMaturityCadenceTicks=${cadenceLabel} ` +
+            `coordinatedExpansionEvents=${spatial.coordinatedExpansionEvents} ` +
+            `meanAgentDist=${distLabel}`,
+        );
+      }
 
       if (agentName.toLowerCase() === 'smith' && self && world.tick - smithGuildLastAttemptTick >= 20) {
         smithGuildLastAttemptTick = world.tick;
@@ -2345,55 +2545,68 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
           const lowerName = agentName.toLowerCase();
           const isMouse = lowerName.includes('mouse');
-          const isClank = lowerName.includes('clank');
-          const isSmith = lowerName.includes('smith');
-          const isOracle = lowerName.includes('oracle');
-          const frontierBias = isMouse || isClank || isSmith;
-          const connectorBias = isOracle;
-          const smithAgent = world.agents.find(a => a.name.toLowerCase() === 'smith');
-          const worldCenter = serverSpatial?.world?.center || null;
-          const scored = Array.from(merged.values()).map((spot) => {
-            const distFromAgent = Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2);
-            const nearestOtherAgent = otherAgents.length > 0
-              ? Math.min(...otherAgents.map(a => Math.sqrt((spot.x - a.position.x) ** 2 + (spot.z - a.position.z) ** 2)))
-              : 80;
-            const distToSmith = smithAgent
-              ? Math.sqrt((spot.x - smithAgent.position.x) ** 2 + (spot.z - smithAgent.position.z) ** 2)
-              : null;
-            const distFromWorldCenter = worldCenter
-              ? Math.sqrt((spot.x - worldCenter.x) ** 2 + (spot.z - worldCenter.z) ** 2)
-              : 0;
-            const targetDist = isMouse ? 88 : isClank ? 68 : frontierBias ? 70 : connectorBias ? 55 : 45;
-            let score = Math.abs(distFromAgent - targetDist);
-            score -= Math.min(12, nearestOtherAgent / 8); // prefer spots farther from other agents
-            if (isMouse) {
-              if (spot.type === 'frontier') score -= 30;
-              if (spot.type === 'connector') score += 8;
-              if (spot.type === 'growth') score += 18;
-              score -= Math.min(14, Math.max(0, spot.nearestBuild) / 7);
-              score -= Math.min(10, distFromWorldCenter / 35);
-              if (nearestOtherAgent < 45) score += 20;
-            } else if (isClank) {
-              if (spot.type === 'frontier') score -= 14;
-              if (spot.type === 'connector') score -= 10;
-              if (spot.type === 'growth') score -= 2;
-              if (distToSmith !== null && (!self || smithAgent?.id !== self.id)) {
-                score += Math.abs(distToSmith - 60) / 3;
-              }
-            } else if (isSmith) {
-              if (spot.type === 'frontier') score -= 18;
-              if (spot.type === 'connector') score -= 8;
-              if (spot.type === 'growth') score += 6;
-            } else if (connectorBias) {
-              if (spot.type === 'connector') score -= 22;
-              if (spot.type === 'growth') score -= 3;
-              if (spot.type === 'frontier') score += 8;
-              if (distToSmith !== null && (!self || smithAgent?.id !== self.id)) {
-                score += Math.abs(distToSmith - 90) / 4;
-              }
-            } else if (spot.type === 'growth') {
-              score -= 8;
+          const isGuildAgent = lowerName.includes('smith') || lowerName.includes('clank') || lowerName.includes('oracle');
+
+          // Find nearest node structure count from spatial summary
+          const nearestNodeStructures = (() => {
+            const nodes = serverSpatial?.nodes || [];
+            if (nodes.length === 0 || !myPos) return 0;
+            let closest = nodes[0];
+            let closestDist = Infinity;
+            for (const node of nodes) {
+              const d = Math.hypot((node.center?.x || 0) - myPos.x, (node.center?.z || 0) - myPos.z);
+              if (d < closestDist) { closestDist = d; closest = node; }
             }
+            return closest?.structureCount || 0;
+          })();
+          const nodeIsMature = nearestNodeStructures >= 25;
+
+          const scored = Array.from(merged.values()).map((spot) => {
+            const distFromAgent = Math.hypot(spot.x - myPos.x, spot.z - myPos.z);
+            let score = 0;
+
+            if (isGuildAgent) {
+              // Guild agents: STAY and DENSIFY
+              const targetDist = 20; // stay close to current work
+              score = Math.abs(distFromAgent - targetDist);
+
+              // Strong growth preference
+              if (spot.type === 'growth') score -= 25;
+              if (spot.type === 'connector') score -= 12;
+              if (spot.type === 'frontier') score += nodeIsMature ? -5 : 20; // only frontier if node is mature
+
+              // BONUS for spots near other guild agents (encourage clustering)
+              const nearestGuildAgent = otherAgents
+                .filter(a => ['smith','clank','oracle'].some(n => a.name.toLowerCase().includes(n)))
+                .reduce((min, a) => Math.min(min, Math.hypot(spot.x - a.position.x, spot.z - a.position.z)), 999);
+              if (nearestGuildAgent < 40) score -= 15; // reward proximity to guild
+
+            } else if (isMouse) {
+              // Mouse: build alone, stay at current location
+              const targetDist = 15; // build very concentrated
+              score = Math.abs(distFromAgent - targetDist);
+
+              // No strong type preference — growth or frontier both fine
+              if (spot.type === 'growth') score -= 5;
+              if (spot.type === 'frontier') score -= 5;
+
+              // Prefer spots far from guild agents (solo builder)
+              const nearestGuildAgent = otherAgents
+                .filter(a => ['smith','clank','oracle'].some(n => a.name.toLowerCase().includes(n)))
+                .reduce((min, a) => Math.min(min, Math.hypot(spot.x - a.position.x, spot.z - a.position.z)), 999);
+              if (nearestGuildAgent > 60) score -= 10; // reward distance from guild
+
+              // Strong preference to stay near current position (don't scatter)
+              if (distFromAgent < 20) score -= 30;
+
+            } else {
+              // External/unknown agents: default to growth
+              const targetDist = 30;
+              score = Math.abs(distFromAgent - targetDist);
+              if (spot.type === 'growth') score -= 15;
+              if (spot.type === 'connector') score -= 8;
+            }
+
             return { spot, score };
           });
 
@@ -2563,38 +2776,21 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       let decision: AgentDecision;
       let rateLimitWaitThisTick = false;
-      if (!blueprintStatus?.active && priorConsecutiveBuildFails >= 3) {
-        const lowerName = agentName.toLowerCase();
-        const preferredType: 'frontier' | 'connector' | 'growth' = lowerName.includes('oracle')
-          ? 'connector'
-          : 'frontier';
-        const minDistance = lowerName.includes('mouse')
-          ? 180
-          : lowerName.includes('clank')
-            ? 150
-            : 130;
-        if (Date.now() < relocateCooldownUntil) {
-          const moveTarget = chooseLocalMoveTarget(
-            self?.position ? { x: self.position.x, z: self.position.z } : undefined,
-            safeSpots,
-          );
-          if (moveTarget) {
-            decision = {
-              thought: `Build recovery policy: relocation cooldown active. Moving to (${moveTarget.x}, ${moveTarget.z}) while waiting to relocate.`,
-              action: 'MOVE',
-              payload: moveTarget,
-            };
-          } else {
-            decision = {
-              thought: 'Build recovery policy: relocation cooldown active and no clear move lane. Waiting this tick.',
-              action: 'IDLE',
-            };
-          }
+      if (!blueprintStatus?.active && priorConsecutiveBuildFails >= 4) {
+        const moveTarget = chooseLocalMoveTarget(
+          self?.position ? { x: self.position.x, z: self.position.z } : undefined,
+          safeSpots,
+        );
+        if (moveTarget) {
+          decision = {
+            thought: `Build recovery policy: ${priorConsecutiveBuildFails} consecutive build failures. Moving to nearby safe spot (${moveTarget.x}, ${moveTarget.z}).`,
+            action: 'MOVE',
+            payload: moveTarget,
+          };
         } else {
           decision = {
-            thought: `Build recovery policy: ${priorConsecutiveBuildFails} consecutive build failures. Relocating to a far ${preferredType} lane before retrying builds.`,
-            action: 'RELOCATE_FRONTIER',
-            payload: { minDistance, preferredType },
+            thought: `Build recovery policy: ${priorConsecutiveBuildFails} consecutive build failures but no clear move lane. Waiting this tick.`,
+            action: 'IDLE',
           };
         }
       } else if (lowSignalChatLoopDetected) {
@@ -2605,14 +2801,16 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             payload: {},
           };
         } else {
-          const moveTarget = chooseLoopBreakMoveTarget(
-            self?.position ? { x: self.position.x, z: self.position.z } : undefined,
+          const selfPosForPolicy = self?.position ? { x: self.position.x, z: self.position.z } : undefined;
+          const localMove = chooseLocalMoveTarget(selfPosForPolicy, safeSpots, 80);
+          const moveTarget = localMove || chooseLoopBreakMoveTarget(
+            selfPosForPolicy,
             safeSpots,
             otherAgents,
           );
           if (moveTarget) {
             decision = {
-              thought: `Low-signal chat loop detected. Skipping LLM call and moving to a fresh lane at (${moveTarget.x}, ${moveTarget.z}).`,
+              thought: `Low-signal chat loop detected. Skipping LLM call and moving to a ${localMove ? 'nearby' : 'fresh'} lane at (${moveTarget.x}, ${moveTarget.z}).`,
               action: 'MOVE',
               payload: moveTarget,
             };
@@ -2631,59 +2829,53 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             payload: {},
           };
         } else {
-          const now = Date.now();
           const selfPosForPolicy = self?.position ? { x: self.position.x, z: self.position.z } : undefined;
-          if (now < postRelocateSettleUntil && selfPosForPolicy) {
-            const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
-            const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPosForPolicy);
-            const anchorInRange = fallbackAnchor
-              ? Math.hypot(fallbackAnchor.anchorX - selfPosForPolicy.x, fallbackAnchor.anchorZ - selfPosForPolicy.z) <= 20
-              : false;
-
-            if (fallbackBlueprint && fallbackAnchor && anchorInRange) {
+          const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
+          const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPosForPolicy);
+          const canStartFallbackNow = Boolean(
+            fallbackBlueprint &&
+            fallbackAnchor &&
+            selfPosForPolicy &&
+            Math.hypot(fallbackAnchor.anchorX - selfPosForPolicy.x, fallbackAnchor.anchorZ - selfPosForPolicy.z) <= 20,
+          );
+          if (canStartFallbackNow && fallbackAnchor) {
+            decision = {
+              thought: `State unchanged. Policy step: start ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}) to thicken this node before roaming.`,
+              action: 'BUILD_BLUEPRINT',
+              payload: {
+                name: fallbackBlueprint,
+                anchorX: fallbackAnchor.anchorX,
+                anchorZ: fallbackAnchor.anchorZ,
+              },
+            };
+          } else {
+            const localMove = chooseLocalMoveTarget(selfPosForPolicy, safeSpots, 80);
+            if (localMove) {
               decision = {
-                thought: `State unchanged after relocation. Policy step: start ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}) to lock in frontier growth.`,
-                action: 'BUILD_BLUEPRINT',
-                payload: {
-                  name: fallbackBlueprint,
-                  anchorX: fallbackAnchor.anchorX,
-                  anchorZ: fallbackAnchor.anchorZ,
-                },
+                thought: `State unchanged. Policy step: short reposition to (${localMove.x}, ${localMove.z}) to stay in buildable range.`,
+                action: 'MOVE',
+                payload: localMove,
               };
             } else {
-              const localMove = chooseLocalMoveTarget(selfPosForPolicy, safeSpots);
-              if (localMove) {
+              // Keep autonomy alive: on unchanged-state ticks, take a deterministic movement step
+              // toward clearer lanes instead of idling.
+              const moveTarget = chooseLoopBreakMoveTarget(
+                selfPosForPolicy,
+                safeSpots,
+                otherAgents,
+              );
+              if (moveTarget) {
                 decision = {
-                  thought: `State unchanged after relocation. Policy step: take a short positioning move to (${localMove.x}, ${localMove.z}) before building.`,
+                  thought: `State unchanged. Policy step: reposition to (${moveTarget.x}, ${moveTarget.z}) to create expansion opportunities.`,
                   action: 'MOVE',
-                  payload: localMove,
+                  payload: moveTarget,
                 };
               } else {
                 decision = {
-                  thought: 'State unchanged after relocation and no short move lane found. Idling this tick.',
+                  thought: 'State unchanged and no clear policy move target. Idling until next reasoning tick.',
                   action: 'IDLE',
                 };
               }
-            }
-          } else {
-            // Keep autonomy alive: on unchanged-state ticks, take a deterministic movement step
-            // toward clearer frontier lanes instead of idling.
-            const moveTarget = chooseLoopBreakMoveTarget(
-              selfPosForPolicy,
-              safeSpots,
-              otherAgents,
-            );
-            if (moveTarget) {
-              decision = {
-                thought: `State unchanged. Policy step: reposition to (${moveTarget.x}, ${moveTarget.z}) to create expansion opportunities.`,
-                action: 'MOVE',
-                payload: moveTarget,
-              };
-            } else {
-              decision = {
-                thought: 'State unchanged and no clear policy move target. Idling until next reasoning tick.',
-                action: 'IDLE',
-              };
             }
           }
         }
@@ -2780,16 +2972,27 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
         const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
         if (fallbackBlueprint && fallbackAnchor) {
-          console.log(`[${agentName}] Build guard: no active plan; switching BUILD_CONTINUE -> BUILD_BLUEPRINT (${fallbackBlueprint})`);
-          decision = {
-            thought: `${decision.thought} | Build guard: no active plan detected, starting ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}).`,
-            action: 'BUILD_BLUEPRINT',
-            payload: {
-              name: fallbackBlueprint,
-              anchorX: fallbackAnchor.anchorX,
-              anchorZ: fallbackAnchor.anchorZ,
-            },
-          };
+          const inRange = selfPos
+            ? Math.hypot(fallbackAnchor.anchorX - selfPos.x, fallbackAnchor.anchorZ - selfPos.z) <= 20
+            : false;
+          if (inRange) {
+            console.log(`[${agentName}] Build guard: no active plan; switching BUILD_CONTINUE -> BUILD_BLUEPRINT (${fallbackBlueprint})`);
+            decision = {
+              thought: `${decision.thought} | Build guard: no active plan detected, starting ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}).`,
+              action: 'BUILD_BLUEPRINT',
+              payload: {
+                name: fallbackBlueprint,
+                anchorX: fallbackAnchor.anchorX,
+                anchorZ: fallbackAnchor.anchorZ,
+              },
+            };
+          } else {
+            decision = {
+              thought: `${decision.thought} | Build guard: no active plan and fallback anchor is not in range; moving to (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}) first.`,
+              action: 'MOVE',
+              payload: { x: fallbackAnchor.anchorX, z: fallbackAnchor.anchorZ },
+            };
+          }
         }
       }
 
@@ -2859,32 +3062,27 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       }
 
-      // Long-distance hops are better as server-side relocation than many MOVE ticks.
+      // Long-distance MOVE cap: clamp to nearest safe spot instead of teleporting far away.
       if (
         decision.action === 'MOVE' &&
-        selfPos &&
-        !activeBlueprint &&
-        Date.now() >= relocateCooldownUntil &&
-        Date.now() >= postRelocateSettleUntil
+        selfPos
       ) {
         const tx = Number((decision.payload as any)?.x);
         const tz = Number((decision.payload as any)?.z);
         if (Number.isFinite(tx) && Number.isFinite(tz)) {
           const distance = Math.hypot(tx - selfPos.x, tz - selfPos.z);
           if (distance >= 120) {
-            const lowerName = agentName.toLowerCase();
-            const preferredType: 'frontier' | 'connector' | 'growth' = lowerName.includes('oracle')
-              ? 'connector'
-              : 'frontier';
-            const minDistance = Math.max(120, Math.min(280, Math.round(distance)));
-            console.log(
-              `[${agentName}] Mobility guard: long MOVE (${Math.round(distance)}u) -> RELOCATE_FRONTIER (${preferredType}, min=${minDistance})`
-            );
-            decision = {
-              thought: `${decision.thought} | Long-distance move (${Math.round(distance)}u). Relocating to a far ${preferredType} lane instantly.`,
-              action: 'RELOCATE_FRONTIER',
-              payload: { minDistance, preferredType },
-            };
+            const localMove = chooseLocalMoveTarget(selfPos, safeSpots);
+            if (localMove) {
+              console.log(
+                `[${agentName}] Mobility guard: long MOVE (${Math.round(distance)}u) clamped to nearby spot (${localMove.x}, ${localMove.z})`
+              );
+              decision = {
+                thought: `${decision.thought} | Long-distance move clamped to nearby safe spot.`,
+                action: 'MOVE',
+                payload: localMove,
+              };
+            }
           }
         }
       }
@@ -2990,28 +3188,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         console.warn(`[${agentName}] Action error: ${buildError}`);
         if (isRateLimitErrorMessage(buildError)) {
           const waitSeconds = parseRateLimitCooldownSeconds(buildError, 20);
-          if (decision.action === 'RELOCATE_FRONTIER') {
-            relocateCooldownUntil = Math.max(relocateCooldownUntil, Date.now() + waitSeconds * 1000);
-            if (selfPos) {
-              const moveTarget = chooseLocalMoveTarget(selfPos, safeSpots)
-                || chooseLoopBreakMoveTarget(selfPos, safeSpots, otherAgents);
-              if (moveTarget) {
-                const retryDecision: AgentDecision = {
-                  thought: `Relocation cooldown active (${waitSeconds}s). Moving to (${moveTarget.x}, ${moveTarget.z}) while waiting to relocate again.`,
-                  action: 'MOVE',
-                  payload: moveTarget,
-                };
-                console.log(`[${agentName}] Relocation rate-limited -> MOVE fallback (${moveTarget.x}, ${moveTarget.z})`);
-                const retryError = await executeAction(api, agentName, retryDecision, selfPos);
-                if (!retryError) {
-                  decision = retryDecision;
-                  buildError = null;
-                } else {
-                  buildError = `${buildError} | fallback move failed: ${retryError}`;
-                }
-              }
-            }
-          }
           rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + waitSeconds * 1000);
           if (buildError) {
             console.warn(`[${agentName}] Rate-limited on ${decision.action}. Cooling down ${waitSeconds}s before retry.`);
@@ -3032,16 +3208,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       }
 
-      if (decision.action === 'RELOCATE_FRONTIER' && !buildError) {
-        postRelocateSettleUntil = Math.max(postRelocateSettleUntil, Date.now() + 45_000);
-      }
-
       let actionChatSent = false;
       if (
         emitActionChatUpdates &&
         decision.action !== 'CHAT' &&
         decision.action !== 'IDLE' &&
-        decision.action !== 'RELOCATE_FRONTIER' &&
         decision.action !== 'TERMINAL'
       ) {
         actionChatSent = await emitActionUpdateChat(
@@ -3069,7 +3240,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         : decision.action === 'BUILD_BLUEPRINT' ? `BUILD_BLUEPRINT: ${(decision.payload as any)?.name || '?'} at (${(decision.payload as any)?.anchorX ?? '?'}, ${(decision.payload as any)?.anchorZ ?? '?'})`
         : decision.action === 'BUILD_CONTINUE' ? `BUILD_CONTINUE: continued active blueprint`
         : decision.action === 'CANCEL_BUILD' ? `CANCEL_BUILD: cancelled active blueprint`
-        : decision.action === 'RELOCATE_FRONTIER' ? `RELOCATE_FRONTIER: teleported to far ${String((decision.payload as any)?.preferredType || 'frontier')} lane`
         : decision.action === 'VOTE' ? `VOTE: ${(decision.payload as any)?.vote || '?'} on ${(decision.payload as any)?.directiveId || '?'}`
         : decision.action === 'SUBMIT_DIRECTIVE' ? `SUBMIT_DIRECTIVE: "${(decision.payload as any)?.description?.slice(0, 60) || '?'}"`
         : decision.action === 'TRANSFER_CREDITS' ? `TRANSFER_CREDITS: ${(decision.payload as any)?.amount || '?'} to ${(decision.payload as any)?.toAgentId || '?'}`
@@ -3094,9 +3264,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const prevBuildFails = parseInt(workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
       const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT', 'BUILD_CONTINUE'];
       const wasBuildAction = buildActions.includes(decision.action);
-      const didRelocate = decision.action === 'RELOCATE_FRONTIER';
-      const consecutiveBuildFails = didRelocate ? 0
-        : wasBuildAction && buildError
+      const consecutiveBuildFails = wasBuildAction && buildError
         ? prevBuildFails + 1
         : (wasBuildAction && !buildError) ? 0
         : prevBuildFails;
@@ -3619,7 +3787,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
               return [];
             })() : []),
             'Decide your next action. Respond with EXACTLY one JSON object:',
-            '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|RELOCATE_FRONTIER|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
+            '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|IDLE", "payload": {...} }',
             '',
             'Payload formats:',
             '  MOVE: {"x": 5, "z": 3}',
@@ -3631,7 +3799,6 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             '  BUILD_MULTI: {"primitives": [{"shape":"box","x":100,"y":0.5,"z":100,"scaleX":1,"scaleY":1,"scaleZ":1,"rotX":0,"rotY":0,"rotZ":0,"color":"#3b82f6"}, ...]}  ← up to 5 primitives per tick',
             '    Available shapes: box, sphere, cone, cylinder, plane, torus, circle, dodecahedron, icosahedron, octahedron, ring, tetrahedron, torusKnot, capsule',
             '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 → y=0.5, scaleY=0.2 → y=0.1, scaleY=2 → y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
-            '  RELOCATE_FRONTIER: {"minDistance": 120, "preferredType": "frontier"}  ← instant server relocation to a far open lane',
             '  TERMINAL: {"message": "Status update..."}',
             '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}  ← directiveId MUST start with "dir_"',
             '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
@@ -3928,20 +4095,6 @@ async function executeAction(
         await api.cancelBlueprint();
         console.log(`[${name}] Cancelled build plan.`);
         break;
-
-      case 'RELOCATE_FRONTIER': {
-        const minDistance = Number(p.minDistance);
-        const preferredType = (p.preferredType as 'frontier' | 'connector' | 'growth') || 'frontier';
-        const relocated = await api.relocateFrontier(
-          Number.isFinite(minDistance) ? minDistance : 120,
-          preferredType
-        );
-        console.log(
-          `[${name}] Relocated to (${relocated.position.x}, ${relocated.position.z}) ` +
-          `[${relocated.area.type}] ${relocated.distanceFromPrevious}u from previous position`
-        );
-        break;
-      }
 
       case 'TERMINAL':
         await api.writeTerminal(p.message as string);

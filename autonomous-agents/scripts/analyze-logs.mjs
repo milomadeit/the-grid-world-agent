@@ -4,6 +4,7 @@ import { basename, join, resolve } from 'path';
 const ACTIONS = [
   'MOVE',
   'CHAT',
+  'RELOCATE_FRONTIER',
   'BUILD_CONTINUE',
   'BUILD_BLUEPRINT',
   'BUILD_PRIMITIVE',
@@ -29,6 +30,66 @@ function round(value) {
 function safeRatio(numerator, denominator) {
   if (denominator <= 0) return null;
   return round(numerator / denominator);
+}
+
+function averageNonNull(values) {
+  const filtered = values.filter((value) => typeof value === 'number');
+  if (filtered.length === 0) return null;
+  const total = filtered.reduce((sum, value) => sum + value, 0);
+  return round(total / filtered.length);
+}
+
+function parseSpatialMetricLine(line) {
+  const marker = 'METRIC_SPATIAL ';
+  const idx = line.indexOf(marker);
+  if (idx < 0) return null;
+
+  const payload = line.slice(idx + marker.length).trim();
+  const raw = {};
+  for (const token of payload.split(/\s+/)) {
+    const split = token.indexOf('=');
+    if (split <= 0) continue;
+    raw[token.slice(0, split)] = token.slice(split + 1);
+  }
+
+  const parseRequired = (key) => {
+    const value = Number(raw[key]);
+    return Number.isFinite(value) ? value : null;
+  };
+  const parseOptional = (key) => {
+    const value = raw[key];
+    if (!value || value.toLowerCase() === 'n/a') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const nodes = parseRequired('nodes');
+  const matureNodes = parseRequired('matureNodes');
+  const connectorEdges = parseRequired('connectorEdges');
+  const newNodes = parseRequired('newNodes');
+  const newlyMatured = parseRequired('newlyMatured');
+  const coordinatedExpansionEvents = parseRequired('coordinatedExpansionEvents');
+  if (
+    nodes === null ||
+    matureNodes === null ||
+    connectorEdges === null ||
+    newNodes === null ||
+    newlyMatured === null ||
+    coordinatedExpansionEvents === null
+  ) {
+    return null;
+  }
+
+  return {
+    nodes,
+    matureNodes,
+    connectorEdges,
+    newNodes,
+    newlyMatured,
+    avgMaturityCadenceTicks: parseOptional('avgMaturityCadenceTicks'),
+    coordinatedExpansionEvents,
+    meanAgentDist: parseOptional('meanAgentDist'),
+  };
 }
 
 function parseArgs(argv) {
@@ -70,12 +131,21 @@ function analyzeFile(path) {
   let unchangedPolicyTicks = 0;
   let primeDirectiveLoaded = 0;
   let stateSnapshots = 0;
+  let spatialSamples = 0;
+  let uniqueNodesExpanded = 0;
+  let minConnectorEdges = null;
+  let maxConnectorEdges = null;
+  let matureNodesLatest = null;
+  let avgMaturityCadenceTicks = null;
+  let coordinatedExpansionEvents = 0;
+  let meanAgentDistanceTotal = 0;
+  let meanAgentDistanceSamples = 0;
 
   for (const line of lines) {
     const heartbeatMatch = line.match(/Heartbeat started \(every (\d+)s\)/);
     if (heartbeatMatch) heartbeatSeconds = Number(heartbeatMatch[1]);
 
-    const actionMatch = line.match(/-> (MOVE|CHAT|BUILD_CONTINUE|BUILD_BLUEPRINT|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE)\b/);
+    const actionMatch = line.match(/-> (MOVE|CHAT|RELOCATE_FRONTIER|BUILD_CONTINUE|BUILD_BLUEPRINT|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE)\b/);
     if (actionMatch) {
       actions[actionMatch[1]] += 1;
     }
@@ -87,6 +157,23 @@ function analyzeFile(path) {
     if (line.includes('No meaningful change, using policy action without LLM')) unchangedPolicyTicks += 1;
     if (line.includes('Loaded prime-directive')) primeDirectiveLoaded += 1;
     if (line.includes(' State: ') || line.includes('] State:')) stateSnapshots += 1;
+
+    const spatial = parseSpatialMetricLine(line);
+    if (spatial) {
+      spatialSamples += 1;
+      uniqueNodesExpanded += spatial.newNodes;
+      matureNodesLatest = spatial.matureNodes;
+      avgMaturityCadenceTicks = spatial.avgMaturityCadenceTicks;
+      coordinatedExpansionEvents = spatial.coordinatedExpansionEvents;
+
+      if (minConnectorEdges === null || spatial.connectorEdges < minConnectorEdges) minConnectorEdges = spatial.connectorEdges;
+      if (maxConnectorEdges === null || spatial.connectorEdges > maxConnectorEdges) maxConnectorEdges = spatial.connectorEdges;
+
+      if (typeof spatial.meanAgentDist === 'number') {
+        meanAgentDistanceTotal += spatial.meanAgentDist;
+        meanAgentDistanceSamples += 1;
+      }
+    }
   }
 
   const totalActions = ACTIONS.reduce((sum, action) => sum + actions[action], 0);
@@ -101,6 +188,20 @@ function analyzeFile(path) {
   const actionsPerHour = estimatedHours && estimatedHours > 0 ? round(totalActions / estimatedHours) : null;
   const buildsPerHour = estimatedHours && estimatedHours > 0 ? round(buildActions / estimatedHours) : null;
   const llmCallsPerHour = estimatedHours && estimatedHours > 0 ? round(llmCalls / estimatedHours) : null;
+  const connectorEdgeGrowth =
+    minConnectorEdges !== null && maxConnectorEdges !== null
+      ? Math.max(0, maxConnectorEdges - minConnectorEdges)
+      : null;
+  const uniqueNodesExpandedPerHour =
+    estimatedHours && estimatedHours > 0 ? round(uniqueNodesExpanded / estimatedHours) : null;
+  const newEdgesPerHour =
+    connectorEdgeGrowth !== null && estimatedHours && estimatedHours > 0
+      ? round(connectorEdgeGrowth / estimatedHours)
+      : null;
+  const coordinatedExpansionRatePerHour =
+    estimatedHours && estimatedHours > 0 ? round(coordinatedExpansionEvents / estimatedHours) : null;
+  const meanAgentDistance =
+    meanAgentDistanceSamples > 0 ? round(meanAgentDistanceTotal / meanAgentDistanceSamples) : null;
 
   return {
     file: basename(path),
@@ -118,6 +219,16 @@ function analyzeFile(path) {
     unchangedPolicyTicks,
     primeDirectiveLoaded,
     stateSnapshots,
+    spatialSamples,
+    uniqueNodesExpanded,
+    uniqueNodesExpandedPerHour,
+    connectorEdgeGrowth,
+    newEdgesPerHour,
+    matureNodesLatest,
+    avgMaturityCadenceTicks,
+    coordinatedExpansionEvents,
+    coordinatedExpansionRatePerHour,
+    meanAgentDistance,
     estimatedHours: estimatedHours ? round(estimatedHours) : null,
     actionsPerHour,
     buildsPerHour,
@@ -137,6 +248,7 @@ function aggregateMetrics(metrics) {
   const unchangedPolicyTicks = metrics.reduce((sum, m) => sum + m.unchangedPolicyTicks, 0);
   const primeDirectiveLoaded = metrics.reduce((sum, m) => sum + m.primeDirectiveLoaded, 0);
   const stateSnapshots = metrics.reduce((sum, m) => sum + m.stateSnapshots, 0);
+  const spatialSamples = metrics.reduce((sum, m) => sum + m.spatialSamples, 0);
   const agentHoursRaw = metrics.reduce((sum, m) => sum + (m.estimatedHours || 0), 0);
   const agentHours = agentHoursRaw > 0 ? round(agentHoursRaw) : null;
 
@@ -154,6 +266,16 @@ function aggregateMetrics(metrics) {
     unchangedPolicyTicks,
     primeDirectiveLoaded,
     stateSnapshots,
+    spatialSamples,
+    uniqueNodesExpanded: averageNonNull(metrics.map((m) => m.uniqueNodesExpanded)),
+    uniqueNodesExpandedPerHour: averageNonNull(metrics.map((m) => m.uniqueNodesExpandedPerHour)),
+    connectorEdgeGrowth: averageNonNull(metrics.map((m) => m.connectorEdgeGrowth)),
+    newEdgesPerHour: averageNonNull(metrics.map((m) => m.newEdgesPerHour)),
+    matureNodesLatest: averageNonNull(metrics.map((m) => m.matureNodesLatest)),
+    avgMaturityCadenceTicks: averageNonNull(metrics.map((m) => m.avgMaturityCadenceTicks)),
+    coordinatedExpansionEvents: averageNonNull(metrics.map((m) => m.coordinatedExpansionEvents)),
+    coordinatedExpansionRatePerHour: averageNonNull(metrics.map((m) => m.coordinatedExpansionRatePerHour)),
+    meanAgentDistance: averageNonNull(metrics.map((m) => m.meanAgentDistance)),
     agentHours,
     actionsPerAgentHour: agentHoursRaw > 0 ? round(totalActions / agentHoursRaw) : null,
     buildsPerAgentHour: agentHoursRaw > 0 ? round(buildActions / agentHoursRaw) : null,

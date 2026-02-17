@@ -363,16 +363,12 @@ function dominantCategory(entries: Map<NodeCategory, number>): NodeCategory {
   return best;
 }
 
-function classifyNodeTier(structureCount: number, footprintArea: number): NodeTier {
-  // Area contributes to tiering so broad footprints can graduate even with moderate structure count.
-  const areaScore = Math.min(8, Math.floor(Math.sqrt(Math.max(0, footprintArea)) / 18));
-  const score = structureCount + areaScore;
-
-  if (score >= 34 || structureCount >= 30) return 'megaopolis-node';
-  if (score >= 24 || structureCount >= 20) return 'metropolis-node';
-  if (score >= 15 || structureCount >= 12) return 'city-node';
-  if (score >= 9 || structureCount >= 7) return 'forest-node';
-  if (score >= 4 || structureCount >= 3) return 'server-node';
+function classifyNodeTier(structureCount: number, _footprintArea: number): NodeTier {
+  if (structureCount >= 100) return 'megaopolis-node';
+  if (structureCount >= 50) return 'metropolis-node';
+  if (structureCount >= 25) return 'city-node';
+  if (structureCount >= 15) return 'forest-node';
+  if (structureCount >= 6) return 'server-node';
   return 'settlement-node';
 }
 
@@ -1114,6 +1110,24 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     if (!blueprint) {
       return reply.code(404).send({ error: `Blueprint '${body.name}' not found.` });
+    }
+
+    // Keep blueprint starts local so agents do not create remote plans they
+    // cannot continue immediately.
+    const activeAgent = world.getAgent(agentId);
+    if (activeAgent) {
+      const dx = body.anchorX - activeAgent.position.x;
+      const dz = body.anchorZ - activeAgent.position.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      const MAX_BUILD_DISTANCE = 20;
+      if (distance > MAX_BUILD_DISTANCE) {
+        return reply.code(400).send({
+          error: `Too far from build site. MOVE to within ${MAX_BUILD_DISTANCE} units of (${Math.round(body.anchorX)}, ${Math.round(body.anchorZ)}) before starting blueprint.`,
+          distance: Math.round(distance),
+          anchorX: body.anchorX,
+          anchorZ: body.anchorZ,
+        });
+      }
     }
 
     // Reputation gate: advanced blueprints require reputation >= 5

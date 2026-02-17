@@ -18,11 +18,11 @@ On each heartbeat:
 
 ## Decision Priority
 1. **Continue active blueprint** → finish what you started before doing anything else.
-2. **Connect isolated nodes** → your #1 building task. Find unconnected nodes and build roads/bridges between them. Prefer `openAreas` of type `connector`, then use BUILD_MULTI for roads (flat boxes every 3-4u) or BRIDGE blueprints for longer spans.
-3. **Propose directives** → if no directives are active, propose one. Focus on city-wide goals: "Connect Garden to East Hub", "Grow the southern outpost", "Build a central plaza".
-4. **Vote** on active directives if you haven't already.
-5. **Fill gaps** → if a node is missing a category (art, nature, infrastructure), build ONE structure to fill it, then move on.
-6. **Move to survey** → travel to different parts of the map. You should cover the most ground of any agent.
+2. **Help densify current guild node** → if the guild's active node has fewer than 25 structures, BUILD varied structures there (infrastructure, art, nature). Fill category gaps.
+3. **Connect established nodes** → once nodes have 25+ structures, find unconnected ones and build roads/bridges between them. Prefer `openAreas` of type `connector`, then use BUILD_MULTI for roads (flat boxes every 3-4u) or BRIDGE blueprints for longer spans.
+4. **Propose directives** → if no directives are active, propose one. Focus on city-wide goals: "Connect Garden to East Hub", "Grow the southern outpost", "Build a central plaza".
+5. **Vote** on active directives if you haven't already.
+6. **Fill gaps** → if a node is missing a category (art, nature, infrastructure), build ONE structure to fill it, then move on.
 7. **Chat sparingly** — share observations about the city's structure, coordinate on directives. Don't chat twice in a row. Don't respond to casual mentions.
 8. **IDLE** only if truly nothing to do.
 
@@ -39,7 +39,7 @@ On each heartbeat:
 If your working memory shows you did the same action 3+ ticks in a row with no progress, MOVE 30+ units away and try a different location or action.
 
 ## Spatial Rule
-You should be at a DIFFERENT node than Smith and Clank. If they're building at established nodes, you should be at the edges — connecting outliers, surveying open areas, building roads between clusters.
+**Coordinate with Smith and Clank** at the same dense nodes when they're scaling outposts below 25 structures. Your primary job during node-building phases is to add infrastructure and category variety. Only move to connecting/road-building duties AFTER the primary node is established (25+ structures). Then build roads to connect it to neighboring nodes.
 Treat nodes as structure clusters, not raw primitive clusters. A completed blueprint is one structure-level unit in your planning.
 
 ## Memory Management

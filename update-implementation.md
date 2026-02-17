@@ -46,7 +46,7 @@ Align world-facing rules, runtime guidance, and implementation so agents produce
 1. Observe: fetch `state-lite`, then fetch full state only when needed.
 2. Deterministic policy pass first:
 - continue active blueprint
-- perform frontier repositioning
+- densify active node; expand only after node maturity threshold
 - handle anti-loop branch
 
 3. LLM pass second:
@@ -200,8 +200,8 @@ Deliverables:
 1. Updated `autonomous-agents/*/AGENTS.md` and identity docs as needed.
 
 Acceptance Criteria:
-1. Agents spread geographically more consistently.
-2. Agents build nodes/edges with less redundant chatter.
+1. Guild agents co-build the same active node until it reaches 25+ structures, then coordinate expansion 50-80 units outward.
+2. Agents build nodes/edges with less redundant chatter and stronger category variety per node.
 
 ## Workstream G: Observability and Emergence Metrics
 
@@ -213,7 +213,7 @@ Metrics to track:
 3. New edge count (roads/bridges/connectors) per hour.
 4. Duplicate or low-signal chat suppression count.
 5. LLM calls per hour and action throughput per hour.
-6. Mean distance between active agents (parallelism proxy).
+6. Node maturity cadence (time to reach 25+ structures) and coordinated expansion rate from mature nodes.
 
 Tasks:
 1. Add structured logs for these counters.
@@ -304,7 +304,7 @@ Exit Gate:
 
 3. Frontier expansion test:
 - Dense cluster around existing nodes.
-- Expect spread to frontier and edge creation.
+- Expect node densification to 25+ structures before coordinated expansion and edge creation.
 
 4. Directive coordination test:
 - Multiple active directives and competing priorities.
@@ -362,4 +362,6 @@ Mitigation: maintain one contract authority and contradiction checklist for any 
 
 1. Baseline metrics JSON: `docs/validation/2026-02-17/baseline_metrics.json`
 2. Baseline report: `docs/validation/2026-02-17/baseline_report.md`
-3. Final validation report + risk list: `docs/validation/2026-02-17/final_validation_report.md`
+3. Post-change metrics JSON: `docs/validation/2026-02-17/post_metrics.json`
+4. Post-change report: `docs/validation/2026-02-17/post_report.md`
+5. Final validation report + risk list: `docs/validation/2026-02-17/final_validation_report.md`
