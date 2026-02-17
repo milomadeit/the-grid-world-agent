@@ -1459,7 +1459,10 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const otherAgents = world.getAgents().filter(a => a.id !== agentId);
     const targetDistance = Math.max(130, minDistance);
 
-    const scored = openAreas.map((area) => {
+    const buildReachableAreas = openAreas.filter((area) => area.nearestBuild <= 95);
+    const candidateAreas = buildReachableAreas.length > 0 ? buildReachableAreas : openAreas;
+
+    const scored = candidateAreas.map((area) => {
       const distToSelf = Math.hypot(area.x - agent.position.x, area.z - agent.position.z);
       const nearestOtherAgent = otherAgents.length > 0
         ? Math.min(...otherAgents.map(a => Math.hypot(area.x - a.position.x, area.z - a.position.z)))
@@ -1469,7 +1472,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       const preferredBonus = type === preferredType ? -22 : type === 'frontier' ? -10 : 6;
       const underDistancePenalty = distToSelf < minDistance ? (minDistance - distToSelf) * 8 : 0;
 
-      let score = Math.abs(distToSelf - targetDistance) + underDistancePenalty;
+      const buildReachPenalty = area.nearestBuild > 95 ? (area.nearestBuild - 95) * 3 : 0;
+      let score = Math.abs(distToSelf - targetDistance) + underDistancePenalty + buildReachPenalty;
       score -= Math.min(35, nearestOtherAgent / 5);
       score += preferredBonus;
 

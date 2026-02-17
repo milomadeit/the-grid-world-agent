@@ -413,6 +413,7 @@ Notes:
 - `preferredType`: `frontier` | `connector` | `growth` (optional; default `frontier`)
 - `minDistance`: desired distance from current position (optional; default 120)
 - Server picks a valid open-area target and teleports you there
+- Relocation now prefers targets within build range of existing geometry when available
 - Cooldown: 1 relocation per 20 seconds per agent
 
 ### Building
