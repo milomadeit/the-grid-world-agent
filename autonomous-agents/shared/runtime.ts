@@ -432,18 +432,29 @@ function pickFallbackBlueprintName(blueprints: Record<string, any>): string | nu
 }
 
 function pickSafeBuildAnchor(
-  safeSpots: Array<{ x: number; z: number }>,
+  safeSpots: Array<{ x: number; z: number; type?: 'growth' | 'connector' | 'frontier' }>,
   self?: { x: number; z: number },
   exclude: Array<{ x: number; z: number }> = [],
+  preferTypedSpots = false,
 ): { anchorX: number; anchorZ: number } | null {
   const excluded = new Set(
     exclude.map((pt) => `${Math.round(pt.x)},${Math.round(pt.z)}`),
   );
 
   if (safeSpots.length > 0) {
-    const candidates = safeSpots
-      .map((spot) => ({ anchorX: Math.round(spot.x), anchorZ: Math.round(spot.z) }))
+    let candidates = safeSpots
+      .map((spot) => ({
+        anchorX: Math.round(spot.x),
+        anchorZ: Math.round(spot.z),
+        typed: Boolean(spot.type),
+      }))
       .filter((spot) => !excluded.has(`${spot.anchorX},${spot.anchorZ}`));
+
+    if (preferTypedSpots) {
+      const typed = candidates.filter((spot) => spot.typed);
+      if (typed.length > 0) candidates = typed;
+    }
+
     if (candidates.length > 0) {
       if (self) {
         const inRange = candidates.find((spot) => Math.hypot(spot.anchorX - self.x, spot.anchorZ - self.z) <= 20);
@@ -1748,6 +1759,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   ];
   // Smith-specific: seed guild tracking fields
   if (agentName.toLowerCase() === 'smith') {
+    freshMemoryLines.push('Guild status: not formed');
     freshMemoryLines.push('Guild members: (none yet)');
     freshMemoryLines.push('Declined recruitment: (none)');
   }
@@ -1836,6 +1848,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   let rateLimitCooldownUntil = 0;
   let tickInProgress = false;
   let cachedWorldState: Awaited<ReturnType<typeof api.getWorldState>> | null = null;
+  let smithGuildBootstrapped = false;
+  let smithGuildLastAttemptTick = -999999;
+  let smithGuildViceName = '';
 
   const tick = async () => {
     if (tickInProgress) {
@@ -1914,6 +1929,58 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       // 3. Find self in world
       const self = world.agents.find(a => a.id === api.getAgentId());
       const otherAgents = world.agents.filter(a => a.id !== api.getAgentId());
+      let smithGuildStatusNote: string | null = null;
+
+      if (agentName.toLowerCase() === 'smith' && self && world.tick - smithGuildLastAttemptTick >= 20) {
+        smithGuildLastAttemptTick = world.tick;
+        try {
+          const guilds = await api.getGuilds();
+          const myId = api.getAgentId();
+          const myGuild = guilds.find(
+            (g) => g.commanderAgentId === myId || g.viceCommanderAgentId === myId,
+          );
+
+          if (myGuild) {
+            smithGuildBootstrapped = true;
+            smithGuildStatusNote = `formed (${myGuild.name})`;
+          } else {
+            const preferredVice = world.agents.find((a) => a.name.toLowerCase() === 'clank')
+              || world.agents.find((a) => a.name.toLowerCase() === 'oracle');
+
+            if (preferredVice) {
+              const viceBusy = guilds.some(
+                (g) =>
+                  g.commanderAgentId === preferredVice.id ||
+                  g.viceCommanderAgentId === preferredVice.id,
+              );
+
+              if (!viceBusy) {
+                const guildName = 'Frontier Chain Guild';
+                const created = await api.createGuild(guildName, preferredVice.id);
+                smithGuildBootstrapped = true;
+                smithGuildViceName = preferredVice.name.toLowerCase();
+                smithGuildStatusNote = `formed (${created.name}) with ${preferredVice.name}`;
+                console.log(`[${agentName}] Created guild "${created.name}" with ${preferredVice.name}`);
+                try {
+                  await api.action('CHAT', {
+                    message: `Formed ${created.name} with ${preferredVice.name}. Frontier team now coordinating road + node expansion.`,
+                  });
+                } catch {
+                  // Non-critical: guild creation succeeded even if chat announcement is suppressed.
+                }
+              } else {
+                smithGuildStatusNote = `pending (vice candidate ${preferredVice.name} already in another guild)`;
+              }
+            } else {
+              smithGuildStatusNote = 'pending (vice candidate offline)';
+            }
+          }
+        } catch (guildErr) {
+          const msg = guildErr instanceof Error ? guildErr.message : String(guildErr);
+          smithGuildStatusNote = `pending (guild setup error: ${msg.slice(0, 80)})`;
+          console.warn(`[${agentName}] Guild setup check failed: ${msg.slice(0, 140)}`);
+        }
+      }
 
       // 4. Build user prompt (changes every tick)
       // Build agent name lookup for primitives
@@ -2131,22 +2198,53 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           }
 
           const lowerName = agentName.toLowerCase();
-          const frontierBias = lowerName.includes('mouse') || lowerName.includes('clank') || lowerName.includes('smith');
-          const connectorBias = lowerName.includes('oracle');
+          const isMouse = lowerName.includes('mouse');
+          const isClank = lowerName.includes('clank');
+          const isSmith = lowerName.includes('smith');
+          const isOracle = lowerName.includes('oracle');
+          const frontierBias = isMouse || isClank || isSmith;
+          const connectorBias = isOracle;
+          const smithAgent = world.agents.find(a => a.name.toLowerCase() === 'smith');
+          const worldCenter = serverSpatial?.world?.center || null;
           const scored = Array.from(merged.values()).map((spot) => {
             const distFromAgent = Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2);
             const nearestOtherAgent = otherAgents.length > 0
               ? Math.min(...otherAgents.map(a => Math.sqrt((spot.x - a.position.x) ** 2 + (spot.z - a.position.z) ** 2)))
               : 80;
-            const targetDist = frontierBias ? 70 : connectorBias ? 55 : 45;
+            const distToSmith = smithAgent
+              ? Math.sqrt((spot.x - smithAgent.position.x) ** 2 + (spot.z - smithAgent.position.z) ** 2)
+              : null;
+            const distFromWorldCenter = worldCenter
+              ? Math.sqrt((spot.x - worldCenter.x) ** 2 + (spot.z - worldCenter.z) ** 2)
+              : 0;
+            const targetDist = isMouse ? 88 : isClank ? 68 : frontierBias ? 70 : connectorBias ? 55 : 45;
             let score = Math.abs(distFromAgent - targetDist);
             score -= Math.min(12, nearestOtherAgent / 8); // prefer spots farther from other agents
-            if (frontierBias) {
+            if (isMouse) {
+              if (spot.type === 'frontier') score -= 30;
+              if (spot.type === 'connector') score += 8;
+              if (spot.type === 'growth') score += 18;
+              score -= Math.min(14, Math.max(0, spot.nearestBuild) / 7);
+              score -= Math.min(10, distFromWorldCenter / 35);
+              if (nearestOtherAgent < 45) score += 20;
+            } else if (isClank) {
+              if (spot.type === 'frontier') score -= 14;
+              if (spot.type === 'connector') score -= 10;
+              if (spot.type === 'growth') score -= 2;
+              if (distToSmith !== null && (!self || smithAgent?.id !== self.id)) {
+                score += Math.abs(distToSmith - 60) / 3;
+              }
+            } else if (isSmith) {
               if (spot.type === 'frontier') score -= 18;
-              if (spot.type === 'connector') score -= 6;
+              if (spot.type === 'connector') score -= 8;
+              if (spot.type === 'growth') score += 6;
             } else if (connectorBias) {
-              if (spot.type === 'connector') score -= 16;
-              if (spot.type === 'growth') score -= 4;
+              if (spot.type === 'connector') score -= 22;
+              if (spot.type === 'growth') score -= 3;
+              if (spot.type === 'frontier') score += 8;
+              if (distToSmith !== null && (!self || smithAgent?.id !== self.id)) {
+                score += Math.abs(distToSmith - 90) / 4;
+              }
             } else if (spot.type === 'growth') {
               score -= 8;
             }
@@ -2614,7 +2712,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           if (parsedError.anchor) {
             excludeAnchors.push(parsedError.anchor);
           }
-          const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos, excludeAnchors);
+          const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos, excludeAnchors, true);
           if (fallbackAnchor) {
             const retryDecision: AgentDecision = {
               thought: `Build recovery: anchor rejected by server; retrying ${String(payload.name || 'blueprint')} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}).`,
@@ -2744,7 +2842,17 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       // Smith-specific: track guild membership
       let guildMembers = workingMemory?.match(/Guild members: (.+)/)?.[1] || '(none yet)';
       let declinedRecruitment = workingMemory?.match(/Declined recruitment: (.+)/)?.[1] || '(none)';
+      let guildStatus = workingMemory?.match(/Guild status: (.+)/)?.[1] || 'not formed';
       if (agentName.toLowerCase() === 'smith') {
+        if (smithGuildStatusNote) {
+          guildStatus = smithGuildStatusNote;
+        } else if (smithGuildBootstrapped && guildStatus === 'not formed') {
+          guildStatus = 'formed';
+        }
+        if (smithGuildViceName) {
+          if (guildMembers === '(none yet)') guildMembers = smithGuildViceName;
+          else if (!guildMembers.includes(smithGuildViceName)) guildMembers = `${guildMembers}, ${smithGuildViceName}`;
+        }
         const recruitedMatch = decision.thought?.match(
           /(?:recruited|joined.*guild|new.*member)[:\s]+(\w+)/i
         );
@@ -2783,6 +2891,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         consecutiveBuildFails > 0 ? `Consecutive build failures: ${consecutiveBuildFails}` : '',
         // Smith guild tracking
         ...(agentName.toLowerCase() === 'smith' ? [
+          `Guild status: ${guildStatus}`,
           `Guild members: ${guildMembers}`,
           `Declined recruitment: ${declinedRecruitment}`,
         ] : []),

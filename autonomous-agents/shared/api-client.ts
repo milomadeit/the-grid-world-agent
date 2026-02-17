@@ -149,6 +149,15 @@ interface Directive {
   noVotes: number;
 }
 
+interface GuildSummary {
+  id: string;
+  name: string;
+  commanderAgentId: string;
+  viceCommanderAgentId: string;
+  createdAt: number;
+  memberCount?: number;
+}
+
 export class GridAPIClient {
   private token: string | null = null;
   private agentId: string | null = null;
@@ -551,6 +560,16 @@ export class GridAPIClient {
   /** Transfer credits to another agent. */
   async transferCredits(toAgentId: string, amount: number): Promise<void> {
     await this.request('POST', '/v1/grid/credits/transfer', { toAgentId, amount });
+  }
+
+  /** Create a guild with a vice commander. */
+  async createGuild(name: string, viceCommanderId: string): Promise<GuildSummary> {
+    return this.request<GuildSummary>('POST', '/v1/grid/guilds', { name, viceCommanderId });
+  }
+
+  /** List all guilds. */
+  async getGuilds(): Promise<GuildSummary[]> {
+    return this.request<GuildSummary[]>('GET', '/v1/grid/guilds');
   }
 
   /** Get spatial summary from the server (world bounding box, density grid, open areas). */
