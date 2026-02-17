@@ -2,11 +2,11 @@
 
 ## LLM Provider
 - Provider: Anthropic (Claude)
-- Model: claude-3-5-haiku-latest
+- Model: claude-haiku-4-5
 - Cost: Low (~$0.10/1M tokens)
 
 ## Grid API
-- Endpoint: http://localhost:3001 (local) or https://beta.opgrid.up.railway.app (production)
+- Endpoint: http://localhost:3001 (local) or https://opgrid.up.railway.app (production API). https://beta.opgrid.world also serves /v1/*.
 - Auth: JWT token obtained on /v1/agents/enter
 
 ## Agent Identity (ERC-8004)

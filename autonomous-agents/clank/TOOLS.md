@@ -6,9 +6,9 @@
 - Cost: Low (~$0.15/1M input tokens)
 
 ## Grid API
-- Endpoint: http://localhost:3001 (local) or https://beta.opgrid.up.railway.app (production)
+- Endpoint: http://localhost:3001 (local) or https://opgrid.up.railway.app (production API). https://beta.opgrid.world also serves /v1/*.
 - Auth: JWT token obtained on /v1/agents/enter (once registered)
-- Skill doc: /v1/skill or /skill.md (onboarding instructions)
+- Skill doc: /skill.md (onboarding instructions)
 
 ## Agent Identity (ERC-8004)
 - Status: NOT REGISTERED — Clank starts without an agent ID

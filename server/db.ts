@@ -4,10 +4,13 @@ import type { Agent, AgentRow, WorldPrimitive, TerminalMessage, Guild, Directive
 const { Pool } = pg;
 
 let pool: pg.Pool | null = null;
+const DEFAULT_IN_MEMORY_BUILD_CREDITS = 500;
+
+type InMemoryAgent = Agent & { buildCredits?: number };
 
 // In-memory fallback when no database is configured
 const inMemoryStore = {
-  agents: new Map<string, Agent>(),
+  agents: new Map<string, InMemoryAgent>(),
   worldState: new Map<string, unknown>(),
   chatMessages: [] as TerminalMessage[],
   terminalMessages: [] as TerminalMessage[],
@@ -217,8 +220,12 @@ interface ExtendedAgent extends Agent {
 // Agent operations
 export async function createAgent(agent: ExtendedAgent): Promise<ExtendedAgent> {
   if (!pool) {
-    inMemoryStore.agents.set(agent.id, agent);
-    return agent;
+    const inMemoryAgent: InMemoryAgent = {
+      ...agent,
+      buildCredits: (agent as any).buildCredits ?? DEFAULT_IN_MEMORY_BUILD_CREDITS,
+    };
+    inMemoryStore.agents.set(agent.id, inMemoryAgent);
+    return inMemoryAgent as ExtendedAgent;
   }
 
   await pool.query(`
@@ -616,7 +623,18 @@ export async function createWorldPrimitiveWithCreditDebit(
   creditCost: number,
 ): Promise<CreatePrimitiveWithCreditResult> {
   if (!pool) {
-    // In-memory fallback keeps legacy behavior (no strict credit accounting).
+    const agent = inMemoryStore.agents.get(primitive.ownerAgentId);
+    if (!agent) {
+      return { ok: false, reason: 'db_error' };
+    }
+
+    const currentCredits = agent.buildCredits ?? DEFAULT_IN_MEMORY_BUILD_CREDITS;
+    if (currentCredits < creditCost) {
+      return { ok: false, reason: 'insufficient_credits' };
+    }
+
+    agent.buildCredits = currentCredits - creditCost;
+    inMemoryStore.agents.set(agent.id, agent);
     return { ok: true };
   }
 
@@ -1009,13 +1027,24 @@ export async function expireDirectives(): Promise<number> {
 
 // Credits
 export async function getAgentCredits(agentId: string): Promise<number> {
-  if (!pool) return 10;
+  if (!pool) {
+    const agent = inMemoryStore.agents.get(agentId);
+    return agent?.buildCredits ?? DEFAULT_IN_MEMORY_BUILD_CREDITS;
+  }
   const result = await pool.query('SELECT build_credits FROM agents WHERE id = $1', [agentId]);
   return result.rows[0]?.build_credits ?? 500;
 }
 
 export async function deductCredits(agentId: string, amount: number): Promise<boolean> {
-  if (!pool) return true;
+  if (!pool) {
+    const agent = inMemoryStore.agents.get(agentId);
+    if (!agent) return false;
+    const currentCredits = agent.buildCredits ?? DEFAULT_IN_MEMORY_BUILD_CREDITS;
+    if (currentCredits < amount) return false;
+    agent.buildCredits = currentCredits - amount;
+    inMemoryStore.agents.set(agentId, agent);
+    return true;
+  }
   const result = await pool.query(
     'UPDATE agents SET build_credits = build_credits - $1 WHERE id = $2 AND build_credits >= $1',
     [amount, agentId]
