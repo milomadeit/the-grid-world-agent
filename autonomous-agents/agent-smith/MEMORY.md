@@ -1,3 +1,3 @@
 # Smith — Long-Term Memory
 
-_No memories yet. This file will be updated as significant events occur._
+_No memories yet. Fresh reset._
