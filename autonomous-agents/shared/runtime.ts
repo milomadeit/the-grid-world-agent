@@ -434,12 +434,49 @@ function pickFallbackBlueprintName(blueprints: Record<string, any>): string | nu
 function pickSafeBuildAnchor(
   safeSpots: Array<{ x: number; z: number }>,
   self?: { x: number; z: number },
+  exclude: Array<{ x: number; z: number }> = [],
 ): { anchorX: number; anchorZ: number } | null {
+  const excluded = new Set(
+    exclude.map((pt) => `${Math.round(pt.x)},${Math.round(pt.z)}`),
+  );
+
   if (safeSpots.length > 0) {
-    return { anchorX: Math.round(safeSpots[0].x), anchorZ: Math.round(safeSpots[0].z) };
+    const candidates = safeSpots
+      .map((spot) => ({ anchorX: Math.round(spot.x), anchorZ: Math.round(spot.z) }))
+      .filter((spot) => !excluded.has(`${spot.anchorX},${spot.anchorZ}`));
+    if (candidates.length > 0) {
+      if (self) {
+        const inRange = candidates.find((spot) => Math.hypot(spot.anchorX - self.x, spot.anchorZ - self.z) <= 20);
+        if (inRange) return inRange;
+        candidates.sort(
+          (a, b) =>
+            Math.hypot(a.anchorX - self.x, a.anchorZ - self.z) -
+            Math.hypot(b.anchorX - self.x, b.anchorZ - self.z),
+        );
+      }
+      return candidates[0] || null;
+    }
   }
+
   if (self) {
-    return { anchorX: Math.round(self.x + 8), anchorZ: Math.round(self.z + 8) };
+    const fallbackOffsets = [
+      { x: 18, z: 0 },
+      { x: -18, z: 0 },
+      { x: 0, z: 18 },
+      { x: 0, z: -18 },
+      { x: 28, z: 16 },
+      { x: -28, z: 16 },
+      { x: 28, z: -16 },
+      { x: -28, z: -16 },
+    ];
+    for (const offset of fallbackOffsets) {
+      const anchorX = Math.round(self.x + offset.x);
+      const anchorZ = Math.round(self.z + offset.z);
+      if (Math.hypot(anchorX, anchorZ) < 55) continue;
+      const key = `${anchorX},${anchorZ}`;
+      if (excluded.has(key)) continue;
+      return { anchorX, anchorZ };
+    }
   }
   return null;
 }
@@ -469,6 +506,68 @@ function parseRateLimitCooldownSeconds(message: string, fallbackSeconds: number)
   if (unit.startsWith('ms')) return Math.max(5, Math.ceil(value / 1000));
   if (unit.startsWith('m')) return Math.max(5, value * 60);
   return Math.max(5, value);
+}
+
+function parseFirstJsonObject(text: string): Record<string, unknown> | null {
+  const firstBrace = text.indexOf('{');
+  if (firstBrace === -1) return null;
+
+  let depth = 0;
+  let lastBrace = -1;
+  for (let i = firstBrace; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        lastBrace = i;
+        break;
+      }
+    }
+  }
+
+  if (lastBrace === -1) return null;
+  try {
+    return JSON.parse(text.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function parseAnchorFromErrorMessage(message: string): { x: number; z: number } | null {
+  const explicit = message.match(/within\s+\d+\s+units\s+of\s+\((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\)/i);
+  if (!explicit) return null;
+  const x = Number(explicit[1]);
+  const z = Number(explicit[2]);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  return { x: Math.round(x), z: Math.round(z) };
+}
+
+function parseBuildActionError(message: string): {
+  noActivePlan: boolean;
+  alreadyActivePlan: boolean;
+  blueprintOverlap: boolean;
+  blueprintAnchorTooFar: boolean;
+  tooFarFromBuildSite: boolean;
+  anchor: { x: number; z: number } | null;
+} {
+  const json = parseFirstJsonObject(message);
+  const anchorX = Number(json?.anchorX);
+  const anchorZ = Number(json?.anchorZ);
+  const anchorFromJson =
+    Number.isFinite(anchorX) && Number.isFinite(anchorZ)
+      ? { x: Math.round(anchorX), z: Math.round(anchorZ) }
+      : null;
+
+  return {
+    noActivePlan: /No active build plan/i.test(message),
+    alreadyActivePlan: /already have an active build plan/i.test(message),
+    blueprintOverlap:
+      /Blueprint footprint overlaps existing geometry/i.test(message) ||
+      /footprint overlaps another agent's active build/i.test(message),
+    blueprintAnchorTooFar: /Blueprint anchor too far from any existing build/i.test(message),
+    tooFarFromBuildSite: /Too far from build site/i.test(message),
+    anchor: anchorFromJson || parseAnchorFromErrorMessage(message),
+  };
 }
 
 // --- Spatial Awareness ---
@@ -2358,7 +2457,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       // Build-action guardrails: keep agents building even when model picks invalid blueprint actions.
       const activeBlueprint = Boolean(blueprintStatus?.active);
       const selfPos = self?.position ? { x: self.position.x, z: self.position.z } : undefined;
-      if (decision.action === 'BUILD_CONTINUE' && !activeBlueprint) {
+      const workingMemoryHasBuildPlan = /Current build plan:\s*Blueprint:/i.test(workingMemory);
+      if (decision.action === 'BUILD_CONTINUE' && !activeBlueprint && !workingMemoryHasBuildPlan) {
         const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
         const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
         if (fallbackBlueprint && fallbackAnchor) {
@@ -2445,9 +2545,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
       let buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
       if (buildError) {
-        const noActivePlanError = /No active build plan/i.test(buildError);
-        const alreadyActivePlanError = /already have an active build plan/i.test(buildError);
-        if (decision.action === 'BUILD_CONTINUE' && noActivePlanError) {
+        const parsedError = parseBuildActionError(buildError);
+        if (decision.action === 'BUILD_CONTINUE' && parsedError.noActivePlan) {
           const fallbackBlueprint = pickFallbackBlueprintName(blueprints);
           const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
           if (fallbackBlueprint && fallbackAnchor) {
@@ -2469,7 +2568,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               buildError = `${buildError} | retry failed: ${retryError}`;
             }
           }
-        } else if (decision.action === 'BUILD_BLUEPRINT' && alreadyActivePlanError) {
+        } else if (decision.action === 'BUILD_BLUEPRINT' && parsedError.alreadyActivePlan) {
           const retryDecision: AgentDecision = {
             thought: 'Build recovery: start failed because active plan exists; continuing active blueprint.',
             action: 'BUILD_CONTINUE',
@@ -2482,6 +2581,60 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             buildError = null;
           } else {
             buildError = `${buildError} | retry failed: ${retryError}`;
+          }
+        }
+      }
+      if (buildError) {
+        const parsedError = parseBuildActionError(buildError);
+        if (parsedError.tooFarFromBuildSite && parsedError.anchor) {
+          const retryDecision: AgentDecision = {
+            thought: `Build recovery: out of range for active plan; moving to (${parsedError.anchor.x}, ${parsedError.anchor.z}).`,
+            action: 'MOVE',
+            payload: { x: parsedError.anchor.x, z: parsedError.anchor.z },
+          };
+          console.log(`[${agentName}] Build recovery retry -> MOVE (${parsedError.anchor.x}, ${parsedError.anchor.z})`);
+          const retryError = await executeAction(api, agentName, retryDecision, selfPos);
+          if (!retryError) {
+            decision = retryDecision;
+            buildError = null;
+          } else {
+            buildError = `${buildError} | retry failed: ${retryError}`;
+          }
+        } else if (
+          decision.action === 'BUILD_BLUEPRINT' &&
+          (parsedError.blueprintOverlap || parsedError.blueprintAnchorTooFar)
+        ) {
+          const payload = { ...((decision.payload as Record<string, unknown>) || {}) };
+          const attemptedAnchorX = Number(payload.anchorX);
+          const attemptedAnchorZ = Number(payload.anchorZ);
+          const excludeAnchors: Array<{ x: number; z: number }> = [];
+          if (Number.isFinite(attemptedAnchorX) && Number.isFinite(attemptedAnchorZ)) {
+            excludeAnchors.push({ x: attemptedAnchorX, z: attemptedAnchorZ });
+          }
+          if (parsedError.anchor) {
+            excludeAnchors.push(parsedError.anchor);
+          }
+          const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos, excludeAnchors);
+          if (fallbackAnchor) {
+            const retryDecision: AgentDecision = {
+              thought: `Build recovery: anchor rejected by server; retrying ${String(payload.name || 'blueprint')} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}).`,
+              action: 'BUILD_BLUEPRINT',
+              payload: {
+                ...payload,
+                anchorX: fallbackAnchor.anchorX,
+                anchorZ: fallbackAnchor.anchorZ,
+              },
+            };
+            console.log(
+              `[${agentName}] Build recovery retry -> BUILD_BLUEPRINT (${String(payload.name || 'unknown')}) at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ})`,
+            );
+            const retryError = await executeAction(api, agentName, retryDecision, selfPos);
+            if (!retryError) {
+              decision = retryDecision;
+              buildError = null;
+            } else {
+              buildError = `${buildError} | retry failed: ${retryError}`;
+            }
           }
         }
       }
