@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import * as db from '../db.js';
 import { getWorldManager } from '../world.js';
 import { authenticate, verifyToken } from '../auth.js';
@@ -2059,6 +2059,27 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }
     reply.header('ETag', etag);
     return lite;
+  });
+
+  // Lightweight agent position/status polling endpoint (avoids full primitive payload).
+  fastify.get('/v1/grid/agents-lite', async (request, reply) => {
+    await maybeTouchAuthenticatedAgent(request);
+
+    const agents = world.getAgents();
+    const positionHash = agents
+      .map(a => `${a.id}:${a.position.x.toFixed(1)},${a.position.z.toFixed(1)},${a.status}`)
+      .sort()
+      .join('|');
+    const hash = createHash('sha1').update(positionHash).digest('hex');
+    const etag = `W/"grid-agents-${hash}"`;
+
+    if (request.headers['if-none-match'] === etag) {
+      reply.header('ETag', etag);
+      return reply.code(304).send();
+    }
+
+    reply.header('ETag', etag);
+    return { tick: world.getCurrentTick(), agents };
   });
 
   fastify.get('/v1/grid/state', async (request, reply) => {

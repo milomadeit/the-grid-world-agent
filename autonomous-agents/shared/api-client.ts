@@ -73,6 +73,11 @@ interface WorldState {
   }>;
 }
 
+interface AgentsLiteResponse {
+  tick: number;
+  agents: WorldState['agents'];
+}
+
 interface WorldPrimitive {
   id: string;
   shape: 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule';
@@ -196,6 +201,7 @@ export class GridAPIClient {
   private token: string | null = null;
   private agentId: string | null = null;
   private stateLiteEtag: string | null = null;
+  private agentsLiteEtag: string | null = null;
   private entryConfig: {
     privateKey: string;
     erc8004AgentId: string;
@@ -365,6 +371,7 @@ export class GridAPIClient {
       this.token = secondResult.token;
       this.agentId = secondResult.agentId;
       this.stateLiteEtag = null;
+      this.agentsLiteEtag = null;
       return secondResult;
     }
 
@@ -372,6 +379,7 @@ export class GridAPIClient {
     this.token = firstResult.token;
     this.agentId = firstResult.agentId;
     this.stateLiteEtag = null;
+    this.agentsLiteEtag = null;
     return firstResult;
   }
 
@@ -450,6 +458,49 @@ export class GridAPIClient {
     const etag = res.headers.get('etag');
     if (etag) this.stateLiteEtag = etag;
     const data = await res.json() as GridStateLite;
+    return { notModified: false, data };
+  }
+
+  /**
+   * Get lightweight agent position/status updates without full world payload.
+   * Uses ETag/If-None-Match so unchanged responses return 304.
+   */
+  async getAgentsLite(allowTokenRefresh = true): Promise<{ notModified: boolean; data?: AgentsLiteResponse }> {
+    const headers = this.headers();
+    if (this.agentsLiteEtag) {
+      headers['If-None-Match'] = this.agentsLiteEtag;
+    }
+
+    const res = await fetch(`${getBaseUrl()}/v1/grid/agents-lite`, {
+      method: 'GET',
+      headers,
+    });
+
+    if (res.status === 304) {
+      const etag = res.headers.get('etag');
+      if (etag) this.agentsLiteEtag = etag;
+      return { notModified: true };
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      const shouldTryRefresh =
+        allowTokenRefresh &&
+        res.status === 401 &&
+        !!this.entryConfig;
+
+      if (shouldTryRefresh) {
+        await this.refreshSessionToken();
+        return this.getAgentsLite(false);
+      }
+
+      throw new Error(`API GET /v1/grid/agents-lite failed (${res.status}): ${text}`);
+    }
+
+    const etag = res.headers.get('etag');
+    if (etag) this.agentsLiteEtag = etag;
+    const data = await res.json() as AgentsLiteResponse;
+    data.agents = data.agents || [];
     return { notModified: false, data };
   }
 

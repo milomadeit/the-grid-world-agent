@@ -732,6 +732,64 @@ function nearestSafeSpotDistance(
   return nearest;
 }
 
+function closestServerNodeNameAtPosition(
+  serverSpatial: { nodes?: Array<{ name?: string; center?: { x?: number; z?: number } }> } | null,
+  x: number,
+  z: number,
+): string | null {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  const nodes = serverSpatial?.nodes;
+  if (!Array.isArray(nodes) || nodes.length === 0) return null;
+
+  let bestName: string | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const node of nodes) {
+    const nx = Number(node?.center?.x);
+    const nz = Number(node?.center?.z);
+    if (!Number.isFinite(nx) || !Number.isFinite(nz)) continue;
+    const d = Math.hypot(nx - x, nz - z);
+    if (d < bestDist) {
+      bestDist = d;
+      const name = String(node?.name || '').trim();
+      bestName = name || null;
+    }
+  }
+
+  return bestName;
+}
+
+function pickSafeSpotClosestToAnchor(
+  anchorX: number,
+  anchorZ: number,
+  safeSpots: Array<{ x: number; z: number; nearestNodeName?: string }>,
+  options: { preferredNodeName?: string | null; exclude?: Array<{ x: number; z: number }> } = {},
+): { x: number; z: number } | null {
+  if (!Number.isFinite(anchorX) || !Number.isFinite(anchorZ) || safeSpots.length === 0) return null;
+
+  const exclude = options.exclude || [];
+  const excluded = new Set(exclude.map((pt) => `${Math.round(pt.x)},${Math.round(pt.z)}`));
+  const filtered = safeSpots.filter((spot) => !excluded.has(`${Math.round(spot.x)},${Math.round(spot.z)}`));
+  if (filtered.length === 0) return null;
+
+  const preferredNode = (options.preferredNodeName || '').trim();
+  const preferred = preferredNode
+    ? filtered.filter((spot) => String(spot.nearestNodeName || '').trim() === preferredNode)
+    : [];
+  const pool = preferred.length > 0 ? preferred : filtered;
+
+  let best = pool[0];
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const spot of pool) {
+    const dist = Math.hypot(anchorX - spot.x, anchorZ - spot.z);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = spot;
+    }
+  }
+
+  return best ? { x: Math.round(best.x), z: Math.round(best.z) } : null;
+}
+
 function pickSafeBuildAnchor(
   safeSpots: Array<{ x: number; z: number; type?: 'growth' | 'connector' | 'frontier' }>,
   self?: { x: number; z: number },
@@ -2233,10 +2291,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     coordinatedExpansionEvents: 0,
   };
   let cachedWorldState: Awaited<ReturnType<typeof api.getWorldState>> | null = null;
+  let cachedAgentsLite: { tick: number; agents: any[] } | null = null;
   let smithGuildBootstrapped = false;
   let smithGuildLastAttemptTick = -999999;
   let smithGuildViceName = '';
   let guildJoinSyncLastAttemptTick = -999999;
+  let kickoffChatSent = false;
 
   const tick = async () => {
     if (tickInProgress) {
@@ -2255,11 +2315,26 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       // 1. Read working memory
       const workingMemory = readMd(join(memoryDir, 'WORKING.md'));
 
-      // 2. Fetch world state
+      // 2. Fetch world state (+ agent positions)
+      // state-lite ETag does NOT change on agent movement, so we refresh agent positions
+      // via /v1/grid/agents-lite and only reuse cached primitives/messages when safe.
+      let agentsLite: { tick: number; agents: any[] } | null = null;
+      try {
+        const lite = await api.getAgentsLite();
+        if (lite.notModified && cachedAgentsLite) {
+          agentsLite = cachedAgentsLite;
+        } else if (lite.data) {
+          agentsLite = { tick: (lite.data as any).tick, agents: (lite.data as any).agents || [] };
+          cachedAgentsLite = agentsLite;
+        }
+      } catch {
+        // Endpoint may not exist yet; fall back to full state polling.
+      }
+
       let world: Awaited<ReturnType<typeof api.getWorldState>>;
       try {
         const lite = await api.getStateLite();
-        if (lite.notModified && cachedWorldState) {
+        if (lite.notModified && cachedWorldState && agentsLite) {
           world = cachedWorldState;
         } else {
           world = await api.getWorldState();
@@ -2269,6 +2344,19 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         // Fall back to full snapshot if lite sync is unavailable.
         world = await api.getWorldState();
         cachedWorldState = world;
+      }
+
+      if (agentsLite) {
+        world = {
+          ...world,
+          tick: Number.isFinite(Number(agentsLite.tick)) ? Number(agentsLite.tick) : world.tick,
+          agents: Array.isArray(agentsLite.agents) ? agentsLite.agents : world.agents,
+        };
+        if (cachedWorldState) {
+          cachedWorldState = { ...cachedWorldState, tick: world.tick, agents: world.agents };
+        } else {
+          cachedWorldState = world;
+        }
       }
       const directives = await api.getDirectives();
       const credits = await api.getCredits();
@@ -2472,14 +2560,20 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         return false;
       });
       const cadenceEligible = !blueprintStatus?.active;
-      const periodicConversationWindow = cadenceEligible && currentTicksSinceChat >= Math.max(chatMinTicks + 10, 18);
-      const chatDue =
-        currentTicksSinceChat >= chatMinTicks &&
+      const periodicConversationWindow = cadenceEligible && currentTicksSinceChat >= Math.max(chatMinTicks, 10);
+      const urgentChatDue = coordinationContext && otherAgents.length > 0 && currentTicksSinceChat >= 2;
+      const cadenceChatDue =
         otherAgents.length > 0 &&
-        (
-          coordinationContext ||
-          (cadenceEligible && (forceChatCadence || periodicConversationWindow))
-        );
+        currentTicksSinceChat >= chatMinTicks &&
+        (coordinationContext || (cadenceEligible && (forceChatCadence || periodicConversationWindow)));
+      const chatDue = urgentChatDue || cadenceChatDue;
+      const kickoffDue =
+        !kickoffChatSent &&
+        forceChatCadence &&
+        otherAgents.length > 0 &&
+        currentTicksSinceChat >= 2 &&
+        !lowSignalChatLoopDetected;
+      const effectiveChatDue = chatDue || kickoffDue;
 
       // Format messages with NEW tags (no mention pressure — agents should prioritize their objective)
       const formatMessage = (m: typeof allChatMessages[0]) => {
@@ -3276,15 +3370,26 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
           const candidateAnchorX = Number(payload.anchorX);
           const candidateAnchorZ = Number(payload.anchorZ);
-          const safeDist = nearestSafeSpotDistance(candidateAnchorX, candidateAnchorZ, safeSpots);
-          if (safeSpots.length > 0 && Number.isFinite(candidateAnchorX) && Number.isFinite(candidateAnchorZ) && safeDist > 14) {
-            const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos, [], true);
-            if (fallbackAnchor) {
+          const safePool = safeSpotCandidates.length > 0 ? safeSpotCandidates : safeSpots;
+          const safeDist = nearestSafeSpotDistance(candidateAnchorX, candidateAnchorZ, safePool);
+          // Only snap when the nearest safe spot is nearby; otherwise keep the intent and let server recovery pick a new lane.
+          if (
+            safePool.length > 0 &&
+            Number.isFinite(candidateAnchorX) &&
+            Number.isFinite(candidateAnchorZ) &&
+            safeDist > 14 &&
+            safeDist <= 30
+          ) {
+            const preferredNodeName = closestServerNodeNameAtPosition(serverSpatial, candidateAnchorX, candidateAnchorZ);
+            const nearestSpot = pickSafeSpotClosestToAnchor(candidateAnchorX, candidateAnchorZ, safePool, {
+              preferredNodeName,
+            });
+            if (nearestSpot) {
               console.log(
-                `[${agentName}] Build guard: snapping anchor (${Math.round(candidateAnchorX)}, ${Math.round(candidateAnchorZ)}) to safer spot (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ})`,
+                `[${agentName}] Build guard: snapping anchor (${Math.round(candidateAnchorX)}, ${Math.round(candidateAnchorZ)}) to nearby safe spot (${nearestSpot.x}, ${nearestSpot.z})`,
               );
-              payload.anchorX = fallbackAnchor.anchorX;
-              payload.anchorZ = fallbackAnchor.anchorZ;
+              payload.anchorX = nearestSpot.x;
+              payload.anchorZ = nearestSpot.z;
             }
           }
 
@@ -3316,7 +3421,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       }
 
       let decisionBeforeCadenceChat: AgentDecision | null = null;
-      if (chatDue && !lowSignalChatLoopDetected && decision.action === 'IDLE' && !rateLimitWaitThisTick) {
+      if (effectiveChatDue && !lowSignalChatLoopDetected && decision.action !== 'CHAT' && !rateLimitWaitThisTick) {
         const forcedMessage = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
         console.log(`[${agentName}] Communication cadence override -> CHAT`);
         decisionBeforeCadenceChat = {
@@ -3352,6 +3457,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           }
         } else {
           decision.payload = { ...(decision.payload || {}), message: chatMessage.slice(0, 220) };
+          kickoffChatSent = true;
         }
       }
 
@@ -3529,7 +3635,15 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           if (parsedError.anchor) {
             excludeAnchors.push(parsedError.anchor);
           }
-          const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos, excludeAnchors, true);
+          const pool = safeSpotCandidates.length > 0 ? safeSpotCandidates : safeSpots;
+          const preferredNodeName = closestServerNodeNameAtPosition(serverSpatial, attemptedAnchorX, attemptedAnchorZ);
+          const nearestFallback = pickSafeSpotClosestToAnchor(attemptedAnchorX, attemptedAnchorZ, pool, {
+            preferredNodeName,
+            exclude: excludeAnchors,
+          });
+          const fallbackAnchor = nearestFallback
+            ? { anchorX: nearestFallback.x, anchorZ: nearestFallback.z }
+            : pickSafeBuildAnchor(safeSpots, selfPos, excludeAnchors, true);
           if (fallbackAnchor) {
             const anchorDistance = selfPos
               ? Math.hypot(fallbackAnchor.anchorX - selfPos.x, fallbackAnchor.anchorZ - selfPos.z)
