@@ -14,39 +14,42 @@ if [ ${#AGENTS[@]} -eq 0 ]; then
 fi
 
 for agent in "${AGENTS[@]}"; do
+  KILLED=false
+
+  # 1. Kill the run-wrapper shell (the while-true restart loop)
+  WRAPPER_PIDS="$(pgrep -f "run-${agent}\\.sh" 2>/dev/null || true)"
+  for PID in $WRAPPER_PIDS; do
+    kill "$PID" 2>/dev/null && KILLED=true
+  done
+
+  # 2. Kill the actual node process
+  NODE_PIDS="$(pgrep -f "index\\.ts ${agent}" 2>/dev/null || true)"
+  for PID in $NODE_PIDS; do
+    kill "$PID" 2>/dev/null && KILLED=true
+  done
+
+  # 3. Try the pid file as fallback
   PID_FILE="$PIDS_DIR/${agent}.pid"
-  if [ ! -f "$PID_FILE" ]; then
-    # Fallback: handle agents started manually (no pid file) by killing the run loop script
-    # (and if that fails, the node command itself).
-    FALLBACK_PIDS="$(pgrep -f "${DIR}/run-${agent}\\.sh" 2>/dev/null || true)"
-    if [ -z "$FALLBACK_PIDS" ]; then
-      FALLBACK_PIDS="$(pgrep -f "node .*--import tsx .*index\\.ts ${agent}" 2>/dev/null || true)"
+  if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if kill -0 "$PID" 2>/dev/null; then
+      kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null
+      KILLED=true
     fi
-    if [ -z "$FALLBACK_PIDS" ]; then
-      echo "  [SKIP] $agent — no pid file"
-      continue
-    fi
-
-    for PID in $FALLBACK_PIDS; do
-      if kill -0 "$PID" 2>/dev/null; then
-        kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null
-        echo "  [OK] $agent stopped (matched pid $PID)"
-      fi
-    done
-    continue
+    rm -f "$PID_FILE"
   fi
 
-  PID=$(cat "$PID_FILE")
-
-  if kill -0 "$PID" 2>/dev/null; then
-    # Kill the process group (the shell + its tsx child)
-    kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null
-    echo "  [OK] $agent stopped (was pid $PID)"
+  if [ "$KILLED" = true ]; then
+    echo "  [OK] $agent stopped"
   else
-    echo "  [SKIP] $agent — not running (stale pid $PID)"
+    echo "  [SKIP] $agent — not running"
   fi
+done
 
-  rm -f "$PID_FILE"
+# 4. Kill any stray tail watchers on agent logs
+TAIL_PIDS="$(pgrep -f "tail.*logs/(smith|oracle|clank|mouse)" 2>/dev/null || true)"
+for PID in $TAIL_PIDS; do
+  kill "$PID" 2>/dev/null
 done
 
 echo "Done."
