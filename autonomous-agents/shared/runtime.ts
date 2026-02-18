@@ -119,6 +119,27 @@ const NODE_MEGA_TARGET = 100;
 const NODE_EXPANSION_MIN_DISTANCE = 50;
 const NODE_EXPANSION_MAX_DISTANCE = 69;
 
+// Mouse: signature landmark policy (avoid spire spam)
+const MOUSE_SPIRE_MIN_DISTANCE = 90;
+const MOUSE_SPIRE_COOLDOWN_BLUEPRINTS = 8;
+
+// Oracle: deterministic road/edge policy (connector primitives)
+// Each BUILD tick: 3 contiguous slabs of 6×3 at offsets 4, 11, 18 from agent (~20u per BUILD tick).
+// Slabs are connector-qualified (scaleY <= 0.25, scaleX or scaleZ >= 1.5).
+// CRITICAL: slab spacing (7u) must exceed sqrt((L-0.05)² + (W-0.05)²) ≈ 6.64 to prevent
+// server-side AABB overlap at ALL road angles (the server overlap check uses raw scale, not rotated AABB).
+const ORACLE_ROAD_SLAB_LENGTH = 6;          // along road direction (scaleX after rotation)
+const ORACLE_ROAD_SLAB_WIDTH = 3;           // perpendicular to road — wider = more visible highway
+const ORACLE_ROAD_SLAB_THICKNESS = 0.1;     // scaleY — must be <= 0.25 for connector detection
+const ORACLE_ROAD_SLAB_Y = 0.05;            // vertical position
+const ORACLE_ROAD_COLOR = '#94A3B8';
+const ORACLE_ROAD_SLABS_PER_TICK = 3;       // must fit BUILD_MULTI (max 5)
+const ORACLE_ROAD_SLAB_OFFSETS = [4, 11, 18]; // distance from agent along road direction (spacing=7 > 6.64)
+const ORACLE_ROAD_MAX_TICKS = 20;           // safety cap on road-laying ticks
+const ORACLE_ROAD_MIN_NODE_DIST = 50;       // minimum inter-node distance to road
+const ORACLE_ROAD_MAX_NODE_DIST = 220;      // MAX_CONNECTION_DISTANCE from grid.ts
+const ORACLE_ROAD_TRAVEL_STEP_MAX = 110;    // keep below mobility clamp threshold (120u)
+
 // --- File Helpers ---
 
 function readMd(path: string): string {
@@ -677,12 +698,19 @@ function computeSpatialTickMetrics(
 
 function pickFallbackBlueprintName(
   blueprints: Record<string, any>,
-  options: { allowBridge?: boolean; preferMega?: boolean; recentNames?: string[] } = {},
+  options: { allowBridge?: boolean; preferMega?: boolean; recentNames?: string[]; excludeNames?: string[] } = {},
 ): string | null {
   const allowBridge = options.allowBridge === true;
   const preferMega = options.preferMega === true;
   const recentNames = (options.recentNames || []).map((name) => String(name).trim().toUpperCase()).filter(Boolean);
-  const entries = Object.entries(blueprints || {}).filter(([, bp]) => !bp?.advanced);
+  const exclude = new Set(
+    (options.excludeNames || [])
+      .map((name) => String(name).trim().toUpperCase())
+      .filter(Boolean),
+  );
+  const entries = Object.entries(blueprints || {})
+    .filter(([, bp]) => !bp?.advanced)
+    .filter(([name]) => !exclude.has(String(name).trim().toUpperCase()));
   if (entries.length === 0) return null;
 
   const preferredNamePattern = /(DATACENTER|SERVER|ANTENNA|WATCHTOWER|TOWER|HOUSE|SHOP|FOUNTAIN)/i;
@@ -733,6 +761,81 @@ function pushRecentBlueprintName(recentNames: string[], name: string, max = 8): 
   if (!normalized) return [...recentNames].slice(0, max);
   const filtered = recentNames.filter((entry) => entry !== normalized);
   return [normalized, ...filtered].slice(0, max);
+}
+
+type OracleRoadPhase = 'MOVE' | 'BUILD';
+type OracleRoadState = {
+  fromName: string;
+  toName: string;
+  head: { x: number; z: number };
+  phase: OracleRoadPhase;
+};
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+// BUILD_MULTI/BUILD_PRIMITIVE rejects x/z exactly 0 (guard against missing coords).
+function avoidZeroCoord(value: number): number {
+  if (!Number.isFinite(value)) return value;
+  return value === 0 ? 0.1 : value;
+}
+
+function parseCoordPair(text: string): { x: number; z: number } | null {
+  const m = String(text || '').match(/\((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\)/);
+  if (!m) return null;
+  const x = Number(m[1]);
+  const z = Number(m[2]);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  return { x, z };
+}
+
+function parseLastSpireAnchor(workingMemory: string): { x: number; z: number } | null {
+  const m = workingMemory.match(/Last spire anchor:\s*\((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\)/i);
+  if (!m) return null;
+  const x = Number(m[1]);
+  const z = Number(m[2]);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  return { x, z };
+}
+
+function parseSpireAnchors(workingMemory: string): Array<{ x: number; z: number }> {
+  const raw = workingMemory.match(/Spire anchors:\s*(.+)/i)?.[1] || '';
+  return raw
+    .split(';')
+    .map((part) => parseCoordPair(part))
+    .filter((pt): pt is { x: number; z: number } => Boolean(pt))
+    .slice(0, 5);
+}
+
+function pushRecentAnchor(
+  anchors: Array<{ x: number; z: number }>,
+  anchor: { x: number; z: number },
+  max = 5,
+): Array<{ x: number; z: number }> {
+  const x = Math.round(anchor.x);
+  const z = Math.round(anchor.z);
+  const key = `${x},${z}`;
+  const filtered = anchors.filter((pt) => `${Math.round(pt.x)},${Math.round(pt.z)}` !== key);
+  return [{ x, z }, ...filtered].slice(0, max);
+}
+
+function parseOracleRoadState(workingMemory: string): OracleRoadState | null {
+  const target = workingMemory.match(/Road target:\s*(.+?)\s*->\s*(.+?)\s*$/mi);
+  const head = workingMemory.match(/Road head:\s*\((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\)/i);
+  const phase = workingMemory.match(/Road phase:\s*(MOVE|BUILD)\s*$/mi);
+  if (!target || !head || !phase) return null;
+
+  const fromName = target[1].trim();
+  const toName = target[2].trim();
+  const headX = Number(head[1]);
+  const headZ = Number(head[2]);
+  if (!fromName || !toName || !Number.isFinite(headX) || !Number.isFinite(headZ)) return null;
+
+  const rawPhase = phase[1].trim().toUpperCase();
+  const roadPhase: OracleRoadPhase = rawPhase === 'MOVE' ? 'MOVE' : 'BUILD';
+  return { fromName, toName, head: { x: headX, z: headZ }, phase: roadPhase };
 }
 
 function nearestSafeSpotDistance(
@@ -2033,6 +2136,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const identity = readMd(join(config.dir, 'IDENTITY.md'));
   const agentOps = readMd(join(config.dir, 'AGENTS.md'));
   const longMemory = readMd(join(config.dir, 'MEMORY.md'));
+  const lessons = readMd(join(sharedDir, 'LESSONS.md'));
 
   const agentName = identity.match(/^#\s+(.+)/m)?.[1] || 'Agent';
   const agentColor = identity.match(/color:\s*(#[0-9a-fA-F]{6})/)?.[1] || '#6b7280';
@@ -2061,6 +2165,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '\n---\n',
     '# LONG-TERM MEMORY\n',
     longMemory || '_No long-term memories yet._',
+    ...(lessons ? ['\n---\n', lessons] : []),
   ].join('\n');
 
   // API client
@@ -3312,6 +3417,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       }
 
+      const oracleRoadPrevState = agentName.toLowerCase() === 'oracle' ? parseOracleRoadState(workingMemory) : null;
+      let oracleRoadPlannedNextState: OracleRoadState | null = null;
+      let oracleRoadPolicyApplied = false;
+      let oracleRoadClearState = false;
+
       // Build-action guardrails: keep agents building even when model picks invalid blueprint actions.
       const activeBlueprint = Boolean(blueprintStatus?.active);
       const selfPos = self?.position ? { x: self.position.x, z: self.position.z } : undefined;
@@ -3365,16 +3475,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                 console.log(`[${agentName}] Build guard: invalid blueprint "${requestedName || '(missing)'}"; using ${fallbackBlueprint}`);
               }
               payload.name = fallbackBlueprint;
-            }
-          }
-
-          if (isMouseAgent && blueprints?.MEGA_SERVER_SPIRE && nearestNodeStructuresAtSelf < NODE_MEGA_TARGET) {
-            const selectedForMouse = String(payload.name || requestedName || '').trim();
-            if (selectedForMouse !== 'MEGA_SERVER_SPIRE') {
-              console.log(
-                `[${agentName}] Build guard: prioritizing MEGA_SERVER_SPIRE for Mouse mega-node (${nearestNodeStructuresAtSelf}/${NODE_MEGA_TARGET})`,
-              );
-              payload.name = 'MEGA_SERVER_SPIRE';
             }
           }
 
@@ -3432,6 +3532,75 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               );
               payload.anchorX = nearestSpot.x;
               payload.anchorZ = nearestSpot.z;
+            }
+          }
+
+          // Mouse: signature landmark policy for MEGA_SERVER_SPIRE (guard, never force).
+          const selectedAfterSnap = String(payload.name || '').trim().toUpperCase();
+          if (isMouseAgent && selectedAfterSnap === 'MEGA_SERVER_SPIRE') {
+            const ax = Number(payload.anchorX);
+            const az = Number(payload.anchorZ);
+            const rx = Math.round(ax);
+            const rz = Math.round(az);
+            const spireReasons: string[] = [];
+
+            const metaExact = safePool.find((s: any) => Math.round(Number(s.x)) === rx && Math.round(Number(s.z)) === rz) as any;
+            const metaNearest = !metaExact && safePool.length > 0
+              ? [...safePool].sort((a: any, b: any) => Math.hypot(Number(a.x) - ax, Number(a.z) - az) - Math.hypot(Number(b.x) - ax, Number(b.z) - az))[0]
+              : null;
+            const metaDist = metaNearest ? Math.hypot(Number(metaNearest.x) - ax, Number(metaNearest.z) - az) : Infinity;
+            const meta = metaExact || (metaDist <= 3 ? metaNearest : null);
+            const nearestBuild = Number(meta?.nearestBuild);
+
+            let spotType = meta?.type as string | undefined;
+            if (!spotType && Number.isFinite(nearestBuild)) {
+              if (nearestBuild >= NODE_EXPANSION_MIN_DISTANCE && nearestBuild <= NODE_EXPANSION_MAX_DISTANCE) spotType = 'frontier';
+              else if (nearestBuild >= 34 && nearestBuild < NODE_EXPANSION_MIN_DISTANCE) spotType = 'connector';
+              else if (nearestBuild >= 12 && nearestBuild < 34) spotType = 'growth';
+            }
+
+            if (spotType !== 'frontier') {
+              spireReasons.push(`anchor is not frontier (type=${spotType || 'unknown'}, nearestBuild=${Number.isFinite(nearestBuild) ? Math.round(nearestBuild) : '?'})`);
+            }
+
+            const spotNodeName =
+              String(meta?.nearestNodeName || '').trim() ||
+              closestServerNodeNameAtPosition(serverSpatial, ax, az) ||
+              '';
+            const spotNodeStructures = (() => {
+              if (!Array.isArray(serverSpatial?.nodes)) return nearestNodeStructuresAtSelf;
+              if (!spotNodeName) return nearestNodeStructuresAtSelf;
+              const found = serverSpatial.nodes.find((n: any) => String(n?.name || '').trim() === spotNodeName);
+              const count = Number(found?.structureCount);
+              return Number.isFinite(count) ? count : nearestNodeStructuresAtSelf;
+            })();
+            if ((Number(spotNodeStructures) || 0) < NODE_EXPANSION_GATE) {
+              spireReasons.push(`nearest node "${spotNodeName || 'unknown'}" unestablished (${spotNodeStructures}/${NODE_EXPANSION_GATE})`);
+            }
+
+            const spireInRecent = recentBlueprintNames.slice(0, MOUSE_SPIRE_COOLDOWN_BLUEPRINTS).includes('MEGA_SERVER_SPIRE');
+            if (spireInRecent) {
+              spireReasons.push(`cooldown active (recent blueprints include MEGA_SERVER_SPIRE)`);
+            }
+
+            const lastSpire = parseLastSpireAnchor(workingMemory);
+            if (lastSpire && Number.isFinite(ax) && Number.isFinite(az)) {
+              const dist = Math.hypot(ax - lastSpire.x, az - lastSpire.z);
+              if (dist < MOUSE_SPIRE_MIN_DISTANCE) {
+                spireReasons.push(`too close to last spire (${dist.toFixed(1)}u < ${MOUSE_SPIRE_MIN_DISTANCE}u)`);
+              }
+            }
+
+            if (spireReasons.length > 0) {
+              const fallbackNonSpire = pickFallbackBlueprintName(blueprints, {
+                preferMega: true,
+                recentNames: pushRecentBlueprintName(recentBlueprintNames, 'MEGA_SERVER_SPIRE', MOUSE_SPIRE_COOLDOWN_BLUEPRINTS),
+                excludeNames: ['MEGA_SERVER_SPIRE'],
+              });
+              if (fallbackNonSpire) {
+                console.log(`[${agentName}] Mouse spire policy: rejecting MEGA_SERVER_SPIRE (${spireReasons.join('; ')}); using ${fallbackNonSpire}`);
+                payload.name = fallbackNonSpire;
+              }
             }
           }
 
@@ -3522,6 +3691,243 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                 action: 'MOVE',
                 payload: localMove,
               };
+            }
+          }
+        }
+      }
+
+      // Oracle: deterministic road policy (build visible connector chains between established nodes).
+      if (
+        agentName.toLowerCase() === 'oracle' &&
+        !rateLimitWaitThisTick &&
+        decision.action !== 'CHAT' &&
+        decision.action !== 'VOTE' &&
+        decision.action !== 'SUBMIT_DIRECTIVE' &&
+        decision.action !== 'TRANSFER_CREDITS' &&
+        decision.action !== 'TERMINAL' &&
+        !blueprintStatus?.active &&
+        selfPos &&
+        Array.isArray(serverSpatial?.nodes) &&
+        serverSpatial.nodes.length >= 2
+      ) {
+        type SpatialNode = ServerSpatialSnapshot['nodes'][number];
+        const established = (serverSpatial.nodes as SpatialNode[]).filter(
+          (n) => (Number((n as any)?.structureCount) || 0) >= NODE_EXPANSION_GATE
+        );
+        const connectionRecord = (from: SpatialNode, to: SpatialNode): any | null => {
+          const conns = Array.isArray((from as any)?.connections) ? (from as any).connections : [];
+          const toId = String((to as any)?.id || '').trim();
+          const toName = String((to as any)?.name || '').trim();
+          return (
+            conns.find((c: any) => String(c?.targetId || '').trim() === toId) ||
+            conns.find((c: any) => String(c?.targetName || '').trim() === toName) ||
+            null
+          );
+        };
+
+        type RoadCandidate = { a: SpatialNode; b: SpatialNode; distance: number; reason: 'missing_connection' | 'missing_connector'; score: number };
+        let best: RoadCandidate | null = null;
+
+        // If we already started a road, keep going until we reach the target (even if hasConnector flips early).
+        if (oracleRoadPrevState) {
+          const prevFrom = established.find((n) => String((n as any)?.name || '').trim() === oracleRoadPrevState.fromName) || null;
+          const prevTo = established.find((n) => String((n as any)?.name || '').trim() === oracleRoadPrevState.toName) || null;
+          if (prevFrom && prevTo) {
+            const ax = Number((prevFrom as any)?.center?.x);
+            const az = Number((prevFrom as any)?.center?.z);
+            const bx = Number((prevTo as any)?.center?.x);
+            const bz = Number((prevTo as any)?.center?.z);
+            const dist = (Number.isFinite(ax) && Number.isFinite(az) && Number.isFinite(bx) && Number.isFinite(bz))
+              ? Math.hypot(bx - ax, bz - az)
+              : NaN;
+            if (Number.isFinite(dist) && dist >= ORACLE_ROAD_MIN_NODE_DIST && dist <= ORACLE_ROAD_MAX_NODE_DIST) {
+              const ab = connectionRecord(prevFrom, prevTo);
+              const ba = connectionRecord(prevTo, prevFrom);
+              const hasAnyConnection = Boolean(ab || ba);
+              const reason: RoadCandidate['reason'] = hasAnyConnection ? 'missing_connector' : 'missing_connection';
+              best = { a: prevFrom, b: prevTo, distance: dist, reason, score: -1_000_000 };
+            }
+          }
+        }
+
+        if (!best) {
+          for (let i = 0; i < established.length; i++) {
+            for (let j = i + 1; j < established.length; j++) {
+              const a = established[i]!;
+              const b = established[j]!;
+            const ax = Number((a as any)?.center?.x);
+            const az = Number((a as any)?.center?.z);
+            const bx = Number((b as any)?.center?.x);
+            const bz = Number((b as any)?.center?.z);
+            if (!Number.isFinite(ax) || !Number.isFinite(az) || !Number.isFinite(bx) || !Number.isFinite(bz)) continue;
+            const dist = Math.hypot(bx - ax, bz - az);
+            if (!Number.isFinite(dist) || dist < ORACLE_ROAD_MIN_NODE_DIST || dist > ORACLE_ROAD_MAX_NODE_DIST) continue;
+
+              const ab = connectionRecord(a, b);
+              const ba = connectionRecord(b, a);
+              const hasAnyConnection = Boolean(ab || ba);
+              const hasConnector = Boolean(ab?.hasConnector || ba?.hasConnector);
+              if (hasConnector) continue;
+
+            const reason: RoadCandidate['reason'] = hasAnyConnection ? 'missing_connector' : 'missing_connection';
+            const score = dist + (reason === 'missing_connector' ? 1000 : 0);
+              if (!best || score < best.score) {
+                best = { a, b, distance: dist, reason, score };
+              }
+            }
+          }
+        }
+
+        if (!best) {
+          oracleRoadClearState = true;
+        } else {
+          let from = best.a;
+          let to = best.b;
+          const prev = oracleRoadPrevState;
+          if (prev) {
+            const prevSame = prev.fromName === String((from as any)?.name || '') && prev.toName === String((to as any)?.name || '');
+            const prevSwap = prev.fromName === String((to as any)?.name || '') && prev.toName === String((from as any)?.name || '');
+            if (prevSwap) {
+              const tmp = from;
+              from = to;
+              to = tmp;
+            } else if (!prevSame && !prevSwap) {
+              const da = Math.hypot(Number((from as any)?.center?.x) - selfPos.x, Number((from as any)?.center?.z) - selfPos.z);
+              const db = Math.hypot(Number((to as any)?.center?.x) - selfPos.x, Number((to as any)?.center?.z) - selfPos.z);
+              if (db < da) {
+                const tmp = from;
+                from = to;
+                to = tmp;
+              }
+            }
+          } else {
+            const da = Math.hypot(Number((from as any)?.center?.x) - selfPos.x, Number((from as any)?.center?.z) - selfPos.z);
+            const db = Math.hypot(Number((to as any)?.center?.x) - selfPos.x, Number((to as any)?.center?.z) - selfPos.z);
+            if (db < da) {
+              const tmp = from;
+              from = to;
+              to = tmp;
+            }
+          }
+
+          const fromName = String((from as any)?.name || '').trim();
+          const toName = String((to as any)?.name || '').trim();
+          const dx = Number((to as any)?.center?.x) - Number((from as any)?.center?.x);
+          const dz = Number((to as any)?.center?.z) - Number((from as any)?.center?.z);
+          const len = Math.hypot(dx, dz);
+          if (Number.isFinite(len) && len >= 1) {
+            const ux = dx / len;
+            const uz = dz / len;
+
+            const prevMatches = oracleRoadPrevState && oracleRoadPrevState.fromName === fromName && oracleRoadPrevState.toName === toName;
+            let headX = prevMatches ? oracleRoadPrevState!.head.x : (Number((from as any)?.center?.x) + ux * Math.min(30, Math.max(10, len * 0.15)));
+            let headZ = prevMatches ? oracleRoadPrevState!.head.z : (Number((from as any)?.center?.z) + uz * Math.min(30, Math.max(10, len * 0.15)));
+            let phase: OracleRoadPhase = prevMatches ? oracleRoadPrevState!.phase : 'MOVE';
+
+            const along = (headX - Number((from as any)?.center?.x)) * ux + (headZ - Number((from as any)?.center?.z)) * uz;
+            const clampedAlong = clampNumber(along, 0, len);
+            headX = Number((from as any)?.center?.x) + ux * clampedAlong;
+            headZ = Number((from as any)?.center?.z) + uz * clampedAlong;
+            const remaining = len - clampedAlong;
+
+            if (remaining < 18) {
+              oracleRoadClearState = true;
+            } else {
+              const distToHead = Math.hypot(headX - selfPos.x, headZ - selfPos.z);
+              if (phase === 'BUILD' && distToHead > 2) phase = 'MOVE';
+
+              if (phase === 'MOVE') {
+                // Move toward the road head; switch to BUILD when close enough.
+                const step = Math.min(ORACLE_ROAD_TRAVEL_STEP_MAX, distToHead);
+                const ratio = distToHead > 0 ? (step / distToHead) : 0;
+                const tx = selfPos.x + (headX - selfPos.x) * ratio;
+                const tz = selfPos.z + (headZ - selfPos.z) * ratio;
+                const mx = roundTo(tx, 1);
+                const mz = roundTo(tz, 1);
+                const afterDist = Math.hypot(headX - mx, headZ - mz);
+                const nextPhase: OracleRoadPhase = afterDist <= 2 ? 'BUILD' : 'MOVE';
+
+                decision = {
+                  thought: `Oracle road policy: moving to pave highway between "${fromName}" and "${toName}" (${Math.round(best.distance)}u, ${best.reason}).`,
+                  action: 'MOVE',
+                  payload: { x: mx, z: mz },
+                };
+                oracleRoadPlannedNextState = {
+                  fromName,
+                  toName,
+                  head: { x: roundTo(headX, 1), z: roundTo(headZ, 1) },
+                  phase: nextPhase,
+                };
+                oracleRoadPolicyApplied = true;
+              } else {
+                // BUILD phase: lay 3 contiguous highway slabs (6×3 each) from agent position along road direction.
+                // Offsets [4, 11, 18]: all within 2–20u, spacing 7 > sqrt(5.95²+2.95²)≈6.64 → no overlap at any angle.
+                const centers = ORACLE_ROAD_SLAB_OFFSETS.map((offset) => ({
+                  x: selfPos.x + ux * offset,
+                  z: selfPos.z + uz * offset,
+                }));
+                const inRange = centers.every((c) => {
+                  const d = Math.hypot(c.x - selfPos.x, c.z - selfPos.z);
+                  return Number.isFinite(d) && d >= 2 && d <= 20;
+                });
+
+                if (!inRange) {
+                  // Shouldn't happen with configured offsets, but handle edge cases.
+                  const step = Math.min(ORACLE_ROAD_TRAVEL_STEP_MAX, distToHead);
+                  const ratio = distToHead > 0 ? (step / distToHead) : 0;
+                  const tx = selfPos.x + (headX - selfPos.x) * ratio;
+                  const tz = selfPos.z + (headZ - selfPos.z) * ratio;
+                  const mx = roundTo(tx, 1);
+                  const mz = roundTo(tz, 1);
+                  const afterDist = Math.hypot(headX - mx, headZ - mz);
+                  const nextPhase: OracleRoadPhase = afterDist <= 2 ? 'BUILD' : 'MOVE';
+                  decision = {
+                    thought: `Oracle road policy: repositioning for highway "${fromName}" -> "${toName}" (build-range constraint).`,
+                    action: 'MOVE',
+                    payload: { x: mx, z: mz },
+                  };
+                  oracleRoadPlannedNextState = {
+                    fromName,
+                    toName,
+                    head: { x: roundTo(headX, 1), z: roundTo(headZ, 1) },
+                    phase: nextPhase,
+                  };
+                  oracleRoadPolicyApplied = true;
+                } else {
+                  const rotY = Math.atan2(uz, ux);
+                  const primitives = centers.map((c) => ({
+                    shape: 'box',
+                    x: avoidZeroCoord(roundTo(c.x, 2)),
+                    y: ORACLE_ROAD_SLAB_Y,
+                    z: avoidZeroCoord(roundTo(c.z, 2)),
+                    scaleX: ORACLE_ROAD_SLAB_LENGTH,
+                    scaleY: ORACLE_ROAD_SLAB_THICKNESS,
+                    scaleZ: ORACLE_ROAD_SLAB_WIDTH,
+                    color: ORACLE_ROAD_COLOR,
+                    rotY,
+                  }));
+
+                  // Advance road head by ~20u ((18-4)+6=20) along road direction.
+                  const firstOffset = ORACLE_ROAD_SLAB_OFFSETS[0] || 4;
+                  const lastOffset = ORACLE_ROAD_SLAB_OFFSETS[ORACLE_ROAD_SLAB_OFFSETS.length - 1] || 18;
+                  const advance = (lastOffset - firstOffset) + ORACLE_ROAD_SLAB_LENGTH;
+                  const nextHeadX = selfPos.x + ux * advance;
+                  const nextHeadZ = selfPos.z + uz * advance;
+
+                  decision = {
+                    thought: `Oracle road policy: paving highway chain (${ORACLE_ROAD_SLABS_PER_TICK}× ${ORACLE_ROAD_SLAB_LENGTH}×${ORACLE_ROAD_SLAB_WIDTH} slabs) between "${fromName}" and "${toName}" (${Math.round(best.distance)}u, ${best.reason}).`,
+                    action: 'BUILD_MULTI',
+                    payload: { primitives },
+                  };
+                  oracleRoadPlannedNextState = {
+                    fromName,
+                    toName,
+                    head: { x: roundTo(nextHeadX, 1), z: roundTo(nextHeadZ, 1) },
+                    phase: 'MOVE',
+                  };
+                  oracleRoadPolicyApplied = true;
+                }
+              }
             }
           }
         }
@@ -3850,6 +4256,30 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         recentBlueprintHistory = pushRecentBlueprintName(recentBlueprintHistory, String(blueprintStatus.blueprintName));
       }
 
+      // Mouse spire anchor tracking (for spacing/cooldown guards).
+      let lastSpireAnchor = parseLastSpireAnchor(workingMemory);
+      let spireAnchors = parseSpireAnchors(workingMemory);
+      if (
+        !buildError &&
+        decision.action === 'BUILD_BLUEPRINT' &&
+        String((decision.payload as any)?.name || '').trim().toUpperCase() === 'MEGA_SERVER_SPIRE'
+      ) {
+        const ax = Number((decision.payload as any)?.anchorX);
+        const az = Number((decision.payload as any)?.anchorZ);
+        if (Number.isFinite(ax) && Number.isFinite(az)) {
+          lastSpireAnchor = { x: ax, z: az };
+          spireAnchors = pushRecentAnchor(spireAnchors, { x: ax, z: az }, 5);
+        }
+      }
+
+      // Oracle road policy state (persist across ticks via WORKING.md).
+      let oracleRoadStateToPersist: OracleRoadState | null = oracleRoadPrevState;
+      if (oracleRoadClearState) {
+        oracleRoadStateToPersist = null;
+      } else if (oracleRoadPolicyApplied && oracleRoadPlannedNextState && !buildError) {
+        oracleRoadStateToPersist = oracleRoadPlannedNextState;
+      }
+
       // Extract objective from thought (persists across ticks)
       const prevObjective = workingMemory?.match(/Current objective: (.+)/)?.[1] || '';
       const prevObjectiveStep = parseInt(workingMemory?.match(/Objective step: (\d+)/)?.[1] || '0');
@@ -3909,6 +4339,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         objectiveStep > 0 ? `Objective step: ${objectiveStep}` : '',
         currentBuildPlan ? `Current build plan: ${currentBuildPlan}` : '',
         recentBlueprintHistory.length > 0 ? `Recent blueprints: ${recentBlueprintHistory.join(', ')}` : '',
+        lastSpireAnchor ? `Last spire anchor: (${Math.round(lastSpireAnchor.x)}, ${Math.round(lastSpireAnchor.z)})` : '',
+        spireAnchors.length > 0 ? `Spire anchors: ${spireAnchors.map((pt) => `(${Math.round(pt.x)},${Math.round(pt.z)})`).join('; ')}` : '',
+        ...(agentName.toLowerCase() === 'oracle' && oracleRoadStateToPersist ? [
+          `Road target: ${oracleRoadStateToPersist.fromName} -> ${oracleRoadStateToPersist.toName}`,
+          `Road head: (${roundTo(oracleRoadStateToPersist.head.x, 1)}, ${roundTo(oracleRoadStateToPersist.head.z, 1)})`,
+          `Road phase: ${oracleRoadStateToPersist.phase}`,
+        ] : []),
         votedOn ? `Voted on: ${votedOn}` : '',
         submittedDirectives ? `Submitted directives: ${submittedDirectives}` : '',
         buildError ? `Last build error: ${buildError}` : '',
