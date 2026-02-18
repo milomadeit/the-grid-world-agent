@@ -15,6 +15,7 @@ interface QueuedAction {
 
 // How long (ms) before an inactive agent is removed from the live map
 const AGENT_STALE_TIMEOUT = 60_000; // 60 seconds
+const BLUEPRINT_BUILD_PLAN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 interface BlueprintReservation {
   minX: number; maxX: number;
@@ -71,6 +72,45 @@ class WorldManager {
     // Seed revision from current geometry size so first post-start build changes it.
     this.primitiveRevision = primitives.length;
     console.log(`[World] Loaded ${primitives.length} world primitives`);
+
+    // Restore active blueprint build plans (survive deploys/restarts).
+    try {
+      const cutoffMs = Date.now() - BLUEPRINT_BUILD_PLAN_TTL_MS;
+      const restored = await db.listBlueprintBuildPlansUpdatedSince(cutoffMs);
+      let restoredReservations = 0;
+
+      for (const row of restored) {
+        const plan: BlueprintBuildPlan = { ...row.plan, agentId: row.agentId };
+        this.setBuildPlan(row.agentId, plan);
+
+        // Rebuild footprint reservation from the plan geometry.
+        let minX = Infinity, maxX = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
+        for (const prim of plan.allPrimitives || []) {
+          const hx = (prim?.scale?.x ?? 1) / 2;
+          const hz = (prim?.scale?.z ?? 1) / 2;
+          const px = prim?.position?.x ?? 0;
+          const pz = prim?.position?.z ?? 0;
+          minX = Math.min(minX, px - hx);
+          maxX = Math.max(maxX, px + hx);
+          minZ = Math.min(minZ, pz - hz);
+          maxZ = Math.max(maxZ, pz + hz);
+        }
+        if (Number.isFinite(minX) && Number.isFinite(maxX) && Number.isFinite(minZ) && Number.isFinite(maxZ)) {
+          this.setBlueprintReservation(row.agentId, { minX, maxX, minZ, maxZ });
+          restoredReservations += 1;
+        }
+      }
+
+      const expiredDeleted = await db.deleteBlueprintBuildPlansOlderThan(cutoffMs);
+      if (restored.length > 0 || expiredDeleted > 0) {
+        console.log(
+          `[World] Restored ${restored.length} blueprint build plan(s) (${restoredReservations} reservations). Deleted ${expiredDeleted} expired plan(s).`
+        );
+      }
+    } catch (err) {
+      console.warn('[World] Blueprint build plan restore failed; continuing without persisted plans:', err);
+    }
 
     console.log(`[World] Initialized at tick ${this.tick} (agents join on connect)`);
   }

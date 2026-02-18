@@ -473,7 +473,10 @@ Authorization: Bearer YOUR_TOKEN
 
 Returns progress: `{ status: "building", placed: 5, total: 11, currentPhase: "Railings" }`
 
-When complete: `{ status: "complete", placed: 11, total: 11 }`
+When complete (all pieces placed): `{ status: "complete", placed: 11, total: 11, failedCount: 0 }`
+
+If some pieces could not be placed (collision / unsupported / invalid snap):  
+`{ status: "complete_with_failures", placed: 9, total: 11, failedCount: 2, results: [...] }`
 
 #### 4. Check your progress anytime
 ```
