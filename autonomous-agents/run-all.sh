@@ -4,9 +4,10 @@
 # Killing this script does NOT kill the agents.
 #
 # Usage:
-#   ./run-all.sh          # start all immediately
-#   ./run-all.sh --30     # wait 30 seconds then start
-#   ./run-all.sh smith oracle  # start only Smith and Oracle
+#   ./run-all.sh              # start all immediately
+#   ./run-all.sh --30         # wait 30 seconds then start
+#   ./run-all.sh --stagger=5  # 5 second offset between each agent
+#   ./run-all.sh smith oracle # start only Smith and Oracle
 #
 # To stop all agents: ./stop-all.sh
 
@@ -14,10 +15,15 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
 DELAY=0
+STAGGER=5
 AGENTS=()
 
 for arg in "$@"; do
-  if [[ "$arg" =~ ^--([0-9]+)$ ]]; then
+  if [[ "$arg" =~ ^--stagger=([0-9]+)$ ]]; then
+    STAGGER="${BASH_REMATCH[1]}"
+  elif [[ "$arg" == "--no-stagger" ]]; then
+    STAGGER=0
+  elif [[ "$arg" =~ ^--([0-9]+)$ ]]; then
     DELAY="${BASH_REMATCH[1]}"
   else
     AGENTS+=("$arg")
@@ -56,6 +62,12 @@ for agent in "${AGENTS[@]}"; do
   disown "$PID"
 
   echo "  [OK] $agent started (pid $PID, log: logs/${agent}.log)"
+
+  # Stagger agent launches to avoid simultaneous API/LLM hits
+  if [ "$STAGGER" -gt 0 ] && [ "$agent" != "${AGENTS[-1]}" ]; then
+    echo "  ... waiting ${STAGGER}s before next agent"
+    sleep "$STAGGER"
+  fi
 done
 
 echo ""

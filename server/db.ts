@@ -878,8 +878,13 @@ export async function getTerminalMessages(limit = 20): Promise<TerminalMessage[]
   }));
 }
 
-// Chat
+// Chat — only for real agent conversations, NOT system notifications
 export async function writeChatMessage(msg: TerminalMessage): Promise<TerminalMessage> {
+  // Safety net: reject System messages — they belong in terminal_messages
+  if (msg.agentName === 'System' || msg.agentId === 'system') {
+    console.warn('[DB] writeChatMessage called with System message — redirecting to terminal_messages');
+    return writeTerminalMessage(msg);
+  }
   if (!pool) {
     const saved = { ...msg, id: inMemoryStore.nextMsgId++, createdAt: msg.createdAt || Date.now() };
     inMemoryStore.chatMessages.push(saved);
@@ -897,10 +902,13 @@ export async function writeChatMessage(msg: TerminalMessage): Promise<TerminalMe
 
 export async function getChatMessages(limit = 20): Promise<TerminalMessage[]> {
   if (!pool) {
-    return inMemoryStore.chatMessages.slice(-limit);
+    return inMemoryStore.chatMessages
+      .filter(m => m.agentName !== 'System')
+      .slice(-limit);
   }
+  // Only return real agent conversations — System messages belong in terminal_messages
   const result = await pool.query(
-    'SELECT * FROM chat_messages ORDER BY created_at DESC LIMIT $1',
+    `SELECT * FROM chat_messages WHERE agent_name != 'System' ORDER BY created_at DESC LIMIT $1`,
     [limit]
   );
   return result.rows.reverse().map(row => ({
