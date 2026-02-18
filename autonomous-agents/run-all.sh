@@ -64,7 +64,8 @@ for agent in "${AGENTS[@]}"; do
   echo "  [OK] $agent started (pid $PID, log: logs/${agent}.log)"
 
   # Stagger agent launches to avoid simultaneous API/LLM hits
-  if [ "$STAGGER" -gt 0 ] && [ "$agent" != "${AGENTS[-1]}" ]; then
+  LAST_AGENT="${AGENTS[${#AGENTS[@]}-1]}"
+  if [ "$STAGGER" -gt 0 ] && [ "$agent" != "$LAST_AGENT" ]; then
     echo "  ... waiting ${STAGGER}s before next agent"
     sleep "$STAGGER"
   fi
