@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { Agent, AgentRow, WorldPrimitive, TerminalMessage, Guild, Directive, GuildMemberRow, DirectiveVoteRow } from './types.js';
+import type { Agent, AgentRow, WorldPrimitive, TerminalMessage, Guild, Directive, GuildMemberRow, DirectiveVoteRow, BlueprintBuildPlan } from './types.js';
 
 const { Pool } = pg;
 
@@ -16,6 +16,7 @@ const inMemoryStore = {
   terminalMessages: [] as TerminalMessage[],
   directives: new Map<string, Directive>(),
   directiveVotes: new Map<string, Map<string, string>>(), // directiveId -> agentId -> vote
+  blueprintBuildPlans: new Map<string, { plan: BlueprintBuildPlan; updatedAt: number }>(),
   nextMsgId: 1,
 };
 
@@ -149,6 +150,12 @@ export async function initDatabase(): Promise<void> {
         voted_at TIMESTAMP DEFAULT NOW(),
         PRIMARY KEY (directive_id, agent_id)
       );
+
+      CREATE TABLE IF NOT EXISTS blueprint_build_plans (
+        agent_id VARCHAR(255) PRIMARY KEY,
+        plan_json JSONB NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Migrate columns for existing DBs (must run before index creation)
@@ -199,6 +206,7 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_reputation_to_agent ON reputation_feedback(to_agent_id);
       CREATE INDEX IF NOT EXISTS idx_reputation_from_agent ON reputation_feedback(from_agent_id);
       CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_blueprint_build_plans_updated_at ON blueprint_build_plans(updated_at DESC);
     `);
 
     console.log('[DB] Tables initialized');
@@ -731,6 +739,105 @@ export async function getAllWorldPrimitives(): Promise<WorldPrimitive[]> {
     color: row.color,
     createdAt: new Date(row.created_at).getTime()
   }));
+}
+
+// ===========================================
+// Blueprint Build Plans (Persistence Layer)
+// ===========================================
+
+export type PersistedBlueprintBuildPlan = {
+  agentId: string;
+  plan: BlueprintBuildPlan;
+  updatedAt: number;
+};
+
+function parseBlueprintBuildPlanJson(value: unknown): BlueprintBuildPlan | null {
+  if (!value) return null;
+  if (typeof value === 'object') return value as BlueprintBuildPlan;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as BlueprintBuildPlan;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function upsertBlueprintBuildPlan(agentId: string, plan: BlueprintBuildPlan): Promise<void> {
+  if (!pool) {
+    inMemoryStore.blueprintBuildPlans.set(agentId, { plan, updatedAt: Date.now() });
+    return;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO blueprint_build_plans (agent_id, plan_json, updated_at)
+      VALUES ($1, $2::jsonb, NOW())
+      ON CONFLICT (agent_id) DO UPDATE SET
+        plan_json = EXCLUDED.plan_json,
+        updated_at = NOW()
+    `,
+    [agentId, JSON.stringify(plan)],
+  );
+}
+
+export async function deleteBlueprintBuildPlan(agentId: string): Promise<void> {
+  if (!pool) {
+    inMemoryStore.blueprintBuildPlans.delete(agentId);
+    return;
+  }
+
+  await pool.query('DELETE FROM blueprint_build_plans WHERE agent_id = $1', [agentId]);
+}
+
+export async function listBlueprintBuildPlansUpdatedSince(cutoffMs: number): Promise<PersistedBlueprintBuildPlan[]> {
+  if (!pool) {
+    const out: PersistedBlueprintBuildPlan[] = [];
+    for (const [agentId, entry] of inMemoryStore.blueprintBuildPlans.entries()) {
+      if (entry.updatedAt >= cutoffMs) {
+        out.push({ agentId, plan: entry.plan, updatedAt: entry.updatedAt });
+      }
+    }
+    // Most recent first.
+    out.sort((a, b) => b.updatedAt - a.updatedAt);
+    return out;
+  }
+
+  const cutoff = new Date(cutoffMs);
+  const result = await pool.query<{ agent_id: string; plan_json: unknown; updated_at: Date }>(
+    'SELECT agent_id, plan_json, updated_at FROM blueprint_build_plans WHERE updated_at >= $1 ORDER BY updated_at DESC',
+    [cutoff],
+  );
+
+  const out: PersistedBlueprintBuildPlan[] = [];
+  for (const row of result.rows) {
+    const plan = parseBlueprintBuildPlanJson(row.plan_json);
+    if (!plan) continue;
+    out.push({
+      agentId: row.agent_id,
+      plan,
+      updatedAt: new Date(row.updated_at).getTime(),
+    });
+  }
+  return out;
+}
+
+export async function deleteBlueprintBuildPlansOlderThan(cutoffMs: number): Promise<number> {
+  if (!pool) {
+    let removed = 0;
+    for (const [agentId, entry] of inMemoryStore.blueprintBuildPlans.entries()) {
+      if (entry.updatedAt < cutoffMs) {
+        inMemoryStore.blueprintBuildPlans.delete(agentId);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  const cutoff = new Date(cutoffMs);
+  const result = await pool.query('DELETE FROM blueprint_build_plans WHERE updated_at < $1', [cutoff]);
+  return result.rowCount ?? 0;
 }
 
 // ===========================================

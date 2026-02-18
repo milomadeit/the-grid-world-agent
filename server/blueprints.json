@@ -29,7 +29,7 @@
 						"x": -2,
 						"y": 1,
 						"z": -2.5,
-						"scaleX": 1,
+						"scaleX": 0.8,
 						"scaleY": 2,
 						"scaleZ": 0.3,
 						"color": "#A0522D"
@@ -59,7 +59,7 @@
 						"x": 2,
 						"y": 1,
 						"z": -2.5,
-						"scaleX": 1,
+						"scaleX": 0.8,
 						"scaleY": 2,
 						"scaleZ": 0.3,
 						"color": "#A0522D"
@@ -74,7 +74,7 @@
 						"x": 0,
 						"y": 1,
 						"z": 2.5,
-						"scaleX": 5,
+						"scaleX": 4.8,
 						"scaleY": 2,
 						"scaleZ": 0.3,
 						"color": "#A0522D"
@@ -228,7 +228,7 @@
 					{
 						"shape": "cone",
 						"x": 0,
-						"y": 9.5,
+						"y": 9.85,
 						"z": 0,
 						"scaleX": 2,
 						"scaleY": 2,
@@ -238,12 +238,110 @@
 					{
 						"shape": "sphere",
 						"x": 0,
-						"y": 10.8,
+						"y": 11.25,
 						"z": 0,
 						"scaleX": 0.8,
 						"scaleY": 0.8,
 						"scaleZ": 0.8,
 						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"NODE_FOUNDATION": {
+		"description": "Standard foundation pad for starting a new node",
+		"category": "infrastructure",
+		"tags": [
+			"foundation",
+			"node",
+			"starter",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 2,
+		"customization": "Place at the center of a new node before densifying around it. Change colors to mark districts.",
+		"phases": [
+			{
+				"name": "Foundation",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.2,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 0.4,
+						"scaleZ": 10,
+						"color": "#374151"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.9,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 1,
+						"scaleZ": 0.8,
+						"color": "#6B7280"
+					}
+				]
+			}
+		]
+	},
+	"ROAD_SEGMENT": {
+		"description": "Straight road segment (connector primitive)",
+		"category": "infrastructure",
+		"tags": [
+			"road",
+			"connector",
+			"infrastructure"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 1,
+		"customization": "Chain segments to connect nodes. Rotate by 90 degrees for north-south roads.",
+		"phases": [
+			{
+				"name": "Segment",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.05,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 0.1,
+						"scaleZ": 2,
+						"color": "#94A3B8"
+					}
+				]
+			}
+		]
+	},
+	"INTERSECTION": {
+		"description": "Road intersection / plaza pad (connector primitive)",
+		"category": "infrastructure",
+		"tags": [
+			"road",
+			"intersection",
+			"connector"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 1,
+		"customization": "Use as a junction between ROAD_SEGMENT chains or as a small plaza center.",
+		"phases": [
+			{
+				"name": "Intersection",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.05,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 0.1,
+						"scaleZ": 4,
+						"color": "#A8B0BB"
 					}
 				]
 			}
@@ -280,7 +378,7 @@
 						"x": 0,
 						"y": 1.5,
 						"z": 1.5,
-						"scaleX": 4,
+						"scaleX": 3.8,
 						"scaleY": 3,
 						"scaleZ": 0.3,
 						"color": "#8B7355"
@@ -331,7 +429,7 @@
 						"color": "#E74C3C"
 					},
 					{
-						"shape": "box",
+						"shape": "plane",
 						"x": -1.5,
 						"y": 1.5,
 						"z": 1.2,
@@ -341,7 +439,7 @@
 						"color": "#8B4513"
 					},
 					{
-						"shape": "box",
+						"shape": "plane",
 						"x": 0,
 						"y": 1.5,
 						"z": 1.2,
@@ -351,7 +449,7 @@
 						"color": "#8B4513"
 					},
 					{
-						"shape": "box",
+						"shape": "plane",
 						"x": 1.5,
 						"y": 1.5,
 						"z": 1.2,
@@ -701,7 +799,7 @@
 						"color": "#2C2C2C"
 					},
 					{
-						"shape": "box",
+						"shape": "plane",
 						"x": 0,
 						"y": 0.4,
 						"z": -0.4,
@@ -711,7 +809,7 @@
 						"color": "#404040"
 					},
 					{
-						"shape": "box",
+						"shape": "plane",
 						"x": 0,
 						"y": 1.0,
 						"z": -0.4,
@@ -721,7 +819,7 @@
 						"color": "#404040"
 					},
 					{
-						"shape": "box",
+						"shape": "plane",
 						"x": 0,
 						"y": 1.6,
 						"z": -0.4,
@@ -731,7 +829,7 @@
 						"color": "#404040"
 					},
 					{
-						"shape": "box",
+						"shape": "plane",
 						"x": 0,
 						"y": 2.2,
 						"z": -0.4,
@@ -816,6 +914,16 @@
 						"color": "#707070"
 					},
 					{
+						"shape": "torus",
+						"x": 0,
+						"y": 5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 0.2,
+						"scaleZ": 1,
+						"color": "#606060"
+					},
+					{
 						"shape": "cylinder",
 						"x": 0,
 						"y": 7,
@@ -862,24 +970,14 @@
 						"color": "#FF0000"
 					},
 					{
-						"shape": "sphere",
+						"shape": "circle",
 						"x": 0,
-						"y": 5,
+						"y": 5.3,
 						"z": 0,
 						"scaleX": 0.2,
 						"scaleY": 0.2,
 						"scaleZ": 0.2,
 						"color": "#FF0000"
-					},
-					{
-						"shape": "torus",
-						"x": 0,
-						"y": 5,
-						"z": 0,
-						"scaleX": 1,
-						"scaleY": 0.2,
-						"scaleZ": 1,
-						"color": "#606060"
 					}
 				]
 			}
@@ -913,9 +1011,19 @@
 						"color": "#2C3E50"
 					},
 					{
+						"shape": "torus",
+						"x": 0,
+						"y": 0.65,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 0.3,
+						"scaleZ": 1.5,
+						"color": "#F39C12"
+					},
+					{
 						"shape": "torusKnot",
 						"x": 0,
-						"y": 2,
+						"y": 1.4,
 						"z": 0,
 						"scaleX": 1.2,
 						"scaleY": 1.2,
@@ -925,7 +1033,7 @@
 					{
 						"shape": "sphere",
 						"x": 0,
-						"y": 3.5,
+						"y": 2.4,
 						"z": 0,
 						"scaleX": 0.8,
 						"scaleY": 0.8,
@@ -933,19 +1041,9 @@
 						"color": "#3498DB"
 					},
 					{
-						"shape": "torus",
-						"x": 0,
-						"y": 1,
-						"z": 0,
-						"scaleX": 1.5,
-						"scaleY": 0.3,
-						"scaleZ": 1.5,
-						"color": "#F39C12"
-					},
-					{
 						"shape": "dodecahedron",
 						"x": 0,
-						"y": 4.5,
+						"y": 3.05,
 						"z": 0,
 						"scaleX": 0.5,
 						"scaleY": 0.5,
@@ -1030,7 +1128,7 @@
 					{
 						"shape": "sphere",
 						"x": 0,
-						"y": 2.3,
+						"y": 2.6,
 						"z": 0,
 						"scaleX": 0.8,
 						"scaleY": 1,
@@ -1038,7 +1136,7 @@
 						"color": "#00CED1"
 					},
 					{
-						"shape": "torus",
+						"shape": "circle",
 						"x": 0,
 						"y": 1.9,
 						"z": 0,
@@ -1132,7 +1230,7 @@
 			"solo"
 		],
 		"difficulty": "easy",
-		"totalPrimitives": 4,
+		"totalPrimitives": 2,
 		"customization": "Green (#228B22) for summer, orange (#FF8C00) for autumn, pink (#FFB6C1) for cherry blossom. Scale up for ancient tree.",
 		"phases": [
 			{
@@ -1157,26 +1255,6 @@
 						"scaleY": 2.5,
 						"scaleZ": 3,
 						"color": "#228B22"
-					},
-					{
-						"shape": "sphere",
-						"x": -1,
-						"y": 2.5,
-						"z": 0.5,
-						"scaleX": 2,
-						"scaleY": 1.8,
-						"scaleZ": 2,
-						"color": "#2E8B57"
-					},
-					{
-						"shape": "sphere",
-						"x": 1,
-						"y": 2.8,
-						"z": -0.5,
-						"scaleX": 1.8,
-						"scaleY": 1.5,
-						"scaleZ": 1.8,
-						"color": "#3CB371"
 					}
 				]
 			}
@@ -1220,7 +1298,7 @@
 					},
 					{
 						"shape": "octahedron",
-						"x": -1,
+						"x": -2,
 						"y": 0.6,
 						"z": 1,
 						"scaleX": 1.2,
@@ -1230,7 +1308,7 @@
 					},
 					{
 						"shape": "dodecahedron",
-						"x": 0.5,
+						"x": 1.3,
 						"y": 0.4,
 						"z": -1,
 						"scaleX": 0.8,
@@ -1432,7 +1510,7 @@
 						"x": 0,
 						"y": 2,
 						"z": 3,
-						"scaleX": 8,
+						"scaleX": 7.8,
 						"scaleY": 4,
 						"scaleZ": 0.2,
 						"color": "#2C2C2C"
@@ -1600,9 +1678,9 @@
 					{
 						"shape": "box",
 						"x": 0,
-						"y": 1.5,
+						"y": 1.8,
 						"z": 3,
-						"scaleX": 10,
+						"scaleX": 9.6,
 						"scaleY": 3,
 						"scaleZ": 0.3,
 						"color": "#E8E0D0"
@@ -1610,7 +1688,7 @@
 					{
 						"shape": "box",
 						"x": -5,
-						"y": 1.5,
+						"y": 1.8,
 						"z": 0,
 						"scaleX": 0.3,
 						"scaleY": 3,
@@ -1620,7 +1698,7 @@
 					{
 						"shape": "box",
 						"x": 5,
-						"y": 1.5,
+						"y": 1.8,
 						"z": 0,
 						"scaleX": 0.3,
 						"scaleY": 3,
@@ -1635,7 +1713,7 @@
 					{
 						"shape": "cylinder",
 						"x": -3,
-						"y": 1.5,
+						"y": 1.8,
 						"z": -3.2,
 						"scaleX": 0.4,
 						"scaleY": 3,
@@ -1645,7 +1723,7 @@
 					{
 						"shape": "cylinder",
 						"x": -1,
-						"y": 1.5,
+						"y": 1.8,
 						"z": -3.2,
 						"scaleX": 0.4,
 						"scaleY": 3,
@@ -1655,7 +1733,7 @@
 					{
 						"shape": "cylinder",
 						"x": 1,
-						"y": 1.5,
+						"y": 1.8,
 						"z": -3.2,
 						"scaleX": 0.4,
 						"scaleY": 3,
@@ -1665,7 +1743,7 @@
 					{
 						"shape": "cylinder",
 						"x": 3,
-						"y": 1.5,
+						"y": 1.8,
 						"z": -3.2,
 						"scaleX": 0.4,
 						"scaleY": 3,
@@ -1850,7 +1928,7 @@
 					{
 						"shape": "sphere",
 						"x": 0,
-						"y": 2.7,
+						"y": 3.45,
 						"z": 0,
 						"scaleX": 0.4,
 						"scaleY": 0.5,
@@ -1892,7 +1970,7 @@
 						"x": 0,
 						"y": 2,
 						"z": 3,
-						"scaleX": 8,
+						"scaleX": 7.8,
 						"scaleY": 4,
 						"scaleZ": 0.2,
 						"color": "#A0A0A0"
@@ -2036,7 +2114,7 @@
 					},
 					{
 						"shape": "box",
-						"x": 4.5,
+						"x": 6,
 						"y": 1.4,
 						"z": 0,
 						"scaleX": 2,
@@ -2046,7 +2124,7 @@
 					},
 					{
 						"shape": "box",
-						"x": -4.5,
+						"x": -6,
 						"y": 1.4,
 						"z": 0,
 						"scaleX": 2,
@@ -2063,7 +2141,7 @@
 						"shape": "box",
 						"x": 0,
 						"y": 1.4,
-						"z": 4.5,
+						"z": 6,
 						"scaleX": 5,
 						"scaleY": 2.4,
 						"scaleZ": 2,
@@ -2073,7 +2151,7 @@
 						"shape": "box",
 						"x": 0,
 						"y": 1.4,
-						"z": -4.5,
+						"z": -6,
 						"scaleX": 5,
 						"scaleY": 2.4,
 						"scaleZ": 2,
@@ -2090,7 +2168,7 @@
 						"color": "#64748B"
 					},
 					{
-						"shape": "torus",
+						"shape": "circle",
 						"x": 0,
 						"y": 8.8,
 						"z": 0,
@@ -2102,8 +2180,8 @@
 					{
 						"shape": "box",
 						"x": 0,
-						"y": 1.5,
-						"z": -6.4,
+						"y": 1.9,
+						"z": -7.66,
 						"scaleX": 4,
 						"scaleY": 3,
 						"scaleZ": 1.4,
@@ -2157,7 +2235,7 @@
 					{
 						"shape": "sphere",
 						"x": 0,
-						"y": 24.6,
+						"y": 24.8,
 						"z": 0,
 						"scaleX": 1.6,
 						"scaleY": 1.6,
@@ -2172,7 +2250,7 @@
 					{
 						"shape": "cylinder",
 						"x": 0,
-						"y": 28.6,
+						"y": 29.6,
 						"z": 0,
 						"scaleX": 2.3,
 						"scaleY": 8,
@@ -2182,7 +2260,7 @@
 					{
 						"shape": "box",
 						"x": 0,
-						"y": 34.1,
+						"y": 35.1,
 						"z": 0,
 						"scaleX": 2,
 						"scaleY": 3,
@@ -2192,7 +2270,7 @@
 					{
 						"shape": "cylinder",
 						"x": 0,
-						"y": 40.1,
+						"y": 41.1,
 						"z": 0,
 						"scaleX": 2,
 						"scaleY": 9,
@@ -2202,7 +2280,7 @@
 					{
 						"shape": "torus",
 						"x": 0,
-						"y": 44.9,
+						"y": 45.85,
 						"z": 0,
 						"scaleX": 2.8,
 						"scaleY": 0.5,
@@ -2212,7 +2290,7 @@
 					{
 						"shape": "sphere",
 						"x": 0,
-						"y": 45.9,
+						"y": 46.85,
 						"z": 0,
 						"scaleX": 1.5,
 						"scaleY": 1.5,
@@ -2227,7 +2305,7 @@
 					{
 						"shape": "cone",
 						"x": 0,
-						"y": 52.4,
+						"y": 54.1,
 						"z": 0,
 						"scaleX": 1.8,
 						"scaleY": 13,
@@ -2237,7 +2315,7 @@
 					{
 						"shape": "cylinder",
 						"x": 0,
-						"y": 60.4,
+						"y": 62.1,
 						"z": 0,
 						"scaleX": 0.8,
 						"scaleY": 3,
@@ -2247,7 +2325,7 @@
 					{
 						"shape": "cone",
 						"x": 0,
-						"y": 63.9,
+						"y": 65.6,
 						"z": 0,
 						"scaleX": 0.6,
 						"scaleY": 4,
@@ -2255,9 +2333,9 @@
 						"color": "#F8FAFC"
 					},
 					{
-						"shape": "torus",
+						"shape": "circle",
 						"x": 0,
-						"y": 60.6,
+						"y": 62.3,
 						"z": 0,
 						"scaleX": 1.4,
 						"scaleY": 0.4,
@@ -2267,7 +2345,7 @@
 					{
 						"shape": "sphere",
 						"x": 0,
-						"y": 66.6,
+						"y": 68.3,
 						"z": 0,
 						"scaleX": 1.4,
 						"scaleY": 1.4,

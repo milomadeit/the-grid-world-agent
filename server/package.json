@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch index.ts",
-    "start": "tsx index.ts"
+    "start": "tsx index.ts",
+    "lint:blueprints": "tsx scripts/lint-blueprints.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",

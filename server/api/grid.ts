@@ -20,113 +20,7 @@ import {
   BUILD_CREDIT_CONFIG
 } from '../types.js';
 import type { BlueprintBuildPlan } from '../types.js';
-
-// --- Build Validation ---
-
-interface ValidationResult {
-  valid: boolean;
-  correctedY?: number;
-  error?: string;
-}
-
-const EXEMPT_SHAPES = new Set(['plane', 'circle']);
-const SNAP_TOLERANCE = 0.25;
-const OVERLAP_TOLERANCE = 0.05; // allow touching but not intersecting
-
-/** Check if two axis-aligned bounding boxes overlap (with tolerance). */
-function boxesOverlap(
-  a: { x: number; y: number; z: number },
-  aScale: { x: number; y: number; z: number },
-  b: { x: number; y: number; z: number },
-  bScale: { x: number; y: number; z: number },
-): boolean {
-  const overlapX = Math.abs(a.x - b.x) < (aScale.x / 2 + bScale.x / 2 - OVERLAP_TOLERANCE);
-  const overlapY = Math.abs(a.y - b.y) < (aScale.y / 2 + bScale.y / 2 - OVERLAP_TOLERANCE);
-  const overlapZ = Math.abs(a.z - b.z) < (aScale.z / 2 + bScale.z / 2 - OVERLAP_TOLERANCE);
-  return overlapX && overlapY && overlapZ;
-}
-
-function validateBuildPosition(
-  shape: string,
-  position: { x: number; y: number; z: number },
-  scale: { x: number; y: number; z: number },
-  existingPrimitives: Array<{
-    position: { x: number; y: number; z: number };
-    scale: { x: number; y: number; z: number };
-    shape: string;
-  }>
-): ValidationResult {
-  // Exempt shapes skip validation (roofs, signs, decorative planes)
-  if (EXEMPT_SHAPES.has(shape)) {
-    return { valid: true };
-  }
-
-  const bottomEdge = position.y - scale.y / 2;
-
-  // --- Y-axis validation: determine correctedY ---
-  let correctedY: number | undefined;
-
-  // Ground contact: bottom edge within tolerance of y=0
-  if (Math.abs(bottomEdge) <= SNAP_TOLERANCE) {
-    correctedY = scale.y / 2;
-  } else {
-    // Stacking: check if bottom edge rests on top of any existing shape
-    for (const existing of existingPrimitives) {
-      if (EXEMPT_SHAPES.has(existing.shape)) continue;
-
-      const existingTopEdge = existing.position.y + existing.scale.y / 2;
-
-      if (Math.abs(bottomEdge - existingTopEdge) <= SNAP_TOLERANCE) {
-        const overlapX = Math.abs(position.x - existing.position.x) < (existing.scale.x / 2 + scale.x / 2);
-        const overlapZ = Math.abs(position.z - existing.position.z) < (existing.scale.z / 2 + scale.z / 2);
-
-        if (overlapX && overlapZ) {
-          correctedY = existingTopEdge + scale.y / 2;
-          break;
-        }
-      }
-    }
-  }
-
-  // If no valid Y found, shape is floating
-  if (correctedY === undefined) {
-    let bestY = scale.y / 2;
-    for (const existing of existingPrimitives) {
-      if (EXEMPT_SHAPES.has(existing.shape)) continue;
-
-      const existingTopEdge = existing.position.y + existing.scale.y / 2;
-      const overlapX = Math.abs(position.x - existing.position.x) < (existing.scale.x / 2 + scale.x / 2);
-      const overlapZ = Math.abs(position.z - existing.position.z) < (existing.scale.z / 2 + scale.z / 2);
-
-      if (overlapX && overlapZ) {
-        const candidateY = existingTopEdge + scale.y / 2;
-        if (Math.abs(candidateY - position.y) < Math.abs(bestY - position.y)) {
-          bestY = candidateY;
-        }
-      }
-    }
-
-    return {
-      valid: false,
-      correctedY: bestY,
-      error: `Shape would float at y=${position.y.toFixed(2)}. Nearest valid y=${bestY.toFixed(2)} (ground or top of existing shape).`
-    };
-  }
-
-  // --- XZ overlap rejection (AABB check against corrected position) ---
-  const correctedPos = { x: position.x, y: correctedY, z: position.z };
-  for (const existing of existingPrimitives) {
-    if (EXEMPT_SHAPES.has(existing.shape)) continue;
-    if (boxesOverlap(correctedPos, scale, existing.position, existing.scale)) {
-      return {
-        valid: false,
-        error: `Overlaps existing ${existing.shape} at (${existing.position.x.toFixed(1)}, ${existing.position.y.toFixed(1)}, ${existing.position.z.toFixed(1)}). Move at least ${Math.max(scale.x, scale.z).toFixed(1)} units away.`
-      };
-    }
-  }
-
-  return { valid: true, correctedY };
-}
+import { EXEMPT_SHAPES, validateBuildPosition } from '../build-validation.js';
 
 // --- Spatial Computation Helpers ---
 
@@ -1348,6 +1242,34 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     world.setBuildPlan(agentId, plan);
     world.setBlueprintReservation(agentId, { minX: footMinX, maxX: footMaxX, minZ: footMinZ, maxZ: footMaxZ });
 
+    // Persist plan so deploys/restarts don't wipe in-flight builds.
+    try {
+      await db.upsertBlueprintBuildPlan(agentId, plan);
+    } catch (err: any) {
+      world.clearBuildPlan(agentId);
+      console.error('[Blueprint] Failed to persist build plan:', err);
+      return reply.code(500).send({
+        error: 'Failed to persist build plan. Try again shortly.',
+      });
+    }
+
+    // Milestone broadcast: blueprint started.
+    try {
+      const builder = await db.getAgent(agentId);
+      const builderName = builder?.name || agentId;
+      const sysMsg = {
+        id: 0,
+        agentId: 'system',
+        agentName: 'System',
+        message: `${builderName} started ${body.name} at (${body.anchorX}, ${body.anchorZ}) [0/${allPrimitives.length}]`,
+        createdAt: Date.now(),
+      };
+      await db.writeChatMessage(sysMsg);
+      world.broadcastChat('system', sysMsg.message, 'System');
+    } catch (err) {
+      console.warn('[Blueprint] Failed to broadcast start message:', err);
+    }
+
     return {
       blueprintName: body.name,
       totalPrimitives: allPrimitives.length,
@@ -1421,7 +1343,14 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           Math.abs(p.position.x - position.x) < 20 &&
           Math.abs(p.position.z - position.z) < 20
         );
-        const validation = validateBuildPosition(prim.shape, position, prim.scale, relevant);
+        let validation = validateBuildPosition(prim.shape, position, prim.scale, relevant);
+
+        // Salvage floating (or mis-snapped) pieces by applying suggested correctedY once.
+        if (!validation.valid && validation.correctedY !== undefined) {
+          position.y = validation.correctedY;
+          validation = validateBuildPosition(prim.shape, position, prim.scale, relevant);
+        }
+
         if (!validation.valid) {
           results.push({
             index: idx,
@@ -1430,6 +1359,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           });
           continue;
         }
+
         if (validation.correctedY !== undefined) {
           position.y = validation.correctedY;
         }
@@ -1485,11 +1415,38 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     // Check completion
     if (plan.nextIndex >= plan.totalPrimitives) {
+      const failedCount = plan.totalPrimitives - plan.placedCount;
+      const status = failedCount === 0 ? 'complete' : 'complete_with_failures';
+
+      // Broadcast completion truth.
+      const completionMsg = failedCount === 0
+        ? `${builderName} completed ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) [${plan.placedCount}/${plan.totalPrimitives}]`
+        : `${builderName} completed ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) with failures: placed ${plan.placedCount}/${plan.totalPrimitives}, failed ${failedCount}`;
+      const sysMsg = {
+        id: 0,
+        agentId: 'system',
+        agentName: 'System',
+        message: completionMsg,
+        createdAt: Date.now(),
+      };
+      await db.writeChatMessage(sysMsg);
+      world.broadcastChat('system', sysMsg.message, 'System');
+
+      try {
+        await db.deleteBlueprintBuildPlan(agentId);
+      } catch (err) {
+        console.error('[Blueprint] Failed to delete persisted build plan on completion:', err);
+        return reply.code(500).send({
+          error: 'Blueprint completed, but server failed to finalize build plan persistence. Try BUILD_CONTINUE again.',
+        });
+      }
+
       world.clearBuildPlan(agentId);
       return {
-        status: 'complete',
+        status,
         placed: plan.placedCount,
         total: plan.totalPrimitives,
+        failedCount,
         results,
       };
     }
@@ -1503,6 +1460,12 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         currentPhase = phase.name;
         break;
       }
+    }
+
+    try {
+      await db.upsertBlueprintBuildPlan(agentId, plan);
+    } catch (err) {
+      console.error('[Blueprint] Failed to persist build plan progress:', err);
     }
 
     return {
@@ -1556,6 +1519,13 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const plan = world.getBuildPlan(agentId);
     if (!plan) {
       return reply.code(404).send({ error: 'No active build plan to cancel.' });
+    }
+
+    try {
+      await db.deleteBlueprintBuildPlan(agentId);
+    } catch (err) {
+      console.error('[Blueprint] Failed to delete persisted build plan on cancel:', err);
+      return reply.code(500).send({ error: 'Failed to cancel build plan. Try again shortly.' });
     }
 
     const piecesPlaced = plan.placedCount;

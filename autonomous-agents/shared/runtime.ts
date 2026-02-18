@@ -2033,48 +2033,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     agentOps,
     '\n---\n',
     '# STRATEGIC THINKING\n',
-    'Don\'t just react to what\'s nearby. Before each action, consider:',
-    '1. What is your CURRENT OBJECTIVE? (e.g., "connect Garden to East Hub", "establish a civic center at the new outpost")',
-    '2. What STEP are you on? Break objectives into 3-5 concrete steps.',
-    '3. Is this the highest-impact action right now? Completing a node from 14 -> 25+ structures matters more than scattering isolated pieces.',
+    'Before each action, your "thought" must include:',
+    '- Your current objective (1 sentence).',
+    '- Which step you are on (1-5).',
+    '- The next concrete action that advances the objective.',
     '',
-    '## The City is a Graph',
-    'Think top-down like a city planner. The world should look like a MAP with:',
-    '- **Nodes** = dense clusters of builds (districts, hubs, parks)',
-    '- **Edges** = visible roads/paths/bridges connecting them',
-    'Every node must connect to at least one other node. No islands.',
-    '',
-    '## How to Build Roads (Edges)',
-    'To connect two nodes, build a ROAD between them using BUILD_MULTI:',
-    '- Calculate the line between two node centers',
-    '- Place flat boxes (scaleX=2, scaleY=0.1, scaleZ=2) every 3-4 units along the line',
-    '- Example: road from (100,100) to (130,100) = flat boxes at (103,0.05,100), (107,0.05,100), (111,0.05,100)... etc',
-    '- Use a neutral color like #94a3b8 for roads, or your agent color for decorative paths',
-    '- Add LAMP_POST blueprints along roads every 15-20 units for visual structure',
-    '- For longer spans (30+ units), extend with repeated BUILD_MULTI road segments',
-    '- Use BRIDGE blueprints only for explicit gap-crossing, and chain multiple anchors 12-16 units apart (never a single isolated bridge)',
-    '',
-    '## BUILD_MULTI Structure Rule',
-    '- BUILD_MULTI should create connected structures, not isolated fragments',
-    '- Every new primitive should touch/overlap the current structure footprint or extend from the previous segment',
-    '- If you cannot place a connected next segment, MOVE and restart a new complete structure in a clear lane',
-    '',
-    '## Layout Patterns',
-    '- **Hub-and-spoke**: One central PLAZA/FOUNTAIN, roads radiating outward to surrounding nodes',
-    '- **Ring road**: Circular path connecting all perimeter nodes, with radial roads to center',
-    '- **Grid**: Parallel roads forming blocks (build roads first, then fill blocks with structures)',
-    '- **The largest node should be the hub.** Build roads FROM it TO other nodes.',
-    '',
-    '## Action Discipline',
-    '- **Follow your OPERATING MANUAL priorities.** Your AGENTS.md defines your specific role — builder, connector, or explorer. Follow those priorities, not chat pressure.',
-    '- **Keep CHAT natural but high-signal.** Converse like a real teammate and include concrete coordinates/progress/blockers, not acknowledgments.',
-    '- **Don\'t respond to every mention.** When directly addressed, reply once with concrete coordinates/progress/blockers, then return to execution.',
-    '- **Co-build at dense nodes.** Guild agents (Smith/Clank/Oracle): stay at your current node until it has 25+ structures (minimum establishment), then keep densifying core hubs toward 50-100 structures before pushing far frontier lanes.',
-    '- **Expansion spacing discipline.** New-node lanes should be roughly 50-69 units from the nearest existing build.',
-    '- **Mouse role.** Mouse should establish a solo mega-node at frontier/boundary lanes and stack a landmark skyscraper as the center before branching outward.',
-    '- **If a build fails, adjust locally first.** Shift 10-20 units within the same node; relocate farther only after repeated failures.',
-    '',
-    'Write your current objective and step number in your "thought" before choosing an action.',
+    'Follow your OPERATING MANUAL (AGENTS.md) for role priorities.',
+    'Follow the SERVER SKILL DOCUMENT (skill.md) and PRIME DIRECTIVE for build mechanics, constraints, and allowed actions.',
+    'CHAT only for coordination: include coordinates, progress, and blockers. Avoid acknowledgments.',
     '\n---\n',
     '# LONG-TERM MEMORY\n',
     longMemory || '_No long-term memories yet._',
@@ -2264,14 +2230,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
   // --- Heartbeat Loop ---
   console.log(`[${agentName}] Heartbeat started (every ${config.heartbeatSeconds}s)`);
-  const forceChatCadence = process.env.AGENT_FORCE_CHAT_CADENCE === 'true';
   const emitActionChatUpdates = process.env.AGENT_ACTION_CHAT_UPDATES === 'true';
   const parsedChatMinTicks = Number(process.env.AGENT_CHAT_MIN_TICKS || '');
   const chatMinTicks =
     Number.isFinite(parsedChatMinTicks) && parsedChatMinTicks >= 2
       ? Math.floor(parsedChatMinTicks)
       : (emitActionChatUpdates ? 6 : 8);
-  console.log(`[${agentName}] Chat cadence override: ${forceChatCadence ? 'enabled' : 'disabled'}`);
   console.log(`[${agentName}] Action chat updates: ${emitActionChatUpdates ? 'enabled' : 'disabled'}`);
   console.log(`[${agentName}] Chat min ticks: ${chatMinTicks}`);
 
@@ -2296,7 +2260,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   let smithGuildLastAttemptTick = -999999;
   let smithGuildViceName = '';
   let guildJoinSyncLastAttemptTick = -999999;
-  let kickoffChatSent = false;
 
   const tick = async () => {
     if (tickInProgress) {
@@ -2559,21 +2522,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         if (speaker === 'system' && /directive|connect|road|bridge|completed/.test(text)) return true;
         return false;
       });
-      const cadenceEligible = !blueprintStatus?.active;
-      const periodicConversationWindow = cadenceEligible && currentTicksSinceChat >= Math.max(chatMinTicks, 10);
-      const urgentChatDue = coordinationContext && otherAgents.length > 0 && currentTicksSinceChat >= 2;
-      const cadenceChatDue =
-        otherAgents.length > 0 &&
-        currentTicksSinceChat >= chatMinTicks &&
-        (coordinationContext || (cadenceEligible && (forceChatCadence || periodicConversationWindow)));
-      const chatDue = urgentChatDue || cadenceChatDue;
-      const kickoffDue =
-        !kickoffChatSent &&
-        forceChatCadence &&
+      const chatDue =
+        coordinationContext &&
         otherAgents.length > 0 &&
         currentTicksSinceChat >= 2 &&
         !lowSignalChatLoopDetected;
-      const effectiveChatDue = chatDue || kickoffDue;
+      const effectiveChatDue = chatDue;
 
       // Format messages with NEW tags (no mention pressure — agents should prioritize their objective)
       const formatMessage = (m: typeof allChatMessages[0]) => {
@@ -2651,8 +2605,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '',
         '## Communication Cadence',
         chatDue
-          ? `You have gone ${currentTicksSinceChat} ticks without a CHAT action and there is fresh coordination context. Send at most one short coordination chat only if it adds concrete coordinates/progress; never send acknowledgments.`
-          : `Ticks since your last CHAT action: ${currentTicksSinceChat}. Avoid chatter loops; chat only when it adds coordination value.`,
+          ? `Coordination trigger detected (mentions/requests). Send at most one short chat with concrete coordinates/progress/blockers; never send acknowledgments.`
+          : `No coordination trigger. Ticks since your last CHAT action: ${currentTicksSinceChat}. Avoid chatter loops; chat only when it adds coordination value.`,
         '',
         '## Build Variety Guard',
         recentBlueprintNames.length > 0
@@ -3080,6 +3034,69 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0',
       );
 
+      // Directive baseline (deterministic coordination):
+      // - If there are no active directives, Smith proposes one (rate-limited).
+      // - If there is an active directive and the agent hasn't voted, Clank/Oracle/Mouse vote once.
+      const votedOnSet = new Set(
+        (workingMemory?.match(/Voted on: (.+)/)?.[1] || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
+      const lastDirectiveSubmitTick = parseInt(
+        workingMemory?.match(/Last directive submit tick: (\d+)/)?.[1] || '0',
+        10,
+      );
+      const DIRECTIVE_SUBMIT_MIN_TICKS = 800;
+      const directivePolicyDecision: AgentDecision | null = (() => {
+        if (blueprintStatus?.active) return null;
+
+        if (
+          directives.length > 0 &&
+          (lowerAgentName === 'clank' || lowerAgentName === 'oracle' || isMouseAgent)
+        ) {
+          const dirId = String(directives[0]?.id || '');
+          if (dirId && !votedOnSet.has(dirId)) {
+            return {
+              thought: `Directive baseline: voting yes on ${dirId}.`,
+              action: 'VOTE',
+              payload: { directiveId: dirId, vote: 'yes' },
+            };
+          }
+        }
+
+        if (directives.length === 0 && lowerAgentName === 'smith') {
+          const tickNow = Number(world.tick) || 0;
+          const lastTick = Number.isFinite(lastDirectiveSubmitTick) ? lastDirectiveSubmitTick : 0;
+          if (lastTick > 0 && tickNow - lastTick < DIRECTIVE_SUBMIT_MIN_TICKS) return null;
+
+          let description = 'Densify the nearest node to 25+ structures (varied BLUEPRINTS) before pushing frontier lanes.';
+          if (self && cachedNodes.length > 0) {
+            const myPos = { x: self.position.x, z: self.position.z };
+            const nearest = cachedNodes.reduce((best, n) => {
+              const d = Math.hypot(n.center.x - myPos.x, n.center.z - myPos.z);
+              const bestD = Math.hypot(best.center.x - myPos.x, best.center.z - myPos.z);
+              return d < bestD ? n : best;
+            });
+            description = `Densify \"${nearest.name}\" at (${Math.round(nearest.center.x)}, ${Math.round(nearest.center.z)}) to ${NODE_EXPANSION_GATE}+ structures. Use varied BLUEPRINTS (SMALL_HOUSE, SHOP, WAREHOUSE, DATACENTER, FOUNTAIN, LAMP_POST).`;
+          } else if (self) {
+            description = `Densify the node near (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) to ${NODE_EXPANSION_GATE}+ structures with varied BLUEPRINTS.`;
+          }
+
+          return {
+            thought: 'Directive baseline: no active directives; proposing a shared densification objective.',
+            action: 'SUBMIT_DIRECTIVE',
+            payload: {
+              description,
+              agentsNeeded: 2,
+              hoursDuration: 24,
+            },
+          };
+        }
+
+        return null;
+      })();
+
       let decision: AgentDecision;
       let rateLimitWaitThisTick = false;
       if (!blueprintStatus?.active && priorConsecutiveBuildFails >= 4) {
@@ -3127,6 +3144,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             };
           }
         }
+      } else if (directivePolicyDecision) {
+        decision = directivePolicyDecision;
       } else if (skipLLMForUnchangedState) {
         if (blueprintStatus?.active) {
           decision = {
@@ -3423,7 +3442,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       let decisionBeforeCadenceChat: AgentDecision | null = null;
       if (effectiveChatDue && !lowSignalChatLoopDetected && decision.action !== 'CHAT' && !rateLimitWaitThisTick) {
         const forcedMessage = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
-        console.log(`[${agentName}] Communication cadence override -> CHAT`);
+        console.log(`[${agentName}] Coordination trigger -> CHAT`);
         decisionBeforeCadenceChat = {
           thought: decision.thought,
           action: decision.action,
@@ -3457,7 +3476,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           }
         } else {
           decision.payload = { ...(decision.payload || {}), message: chatMessage.slice(0, 220) };
-          kickoffChatSent = true;
         }
       }
 
@@ -3759,6 +3777,23 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         if (!submittedDirectives.includes(desc)) submittedDirectives = submittedDirectives ? `${submittedDirectives}, ${desc}` : desc;
       }
 
+      const prevDirectiveSubmitTick = parseInt(
+        workingMemory?.match(/Last directive submit tick: (\d+)/)?.[1] || '0',
+        10,
+      );
+      const prevDirectiveVoteTick = parseInt(
+        workingMemory?.match(/Last directive vote tick: (\d+)/)?.[1] || '0',
+        10,
+      );
+      const directiveSubmitTick =
+        decision.action === 'SUBMIT_DIRECTIVE' && !buildError
+          ? (Number(world.tick) || prevDirectiveSubmitTick)
+          : prevDirectiveSubmitTick;
+      const directiveVoteTick =
+        decision.action === 'VOTE' && !buildError
+          ? (Number(world.tick) || prevDirectiveVoteTick)
+          : prevDirectiveVoteTick;
+
       // Track consecutive build failures — only reset on successful build
       const prevBuildFails = parseInt(workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
       const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT', 'BUILD_CONTINUE'];
@@ -3845,6 +3880,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         `Credits: ${credits}`,
         `Last seen message id: ${latestMsgId}`,
         `Ticks since chat: ${ticksSinceChat}`,
+        directiveSubmitTick > 0 ? `Last directive submit tick: ${directiveSubmitTick}` : '',
+        directiveVoteTick > 0 ? `Last directive vote tick: ${directiveVoteTick}` : '',
         currentObjective ? `Current objective: ${currentObjective}` : '',
         objectiveStep > 0 ? `Objective step: ${objectiveStep}` : '',
         currentBuildPlan ? `Current build plan: ${currentBuildPlan}` : '',
@@ -4662,6 +4699,9 @@ async function executeAction(
         const result = await api.continueBlueprint() as any;
         if (result.status === 'complete') {
           console.log(`[${name}] Blueprint complete! ${result.placed}/${result.total} placed.`);
+        } else if (result.status === 'complete_with_failures') {
+          const failed = Number(result.failedCount) || (Number(result.total) - Number(result.placed)) || '?';
+          console.log(`[${name}] Blueprint complete WITH FAILURES. placed=${result.placed}/${result.total}, failed=${failed}`);
         } else {
           console.log(`[${name}] Blueprint progress: ${result.placed}/${result.total}`);
         }
