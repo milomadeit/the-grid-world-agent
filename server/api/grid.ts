@@ -1003,17 +1003,17 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     world.addWorldPrimitive(primitive);
 
-    // Write build confirmation to chat feed so other agents see it
+    // Write build confirmation to terminal feed (not chat — chat is for agent conversations)
     const pos = body.position;
-    const sysMsg = {
+    const termMsg = {
       id: 0,
       agentId: 'system',
       agentName: 'System',
       message: `${builderName} built a ${body.shape} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`,
       createdAt: Date.now()
     };
-    await db.writeChatMessage(sysMsg);
-    world.broadcastChat('system', sysMsg.message, 'System');
+    await db.writeTerminalMessage(termMsg);
+    world.broadcastTerminalMessage(termMsg);
 
     // --- Build Quality Warnings (soft feedback, not rejections) ---
     const warnings: string[] = [];
@@ -1253,19 +1253,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       });
     }
 
-    // Milestone broadcast: blueprint started.
+    // Milestone broadcast: blueprint started (terminal, not chat).
     try {
       const builder = await db.getAgent(agentId);
       const builderName = builder?.name || agentId;
-      const sysMsg = {
+      const termMsg = {
         id: 0,
         agentId: 'system',
         agentName: 'System',
         message: `${builderName} started ${body.name} at (${body.anchorX}, ${body.anchorZ}) [0/${allPrimitives.length}]`,
         createdAt: Date.now(),
       };
-      await db.writeChatMessage(sysMsg);
-      world.broadcastChat('system', sysMsg.message, 'System');
+      await db.writeTerminalMessage(termMsg);
+      world.broadcastTerminalMessage(termMsg);
     } catch (err) {
       console.warn('[Blueprint] Failed to broadcast start message:', err);
     }
@@ -1399,18 +1399,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       }
     }
 
-    // Broadcast a single build message for the batch
+    // Broadcast a single build message for the batch (terminal, not chat)
     const successCount = results.filter(r => r.success).length;
     if (successCount > 0) {
-      const sysMsg = {
+      const termMsg = {
         id: 0,
         agentId: 'system',
         agentName: 'System',
         message: `${builderName} placed ${successCount} pieces of ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) [${plan.placedCount}/${plan.totalPrimitives}]`,
         createdAt: Date.now(),
       };
-      await db.writeChatMessage(sysMsg);
-      world.broadcastChat('system', sysMsg.message, 'System');
+      await db.writeTerminalMessage(termMsg);
+      world.broadcastTerminalMessage(termMsg);
     }
 
     // Check completion
@@ -1418,19 +1418,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       const failedCount = plan.totalPrimitives - plan.placedCount;
       const status = failedCount === 0 ? 'complete' : 'complete_with_failures';
 
-      // Broadcast completion truth.
+      // Broadcast completion truth (terminal, not chat).
       const completionMsg = failedCount === 0
         ? `${builderName} completed ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) [${plan.placedCount}/${plan.totalPrimitives}]`
         : `${builderName} completed ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) with failures: placed ${plan.placedCount}/${plan.totalPrimitives}, failed ${failedCount}`;
-      const sysMsg = {
+      const termMsg = {
         id: 0,
         agentId: 'system',
         agentName: 'System',
         message: completionMsg,
         createdAt: Date.now(),
       };
-      await db.writeChatMessage(sysMsg);
-      world.broadcastChat('system', sysMsg.message, 'System');
+      await db.writeTerminalMessage(termMsg);
+      world.broadcastTerminalMessage(termMsg);
 
       try {
         await db.deleteBlueprintBuildPlan(agentId);
@@ -1744,16 +1744,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     await db.createDirective(directive);
     world.broadcastDirective(directive);
 
-    // Write directive confirmation to chat feed
-    const sysMsg = {
+    // Write directive confirmation to terminal feed
+    const termMsg = {
       id: 0,
       agentId: 'system',
       agentName: 'System',
       message: `${agent.name} proposed directive: "${body.description}" (needs ${body.agentsNeeded} agents)`,
       createdAt: Date.now()
     };
-    await db.writeChatMessage(sysMsg);
-    world.broadcastChat('system', sysMsg.message, 'System');
+    await db.writeTerminalMessage(termMsg);
+    world.broadcastTerminalMessage(termMsg);
 
     return directive;
   });
@@ -1797,18 +1797,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     await db.castVote(id, agentId, body.vote);
 
-    // Write vote confirmation to chat feed
+    // Write vote confirmation to terminal feed
     const voter = await db.getAgent(agentId);
     const voterName = voter?.name || agentId;
-    const sysMsg = {
+    const termMsg = {
       id: 0,
       agentId: 'system',
       agentName: 'System',
       message: `${voterName} voted ${body.vote} on directive ${id}`,
       createdAt: Date.now()
     };
-    await db.writeChatMessage(sysMsg);
-    world.broadcastChat('system', sysMsg.message, 'System');
+    await db.writeTerminalMessage(termMsg);
+    world.broadcastTerminalMessage(termMsg);
 
     // Check if directive should auto-complete (yes_votes >= agentsNeeded)
     const directiveData = await db.getDirective(id);
@@ -1817,15 +1817,15 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       const DIRECTIVE_REWARD = 25;
       await db.rewardDirectiveVoters(id, DIRECTIVE_REWARD);
 
-      const completionMsg = {
+      const completionTermMsg = {
         id: 0,
         agentId: 'system',
         agentName: 'System',
         message: `Directive completed: "${directiveData.description}" — all ${directiveData.yesVotes} yes-voters earned ${DIRECTIVE_REWARD} credits!`,
         createdAt: Date.now()
       };
-      await db.writeChatMessage(completionMsg);
-      world.broadcastChat('system', completionMsg.message, 'System');
+      await db.writeTerminalMessage(completionTermMsg);
+      world.broadcastTerminalMessage(completionTermMsg);
     }
 
     return { success: true };
@@ -1891,15 +1891,15 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const joiner = await db.getAgent(agentId);
     const joinerName = joiner?.name || agentId;
-    const joinMsg = {
+    const joinTermMsg = {
       id: 0,
       agentId: 'system',
       agentName: 'System',
       message: `${joinerName} joined guild "${guild.name}"`,
       createdAt: Date.now()
     };
-    await db.writeChatMessage(joinMsg);
-    world.broadcastChat('system', joinMsg.message, 'System');
+    await db.writeTerminalMessage(joinTermMsg);
+    world.broadcastTerminalMessage(joinTermMsg);
 
     return { success: true, guildId: id, guildName: guild.name, alreadyMember: false };
   });
@@ -1946,18 +1946,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     await db.transferCredits(agentId, body.toAgentId, body.amount);
 
-    // Broadcast transfer to chat
+    // Broadcast transfer to terminal
     const sender = await db.getAgent(agentId);
     const senderName = sender?.name || agentId;
-    const sysMsg = {
+    const transferTermMsg = {
       id: 0,
       agentId: 'system',
       agentName: 'System',
       message: `${senderName} transferred ${body.amount} credits to ${recipient.name}`,
       createdAt: Date.now()
     };
-    await db.writeChatMessage(sysMsg);
-    world.broadcastChat('system', sysMsg.message, 'System');
+    await db.writeTerminalMessage(transferTermMsg);
+    world.broadcastTerminalMessage(transferTermMsg);
 
     return { success: true, transferred: body.amount, to: body.toAgentId };
   });

@@ -33,7 +33,7 @@ interface ChatValidationResult {
   retryAfterMs?: number;
 }
 
-const CHAT_MIN_INTERVAL_MS = 4_000;
+const CHAT_MIN_INTERVAL_MS = 2_000;
 const CHAT_DUPLICATE_WINDOW_MS = 90_000;
 const CHAT_AGENT_HISTORY_LIMIT = 8;
 const CHAT_GLOBAL_HISTORY_LIMIT = 120;

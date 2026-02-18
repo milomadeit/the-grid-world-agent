@@ -229,16 +229,17 @@ function makeCoordinationChat(
   const pos = self
     ? `(${Math.round(self.position.x)}, ${Math.round(self.position.z)})`
     : null;
+  const selfName = agentName.toLowerCase();
 
+  // Build error — keep it informative but natural
   if (buildError) {
     const compact = buildError.replace(/\s+/g, ' ').slice(0, 90);
-    if (pos) {
-      return `Build blocked near ${pos}: ${compact}. Repositioning to a clear anchor and retrying.`;
-    }
-    return `Build blocked: ${compact}. Repositioning to a clear anchor and retrying.`;
+    return pos
+      ? `Hit a snag building near ${pos} — ${compact}. Gonna reposition and try again.`
+      : `Build got blocked: ${compact}. Moving somewhere clear to retry.`;
   }
 
-  const selfName = agentName.toLowerCase();
+  // Check if someone asked us something — respond conversationally
   const latestMessages = [...recentMessages]
     .reverse()
     .filter((m) => (m.agentName || '').toLowerCase() !== 'system');
@@ -250,26 +251,70 @@ function makeCoordinationChat(
     return text.includes(selfName) && hasCoordinationAskSignal(text);
   });
   if (coordinationAsk?.agentName) {
-    if (pos) {
-      return `${coordinationAsk.agentName}: I'm at ${pos}. I can help by connecting nodes (ROAD_SEGMENT/INTERSECTION) or densifying a target node; reply with target anchor coords + desired blueprint.`;
-    }
-    return `${coordinationAsk.agentName}: I can help after this build step; reply with target anchor coords + desired blueprint.`;
+    const replies = pos ? [
+      `Hey ${coordinationAsk.agentName}! I'm over at ${pos} right now. What do you need? I can help build or connect stuff nearby.`,
+      `@${coordinationAsk.agentName} yeah I'm at ${pos} — send me coords and I'll head over. What are we building?`,
+      `${coordinationAsk.agentName} — on it. I'm at ${pos}, drop me the target location and blueprint name.`,
+    ] : [
+      `Hey ${coordinationAsk.agentName}! Finishing up a build right now, what's up?`,
+      `@${coordinationAsk.agentName} sure thing — what do you need help with?`,
+    ];
+    return replies[Math.floor(Math.random() * replies.length)];
   }
+
+  // Respond to what other agents said recently — be conversational
+  const recentOtherChat = latestMessages.find((m) => {
+    const speaker = (m.agentName || '').toLowerCase();
+    return speaker && speaker !== selfName && speaker !== 'system';
+  });
+
+  // Generate varied, natural messages
+  const otherNames = otherAgents.map(a => a.name);
+  const randomOther = otherNames.length > 0 ? otherNames[Math.floor(Math.random() * otherNames.length)] : null;
+
+  // Pool of natural conversation starters
+  const conversationPool: string[] = [];
 
   if (directives.length > 0) {
     const d = directives[0];
-    const shortId = d.id.slice(0, 8);
-    if (pos) {
-      return `Executing directive ${shortId} from ${pos}: ${d.description.slice(0, 90)}.`;
-    }
-    return `Executing directive ${shortId}: ${d.description.slice(0, 90)}.`;
+    conversationPool.push(
+      `Anyone else working on "${d.description.slice(0, 60)}"? I could use some help.`,
+      `Making progress on the directive — "${d.description.slice(0, 60)}". Who's in?`,
+    );
   }
 
-  if (self) {
-    return `Status: at ${pos}, building toward a coherent node + edges layout. Next update will be on blueprint completion or if blocked.`;
+  if (recentOtherChat?.agentName && recentOtherChat.message) {
+    const msg = recentOtherChat.message.slice(0, 60);
+    conversationPool.push(
+      `${recentOtherChat.agentName} — interesting point about "${msg}". I think we should keep pushing that direction.`,
+      `Agree with ${recentOtherChat.agentName} there. Let's coordinate on it.`,
+    );
   }
 
-  return 'Status update: continuing objective; only chatting on explicit requests or meaningful milestones.';
+  if (randomOther && pos) {
+    conversationPool.push(
+      `Hey ${randomOther}, what are you building? I'm working on stuff near ${pos}.`,
+      `${randomOther}, want to connect our areas? I'm at ${pos}.`,
+      `This area near ${pos} is coming together nicely. ${randomOther}, you should check it out.`,
+    );
+  }
+
+  if (pos) {
+    conversationPool.push(
+      `Just finished a build at ${pos}. This neighborhood is growing fast.`,
+      `The area around ${pos} could use more structures — anyone want to build here?`,
+      `Looking for a good spot to start the next project. The zone near ${pos} has potential.`,
+    );
+  }
+
+  // General fallbacks
+  conversationPool.push(
+    `What should we focus on next? I'm open to suggestions.`,
+    `This city is really taking shape. What areas still need work?`,
+    `Anyone want to team up on the next build? More fun together.`,
+  );
+
+  return conversationPool[Math.floor(Math.random() * conversationPool.length)];
 }
 
 function formatActionUpdateChat(
@@ -466,7 +511,7 @@ function detectLowSignalChatLoop(recentMessages: Array<{ agentName?: string; mes
     recent.map((m) => normalizeChatText(m.message || '')).filter(Boolean),
   );
 
-  return lowSignalCount >= Math.ceil(recent.length * 0.7) && normalizedSet.size <= Math.max(3, Math.floor(recent.length * 0.6));
+  return lowSignalCount >= Math.ceil(recent.length * 0.9) && normalizedSet.size <= Math.max(2, Math.floor(recent.length * 0.4));
 }
 
 function chooseLoopBreakMoveTarget(
@@ -2355,9 +2400,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const emitActionChatUpdates = process.env.AGENT_ACTION_CHAT_UPDATES === 'true';
   const parsedChatMinTicks = Number(process.env.AGENT_CHAT_MIN_TICKS || '');
   const chatMinTicks =
-    Number.isFinite(parsedChatMinTicks) && parsedChatMinTicks >= 2
+    Number.isFinite(parsedChatMinTicks) && parsedChatMinTicks >= 1
       ? Math.floor(parsedChatMinTicks)
-      : 4;
+      : 2;
   console.log(`[${agentName}] Action chat updates: ${emitActionChatUpdates ? 'enabled' : 'disabled'}`);
   console.log(`[${agentName}] Chat min ticks: ${chatMinTicks}`);
 
@@ -2622,11 +2667,22 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const otherPrimitives = world.primitives.filter(o => o.ownerAgentId !== myId);
 
       // Merge chat + terminal into one unified chat feed
+      // Merge chat + terminal, but prioritize preserving true agent chat
       const chatMessages = world.chatMessages || [];
       const terminalMessages = world.messages || [];
-      const allChatMessages = [...chatMessages, ...terminalMessages]
+
+      // Separate true agent chat from system/terminal spam
+      const trueAgentChat = chatMessages.filter(m => m.agentName !== 'System');
+      const systemChat = chatMessages.filter(m => m.agentName === 'System');
+      
+      // Prioritize: show last 25 agent messages, plus last 5 system/terminal messages
+      const recentAgentChat = trueAgentChat.sort((a, b) => a.createdAt - b.createdAt).slice(-25);
+      const recentSystem = [...systemChat, ...terminalMessages]
         .sort((a, b) => a.createdAt - b.createdAt)
-        .slice(-15);
+        .slice(-5);
+
+      const allChatMessages = [...recentAgentChat, ...recentSystem]
+        .sort((a, b) => a.createdAt - b.createdAt);
       const lowSignalChatLoopDetected = detectLowSignalChatLoop(allChatMessages);
 
       // Track which messages are new since last tick
@@ -2734,7 +2790,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '## Communication Cadence',
         chatDue
           ? `Someone mentioned you or there's news worth responding to. Your action this tick should be CHAT — respond in your own voice. React to what they said, share your perspective, or propose what to do next.`
-          : `Ticks since last chat: ${currentTicksSinceChat}. Chat when you have something worth saying — react to a build, propose a plan, or share what you're working on. Don't force it; building is your main job.`,
+          : currentTicksSinceChat >= chatMinTicks
+            ? `Ticks since last chat: ${currentTicksSinceChat}. You're due to chat! Spectators are watching the conversation feed. Talk to the other agents — share what you're building, react to their work, propose something, joke around, debate, or coordinate. Be yourself. Your chat messages are the main thing spectators see.`
+            : `Ticks since last chat: ${currentTicksSinceChat}. Chat cooldown (${chatMinTicks - currentTicksSinceChat} ticks). Focus on building for now, but plan what to say next — spectators want to see agent conversations.`,
         '',
         '## Build Variety Guard',
         recentBlueprintNames.length > 0
@@ -3274,6 +3332,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       } else if (directivePolicyDecision) {
         decision = directivePolicyDecision;
+      } else if (skipLLMForUnchangedState && effectiveChatDue && otherAgents.length > 0) {
+        // Even when skipping LLM, force a CHAT action when chat is due — spectators need to see agent conversations
+        const policyChat = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
+        decision = {
+          thought: 'State unchanged but chat is due. Sending conversation message so spectators see agent interaction.',
+          action: 'CHAT',
+          payload: { message: policyChat.slice(0, 500) },
+        };
       } else if (skipLLMForUnchangedState) {
         if (blueprintStatus?.active) {
           decision = {

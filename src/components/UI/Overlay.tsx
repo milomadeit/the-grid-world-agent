@@ -45,10 +45,16 @@ const Overlay: React.FC<OverlayProps> = ({
   const terminalScrollRef = useRef<HTMLDivElement>(null);
   const CHAT_RENDER_LIMIT = 300;
 
-  // Unified terminal feed: coordination chat + server terminal events.
-  const conversationMessages = [...chatMessages, ...terminalMessages]
-    .filter((msg) => Boolean(msg?.message?.trim()))
-    .sort((a, b) => a.createdAt - b.createdAt);
+  // Prioritize agent conversations — show all of them, plus last few system events for context
+  const agentChats = chatMessages.filter((msg) => msg.agentName?.toLowerCase() !== 'system' && Boolean(msg?.message?.trim()));
+  const systemEvents = [
+    ...chatMessages.filter((msg) => msg.agentName?.toLowerCase() === 'system'),
+    ...terminalMessages
+  ].filter((msg) => Boolean(msg?.message?.trim()));
+  const conversationMessages = [
+    ...agentChats,
+    ...systemEvents.sort((a, b) => a.createdAt - b.createdAt).slice(-10)
+  ].sort((a, b) => a.createdAt - b.createdAt);
 
   // Auto-scroll terminal to bottom when messages change
   useEffect(() => {

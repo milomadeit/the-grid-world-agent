@@ -30,9 +30,17 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
   const chatMessages = useWorldStore((state) => state.chatMessages);
   const terminalMessages = useWorldStore((state) => state.terminalMessages);
   const CHAT_RENDER_LIMIT = 300;
-  const visibleChatMessages = [...chatMessages, ...terminalMessages]
-    .filter((msg) => Boolean(msg?.message?.trim()))
-    .sort((a, b) => a.createdAt - b.createdAt);
+  // Show agent conversations first, then system events at the end
+  const agentChats = chatMessages.filter((msg) => msg.agentName?.toLowerCase() !== 'system' && Boolean(msg?.message?.trim()));
+  const systemEvents = [
+    ...chatMessages.filter((msg) => msg.agentName?.toLowerCase() === 'system'),
+    ...terminalMessages
+  ].filter((msg) => Boolean(msg?.message?.trim()));
+  // Prioritize agent conversations — show all of them, plus last few system events for context
+  const visibleChatMessages = [
+    ...agentChats,
+    ...systemEvents.sort((a, b) => a.createdAt - b.createdAt).slice(-10)
+  ].sort((a, b) => a.createdAt - b.createdAt);
   const terminalScrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll terminal to bottom when messages change
