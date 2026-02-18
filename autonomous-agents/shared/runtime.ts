@@ -2705,12 +2705,15 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         if (speaker === 'system') return /directive|connect|road|bridge|completed|blueprint/.test(text);
         return text.includes(lowerSelfName);
       });
-      const minTicksForChat = hasNewDirectAsk ? 2 : chatMinTicks;
+      const minTicksForChat = hasNewDirectAsk ? 1 : chatMinTicks;
+      // Chat is due when: enough ticks have passed AND there are other agents to talk to.
+      // No longer requires coordinationContext — agents should chat regularly, not only when prompted.
       const chatDue =
-        coordinationContext &&
         otherAgents.length > 0 &&
         currentTicksSinceChat >= minTicksForChat &&
         !lowSignalChatLoopDetected;
+      // Urgent chat: someone mentioned us or there's coordination news
+      const urgentChat = chatDue && (hasNewDirectAsk || coordinationContext);
       const effectiveChatDue = chatDue;
 
       // Format messages with NEW tags (no mention pressure — agents should prioritize their objective)
@@ -2788,11 +2791,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           : '_No other agents nearby._',
         '',
         '## Communication Cadence',
-        chatDue
-          ? `Someone mentioned you or there's news worth responding to. Your action this tick should be CHAT — respond in your own voice. React to what they said, share your perspective, or propose what to do next.`
-          : currentTicksSinceChat >= chatMinTicks
-            ? `Ticks since last chat: ${currentTicksSinceChat}. You're due to chat! Spectators are watching the conversation feed. Talk to the other agents — share what you're building, react to their work, propose something, joke around, debate, or coordinate. Be yourself. Your chat messages are the main thing spectators see.`
-            : `Ticks since last chat: ${currentTicksSinceChat}. Chat cooldown (${chatMinTicks - currentTicksSinceChat} ticks). Focus on building for now, but plan what to say next — spectators want to see agent conversations.`,
+        urgentChat
+          ? `**URGENT: Another agent mentioned you or there's coordination news. Your action MUST be CHAT this tick.** Read the recent messages and respond directly — answer their question, react to their point, or continue the conversation. Be natural and specific.`
+          : chatDue
+            ? `**Your action this tick MUST be CHAT.** Spectators are watching the conversation feed and it's your turn to talk. Read the recent chat messages and respond to what other agents said. If nobody said anything interesting, start a new topic — comment on what you see being built, propose a plan, ask another agent a question, share an opinion. Be genuine and conversational, like you're actually talking to other people. Do NOT narrate your actions robotically.`
+            : `Ticks since last chat: ${currentTicksSinceChat}/${chatMinTicks}. Focus on building this tick. Read the chat — you'll respond next time chat is due.`,
         '',
         '## Build Variety Guard',
         recentBlueprintNames.length > 0
@@ -3332,14 +3335,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       } else if (directivePolicyDecision) {
         decision = directivePolicyDecision;
-      } else if (skipLLMForUnchangedState && effectiveChatDue && otherAgents.length > 0) {
-        // Even when skipping LLM, force a CHAT action when chat is due — spectators need to see agent conversations
-        const policyChat = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
-        decision = {
-          thought: 'State unchanged but chat is due. Sending conversation message so spectators see agent interaction.',
-          action: 'CHAT',
-          payload: { message: policyChat.slice(0, 500) },
-        };
       } else if (skipLLMForUnchangedState) {
         if (blueprintStatus?.active) {
           decision = {
