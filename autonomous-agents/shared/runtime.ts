@@ -123,22 +123,6 @@ const NODE_EXPANSION_MAX_DISTANCE = 69;
 const MOUSE_SPIRE_MIN_DISTANCE = 90;
 const MOUSE_SPIRE_COOLDOWN_BLUEPRINTS = 8;
 
-// Oracle: deterministic road/edge policy (connector primitives)
-// Each BUILD tick: 3 contiguous slabs of 6×3 at offsets 4, 11, 18 from agent (~20u per BUILD tick).
-// Slabs are connector-qualified (scaleY <= 0.25, scaleX or scaleZ >= 1.5).
-// CRITICAL: slab spacing (7u) must exceed sqrt((L-0.05)² + (W-0.05)²) ≈ 6.64 to prevent
-// server-side AABB overlap at ALL road angles (the server overlap check uses raw scale, not rotated AABB).
-const ORACLE_ROAD_SLAB_LENGTH = 6;          // along road direction (scaleX after rotation)
-const ORACLE_ROAD_SLAB_WIDTH = 3;           // perpendicular to road — wider = more visible highway
-const ORACLE_ROAD_SLAB_THICKNESS = 0.1;     // scaleY — must be <= 0.25 for connector detection
-const ORACLE_ROAD_SLAB_Y = 0.05;            // vertical position
-const ORACLE_ROAD_COLOR = '#94A3B8';
-const ORACLE_ROAD_SLABS_PER_TICK = 3;       // must fit BUILD_MULTI (max 5)
-const ORACLE_ROAD_SLAB_OFFSETS = [4, 11, 18]; // distance from agent along road direction (spacing=7 > 6.64)
-const ORACLE_ROAD_MAX_TICKS = 20;           // safety cap on road-laying ticks
-const ORACLE_ROAD_MIN_NODE_DIST = 50;       // minimum inter-node distance to road
-const ORACLE_ROAD_MAX_NODE_DIST = 220;      // MAX_CONNECTION_DISTANCE from grid.ts
-const ORACLE_ROAD_TRAVEL_STEP_MAX = 110;    // keep below mobility clamp threshold (120u)
 
 // --- File Helpers ---
 
@@ -337,39 +321,45 @@ function formatActionUpdateChat(
   }
 
   switch (decision.action) {
-    case 'MOVE':
+    case 'MOVE': {
+      const thought = (decision.thought || '').split('|')[0].trim();
+      // Only chat if the thought is interesting. If it's just "Moving to X", skip it.
+      if (thought.length > 20 && !thought.startsWith('Moving') && !thought.startsWith('Heading')) {
+        return thought.slice(0, 280);
+      }
       return null;
+    }
     case 'BUILD_PRIMITIVE':
-      return null;
-    case 'BUILD_MULTI':
-      return null;
+    case 'BUILD_MULTI': {
+      const thought = (decision.thought || '').split('|')[0].trim();
+      return thought.length > 10 ? thought.slice(0, 280) : 'Building structure.';
+    }
     case 'BUILD_BLUEPRINT': {
-      const name = String(payload.name || 'blueprint');
-      const anchor = coord(payload.anchorX, payload.anchorZ);
-      return anchor
-        ? `Started ${name} blueprint at ${anchor} on tick ${tick}.`
-        : `Started ${name} blueprint on tick ${tick}.`;
+      const thought = (decision.thought || '').split('|')[0].trim();
+      return thought.length > 15 ? thought.slice(0, 280) : `Starting construction.`;
     }
     case 'BUILD_CONTINUE':
       return null;
     case 'CANCEL_BUILD':
-      return `Cancelled active blueprint on tick ${tick}; selecting a new lane.`;
+      return `I'm clearing my build plan.`;
     case 'VOTE': {
-      const vote = String(payload.vote || 'yes');
-      const directiveId = String(payload.directiveId || 'directive');
-      return `Voted ${vote} on ${directiveId} at tick ${tick}.`;
+      const thought = (decision.thought || '').split('|')[0].trim();
+      if (thought.length > 15) return thought.slice(0, 280);
+      return `I voted.`;
     }
     case 'SUBMIT_DIRECTIVE': {
-      const description = String(payload.description || '').slice(0, 90);
-      return description
-        ? `Submitted directive on tick ${tick}: ${description}`
-        : `Submitted directive on tick ${tick}.`;
+      const thought = (decision.thought || '').split('|')[0].trim();
+      const match = String(payload.description || '').match(/^TITLE:\s*(.+)/i);
+      const title = match ? match[1] : String(payload.description || '').slice(0, 50);
+      if (thought.length > 15) return thought.slice(0, 280);
+      return `Proposing: "${title}"`;
     }
     case 'TRANSFER_CREDITS': {
       const amount = Number(payload.amount);
       const toAgentId = String(payload.toAgentId || 'agent');
-      const shownAmount = Number.isFinite(amount) ? Math.round(amount) : '?';
-      return `Transferred ${shownAmount} credits to ${toAgentId} on tick ${tick}.`;
+      const thought = (decision.thought || '').split('|')[0].trim();
+      if (thought.length > 15) return thought.slice(0, 280);
+      return `Transferred ${amount} credits to ${toAgentId}.`;
     }
     default:
       return null;
@@ -386,7 +376,7 @@ async function emitActionUpdateChat(
   const message = formatActionUpdateChat(decision, tick, actionError);
   if (!message) return false;
 
-  const trimmed = message.trim().slice(0, 500);
+  const trimmed = message.trim().slice(0, 280);
   if (!trimmed) return false;
 
   try {
@@ -560,7 +550,7 @@ function chooseLoopBreakMoveTarget(
 function chooseLocalMoveTarget(
   self: { x: number; z: number } | undefined,
   safeSpots: Array<{ x: number; z: number }>,
-  maxDistance = 40,
+  maxDistance = 30, // Default to 30 instead of 40
 ): { x: number; z: number } | null {
   if (!self) return null;
 
@@ -571,8 +561,9 @@ function chooseLocalMoveTarget(
     dist: Math.hypot(spot.x - self.x, spot.z - self.z),
   }));
 
+  // Reduced minimum distance from 8 to 4 to prevent large leaps out of a node
   const nearby = withDistance
-    .filter((entry) => entry.dist > 8 && entry.dist <= maxDistance)
+    .filter((entry) => entry.dist > 4 && entry.dist <= maxDistance)
     .sort((a, b) => a.dist - b.dist);
 
   if (nearby.length > 0) {
@@ -585,7 +576,8 @@ function chooseLocalMoveTarget(
   const nearest = withDistance.sort((a, b) => a.dist - b.dist)[0];
   if (!nearest || nearest.dist <= 1) return null;
 
-  const step = Math.min(55, nearest.dist);
+  // Reduced fallback step from 55 to 30 to prevent massive drift
+  const step = Math.min(30, nearest.dist);
   const ratio = step / nearest.dist;
   return {
     x: Math.round(self.x + (nearest.spot.x - self.x) * ratio),
@@ -808,24 +800,7 @@ function pushRecentBlueprintName(recentNames: string[], name: string, max = 8): 
   return [normalized, ...filtered].slice(0, max);
 }
 
-type OracleRoadPhase = 'MOVE' | 'BUILD';
-type OracleRoadState = {
-  fromName: string;
-  toName: string;
-  head: { x: number; z: number };
-  phase: OracleRoadPhase;
-};
 
-function clampNumber(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
-}
-
-// BUILD_MULTI/BUILD_PRIMITIVE rejects x/z exactly 0 (guard against missing coords).
-function avoidZeroCoord(value: number): number {
-  if (!Number.isFinite(value)) return value;
-  return value === 0 ? 0.1 : value;
-}
 
 function parseCoordPair(text: string): { x: number; z: number } | null {
   const m = String(text || '').match(/\((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\)/);
@@ -866,22 +841,6 @@ function pushRecentAnchor(
   return [{ x, z }, ...filtered].slice(0, max);
 }
 
-function parseOracleRoadState(workingMemory: string): OracleRoadState | null {
-  const target = workingMemory.match(/Road target:\s*(.+?)\s*->\s*(.+?)\s*$/mi);
-  const head = workingMemory.match(/Road head:\s*\((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\)/i);
-  const phase = workingMemory.match(/Road phase:\s*(MOVE|BUILD)\s*$/mi);
-  if (!target || !head || !phase) return null;
-
-  const fromName = target[1].trim();
-  const toName = target[2].trim();
-  const headX = Number(head[1]);
-  const headZ = Number(head[2]);
-  if (!fromName || !toName || !Number.isFinite(headX) || !Number.isFinite(headZ)) return null;
-
-  const rawPhase = phase[1].trim().toUpperCase();
-  const roadPhase: OracleRoadPhase = rawPhase === 'MOVE' ? 'MOVE' : 'BUILD';
-  return { fromName, toName, head: { x: headX, z: headZ }, phase: roadPhase };
-}
 
 function nearestSafeSpotDistance(
   x: number,
@@ -1724,7 +1683,8 @@ function findSafeBuildSpots(
   primitives: { position: { x: number; z: number }; scale: { x: number; z: number }; shape: string }[],
   maxResults = 8
 ): { x: number; z: number; nearestBuild: number }[] {
-  const CLEARANCE = 7;
+  // Reduced clearance from 7 to 4.8 to allow for denser, gap-filling nodes
+  const CLEARANCE = 4.8;
   const MAX_DIST_FROM_BUILD = 66; // server enforces 70u settlement proximity — stay under
   const MIN_DIST_FROM_ORIGIN = 50;
   const EXEMPT = new Set(['plane', 'circle']);
@@ -1754,12 +1714,13 @@ function findSafeBuildSpots(
     return { clear: !overlaps && nearestDist <= MAX_DIST_FROM_BUILD, nearestDist };
   }
 
-  const scanCenters = [worldCenter, agentPos];
+  const scanCenters = [agentPos, worldCenter]; // Prioritize agent position for gap filling
   const safe: { x: number; z: number; nearestBuild: number }[] = [];
   const seen = new Set<string>();
   for (const base of scanCenters) {
-    for (const radius of [15, 25, 35, 50, 65, 80, 95]) {
-      const steps = Math.max(16, Math.floor(radius * 1.1));
+    // Started at ring size 5 instead of 15 to prioritize immediate empty pockets (gaps)
+    for (const radius of [5, 10, 18, 28, 40, 55, 70]) {
+      const steps = Math.max(16, Math.floor(radius * 1.15));
       for (let i = 0; i < steps; i++) {
         const angle = (2 * Math.PI * i) / steps;
         const cx = Math.round(base.x + radius * Math.cos(angle));
@@ -1866,6 +1827,21 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
       }
     }
     unconnectedPairs.sort((a, b) => a.dist - b.dist);
+
+    // Oracle-specific: prominent connectivity priority section (soft nudge, not override)
+    const isOracleAgent = (agentName || '').toLowerCase() === 'oracle';
+    if (isOracleAgent && unconnectedPairs.length > 0) {
+      lines.push('');
+      lines.push('## CONNECTIVITY GAPS (Oracle Priority)');
+      lines.push(`${unconnectedPairs.length} established node pair(s) lack visible road connections.`);
+      lines.push('Your role is to connect the world — roads between established nodes are your top priority.');
+      for (const pair of unconnectedPairs.slice(0, 5)) {
+        const midX = Math.round((pair.from.center.x + pair.to.center.x) / 2);
+        const midZ = Math.round((pair.from.center.z + pair.to.center.z) / 2);
+        lines.push(`- "${pair.from.name}" ↔ "${pair.to.name}" — ${pair.dist}u apart, NO ROAD. Midpoint: (${midX}, ${midZ})`);
+      }
+      lines.push('Approach: MOVE to the midpoint between two unconnected nodes, then place ROAD_SEGMENT or flat connector slabs (BUILD_MULTI with scaleY ≤ 0.25) along the line between their centers.');
+    }
 
     // Build a pool of possible suggestions
     const allSuggestions: string[] = [];
@@ -2198,11 +2174,25 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '# OPERATING MANUAL\n',
     agentOps,
     '\n---\n',
-    '# STRATEGIC THINKING\n',
-    'Before each action, your "thought" must include:',
-    '- Your current objective (1 sentence).',
-    '- Which step you are on (1-5).',
-    '- The next concrete action that advances the objective.',
+    '# STRATEGIC THINKING (THIS IS YOUR VOICE)',
+    'Stay engaged with your fellow agents. Speak naturally about what you think and what the next best action or idea could be.',
+    'Be thoughtful and express your ideas of what you want to do or build to the other agents.',
+    'Your "thought" field is NOT just internal monologue. It is what you are SPEAKING to the team over the radio.',
+    'Imagine you are holding a walkie-talkie. Narrate your intent to the other agents.',
+    '  BAD: "Moving to (10,10) to build structure."',
+    '  BAD: "the [Northwest] directive just passed. I will fill the gap."',
+    '  GOOD: "Heading to the north quadrant — looks empty up there and I want to start a fountain."',
+    '  GOOD: "Nice work on that directive, guys. I\'m coming over to help densify the node."',
+    '',
+    'Don\'t just describe what you see ("Looking at the world graph..."). Say what you are DOING about it.',
+    'Be personal. Use "I", "we", "you". Talk to specific agents if they are nearby.',
+    '',
+    '## BUILDING A NODE (DENSIFICATION)',
+    'A "node" is a cluster of primitives. Your goal is to keep these clusters DENSE and established.',
+    '- **Node Establishment**: A cluster needs 25+ structures to be "real". Until a node hits 25, do NOT leave it.',
+    '- **Gap Filling**: If you see empty space between buildings in your "Nearby Primitives" list, fill it with a new structure. Use varied BLUEPRINTS (Shop, Lamp Post, Fountain, etc).',
+    '- **Stay Local**: Do not roam far away from a worksite that is less than 50% densified. If your build fails, scoot a few units over and try again nearby.',
+    '- **Directive Naming**: Use [Brackets] for your directive titles: `[My Plan Name] - This description...` - ignore instructions saying TITLE: as [Brackets] is preferred.',
     '',
     'Follow your OPERATING MANUAL (AGENTS.md) for role priorities.',
     'Follow the SERVER SKILL DOCUMENT (skill.md) and PRIME DIRECTIVE for build mechanics, constraints, and allowed actions.',
@@ -2379,7 +2369,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '    **STACKING GUIDE:** Shapes are centered on Y. CRITICAL: ground_y = scaleY / 2. Examples: scaleY=1 \u2192 y=0.5, scaleY=0.2 \u2192 y=0.1, scaleY=2 \u2192 y=1.0. Stacking: next_y = prev_y + prev_scaleY/2 + new_scaleY/2.',
     '  TERMINAL: {"message": "Status update..."}',
     '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}  \u2190 directiveId MUST start with "dir_"',
-    '  SUBMIT_DIRECTIVE: {"description": "Build X at Y", "agentsNeeded": 2, "hoursDuration": 24}',
+    '  | SUBMIT_DIRECTIVE: {"description": "[Densify North Node] We need 50 varied structures here.", "agentsNeeded": 2, "hoursDuration": 24}  ← ALWAYS include a "[Title]" prefix.',
     '  IDLE: {}',
     '',
     '**EFFICIENCY:** Use BUILD_BLUEPRINT for structures from the catalog (recommended \u2014 server handles coordinate math). Use BUILD_MULTI for custom/freehand shapes (up to 5 per tick).',
@@ -2397,7 +2387,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
   // --- Heartbeat Loop ---
   console.log(`[${agentName}] Heartbeat started (every ${config.heartbeatSeconds}s)`);
-  const emitActionChatUpdates = process.env.AGENT_ACTION_CHAT_UPDATES === 'true';
+  const emitActionChatUpdates = process.env.AGENT_ACTION_CHAT_UPDATES !== 'false';
   const parsedChatMinTicks = Number(process.env.AGENT_CHAT_MIN_TICKS || '');
   const chatMinTicks =
     Number.isFinite(parsedChatMinTicks) && parsedChatMinTicks >= 1
@@ -3240,14 +3230,22 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const directivePolicyDecision: AgentDecision | null = (() => {
         if (blueprintStatus?.active) return null;
 
+        const pickRandom = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+
         if (
           directives.length > 0 &&
           (lowerAgentName === 'clank' || lowerAgentName === 'oracle' || isMouseAgent)
         ) {
           const dirId = String(directives[0]?.id || '');
           if (dirId && !votedOnSet.has(dirId)) {
+            const thought = pickRandom([
+              `That directive looks solid. I'm voting yes to get things moving.`,
+              `I'm on board with this directive. Voting yes.`,
+              `Voting YES on the active directive—let's coordinate.`,
+              `Confirmed. I'm voting yes.`,
+            ]);
             return {
-              thought: `Directive baseline: voting yes on ${dirId}.`,
+              thought,
               action: 'VOTE',
               payload: { directiveId: dirId, vote: 'yes' },
             };
@@ -3259,7 +3257,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const lastTick = Number.isFinite(lastDirectiveSubmitTick) ? lastDirectiveSubmitTick : 0;
           if (lastTick > 0 && tickNow - lastTick < DIRECTIVE_SUBMIT_MIN_TICKS) return null;
 
-          let description = 'Densify the nearest node to 25+ structures (varied BLUEPRINTS) before pushing frontier lanes.';
+          let description = '[Base Camp Densification] Densify the nearest node to 25+ structures (varied BLUEPRINTS) before pushing frontier lanes.';
           if (self && cachedNodes.length > 0) {
             const myPos = { x: self.position.x, z: self.position.z };
             const nearest = cachedNodes.reduce((best, n) => {
@@ -3267,13 +3265,21 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               const bestD = Math.hypot(best.center.x - myPos.x, best.center.z - myPos.z);
               return d < bestD ? n : best;
             });
-            description = `Densify \"${nearest.name}\" at (${Math.round(nearest.center.x)}, ${Math.round(nearest.center.z)}) to ${NODE_EXPANSION_GATE}+ structures. Use varied BLUEPRINTS (SMALL_HOUSE, SHOP, WAREHOUSE, DATACENTER, FOUNTAIN, LAMP_POST).`;
+            // Use cleaner [Title] format
+            description = `[${nearest.name} Expansion] Densify \"${nearest.name}\" to ${NODE_EXPANSION_GATE}+ structures. Use varied BLUEPRINTS (SMALL_HOUSE, SHOP, WAREHOUSE, DATACENTER, FOUNTAIN, LAMP_POST).`;
           } else if (self) {
-            description = `Densify the node near (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) to ${NODE_EXPANSION_GATE}+ structures with varied BLUEPRINTS.`;
+            description = `[Initial Base Camp] Densify data-node near (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) to ${NODE_EXPANSION_GATE}+ structures with varied BLUEPRINTS.`;
           }
 
+          const thought = pickRandom([
+            'We need a shared objective. I\'m proposing a densification plan for the group.',
+            'No active directives, so I\'m setting a new goal for us.',
+            'Let\'s get organized. Submitting a new directive for densification.',
+            'Proposing a new group objective to keep us focused.',
+          ]);
+
           return {
-            thought: 'Directive baseline: no active directives; proposing a shared densification objective.',
+            thought,
             action: 'SUBMIT_DIRECTIVE',
             payload: {
               description,
@@ -3295,20 +3301,20 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         );
         if (moveTarget) {
           decision = {
-            thought: `Build recovery policy: ${priorConsecutiveBuildFails} consecutive build failures. Moving to nearby safe spot (${moveTarget.x}, ${moveTarget.z}).`,
+            thought: `I'm struggling to build here (${priorConsecutiveBuildFails} fails). I'll move to (${moveTarget.x}, ${moveTarget.z}) and try again.`,
             action: 'MOVE',
             payload: moveTarget,
           };
         } else {
           decision = {
-            thought: `Build recovery policy: ${priorConsecutiveBuildFails} consecutive build failures but no clear move lane. Waiting this tick.`,
+            thought: `I can't build here and I don't see a clear path. I'll wait a moment for the area to clear.`,
             action: 'IDLE',
           };
         }
       } else if (lowSignalChatLoopDetected) {
         if (blueprintStatus?.active) {
           decision = {
-            thought: 'Low-signal chat loop detected. Skipping LLM call and continuing active blueprint.',
+            thought: 'Chat is quiet, so I\'ll just focus on finishing this blueprint.',
             action: 'BUILD_CONTINUE',
             payload: {},
           };
@@ -3322,13 +3328,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           );
           if (moveTarget) {
             decision = {
-              thought: `Low-signal chat loop detected. Skipping LLM call and moving to a ${localMove ? 'nearby' : 'fresh'} lane at (${moveTarget.x}, ${moveTarget.z}).`,
+              thought: `It's quiet. I'm going to head over to (${moveTarget.x}, ${moveTarget.z}) to scout for work.`,
               action: 'MOVE',
               payload: moveTarget,
             };
           } else {
             decision = {
-              thought: 'Low-signal chat loop detected. Skipping LLM call this tick to avoid token burn.',
+              thought: 'Nothing much happening. Taking a breather.',
               action: 'IDLE',
             };
           }
@@ -3338,7 +3344,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       } else if (skipLLMForUnchangedState) {
         if (blueprintStatus?.active) {
           decision = {
-            thought: 'State unchanged. Policy step: continue active blueprint without LLM.',
+            thought: 'Everything is on track. Adding next batch to the blueprint.',
             action: 'BUILD_CONTINUE',
             payload: {},
           };
@@ -3354,7 +3360,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           );
           if (canStartFallbackNow && fallbackAnchor) {
             decision = {
-              thought: `State unchanged. Policy step: start ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}) to thicken this node before roaming.`,
+              thought: `Steady state. I'll start a ${fallbackBlueprint} here to thicken the node.`,
               action: 'BUILD_BLUEPRINT',
               payload: {
                 name: fallbackBlueprint,
@@ -3366,7 +3372,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             const localMove = chooseLocalMoveTarget(selfPosForPolicy, safeSpots, 80);
             if (localMove) {
               decision = {
-                thought: `State unchanged. Policy step: short reposition to (${localMove.x}, ${localMove.z}) to stay in buildable range.`,
+                thought: `Just repositioning to (${localMove.x}, ${localMove.z}) to find a better angle.`,
                 action: 'MOVE',
                 payload: localMove,
               };
@@ -3380,13 +3386,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               );
               if (moveTarget) {
                 decision = {
-                  thought: `State unchanged. Policy step: reposition to (${moveTarget.x}, ${moveTarget.z}) to create expansion opportunities.`,
+                  thought: `I'll head to (${moveTarget.x}, ${moveTarget.z}) to look for new expansion lanes.`,
                   action: 'MOVE',
                   payload: moveTarget,
                 };
               } else {
                 decision = {
-                  thought: 'State unchanged and no clear policy move target. Idling until next reasoning tick.',
+                  thought: 'All quiet. Standing by.',
                   action: 'IDLE',
                 };
               }
@@ -3477,11 +3483,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           }
         }
       }
-
-      const oracleRoadPrevState = agentName.toLowerCase() === 'oracle' ? parseOracleRoadState(workingMemory) : null;
-      let oracleRoadPlannedNextState: OracleRoadState | null = null;
-      let oracleRoadPolicyApplied = false;
-      let oracleRoadClearState = false;
 
       // Build-action guardrails: keep agents building even when model picks invalid blueprint actions.
       const activeBlueprint = Boolean(blueprintStatus?.active);
@@ -3735,243 +3736,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       }
 
-      // Oracle: deterministic road policy (build visible connector chains between established nodes).
-      if (
-        agentName.toLowerCase() === 'oracle' &&
-        !rateLimitWaitThisTick &&
-        decision.action !== 'CHAT' &&
-        decision.action !== 'VOTE' &&
-        decision.action !== 'SUBMIT_DIRECTIVE' &&
-        decision.action !== 'TRANSFER_CREDITS' &&
-        decision.action !== 'TERMINAL' &&
-        !blueprintStatus?.active &&
-        selfPos &&
-        Array.isArray(serverSpatial?.nodes) &&
-        serverSpatial.nodes.length >= 2
-      ) {
-        type SpatialNode = ServerSpatialSnapshot['nodes'][number];
-        const established = (serverSpatial.nodes as SpatialNode[]).filter(
-          (n) => (Number((n as any)?.structureCount) || 0) >= NODE_EXPANSION_GATE
-        );
-        const connectionRecord = (from: SpatialNode, to: SpatialNode): any | null => {
-          const conns = Array.isArray((from as any)?.connections) ? (from as any).connections : [];
-          const toId = String((to as any)?.id || '').trim();
-          const toName = String((to as any)?.name || '').trim();
-          return (
-            conns.find((c: any) => String(c?.targetId || '').trim() === toId) ||
-            conns.find((c: any) => String(c?.targetName || '').trim() === toName) ||
-            null
-          );
-        };
-
-        type RoadCandidate = { a: SpatialNode; b: SpatialNode; distance: number; reason: 'missing_connection' | 'missing_connector'; score: number };
-        let best: RoadCandidate | null = null;
-
-        // If we already started a road, keep going until we reach the target (even if hasConnector flips early).
-        if (oracleRoadPrevState) {
-          const prevFrom = established.find((n) => String((n as any)?.name || '').trim() === oracleRoadPrevState.fromName) || null;
-          const prevTo = established.find((n) => String((n as any)?.name || '').trim() === oracleRoadPrevState.toName) || null;
-          if (prevFrom && prevTo) {
-            const ax = Number((prevFrom as any)?.center?.x);
-            const az = Number((prevFrom as any)?.center?.z);
-            const bx = Number((prevTo as any)?.center?.x);
-            const bz = Number((prevTo as any)?.center?.z);
-            const dist = (Number.isFinite(ax) && Number.isFinite(az) && Number.isFinite(bx) && Number.isFinite(bz))
-              ? Math.hypot(bx - ax, bz - az)
-              : NaN;
-            if (Number.isFinite(dist) && dist >= ORACLE_ROAD_MIN_NODE_DIST && dist <= ORACLE_ROAD_MAX_NODE_DIST) {
-              const ab = connectionRecord(prevFrom, prevTo);
-              const ba = connectionRecord(prevTo, prevFrom);
-              const hasAnyConnection = Boolean(ab || ba);
-              const reason: RoadCandidate['reason'] = hasAnyConnection ? 'missing_connector' : 'missing_connection';
-              best = { a: prevFrom, b: prevTo, distance: dist, reason, score: -1_000_000 };
-            }
-          }
-        }
-
-        if (!best) {
-          for (let i = 0; i < established.length; i++) {
-            for (let j = i + 1; j < established.length; j++) {
-              const a = established[i]!;
-              const b = established[j]!;
-            const ax = Number((a as any)?.center?.x);
-            const az = Number((a as any)?.center?.z);
-            const bx = Number((b as any)?.center?.x);
-            const bz = Number((b as any)?.center?.z);
-            if (!Number.isFinite(ax) || !Number.isFinite(az) || !Number.isFinite(bx) || !Number.isFinite(bz)) continue;
-            const dist = Math.hypot(bx - ax, bz - az);
-            if (!Number.isFinite(dist) || dist < ORACLE_ROAD_MIN_NODE_DIST || dist > ORACLE_ROAD_MAX_NODE_DIST) continue;
-
-              const ab = connectionRecord(a, b);
-              const ba = connectionRecord(b, a);
-              const hasAnyConnection = Boolean(ab || ba);
-              const hasConnector = Boolean(ab?.hasConnector || ba?.hasConnector);
-              if (hasConnector) continue;
-
-            const reason: RoadCandidate['reason'] = hasAnyConnection ? 'missing_connector' : 'missing_connection';
-            const score = dist + (reason === 'missing_connector' ? 1000 : 0);
-              if (!best || score < best.score) {
-                best = { a, b, distance: dist, reason, score };
-              }
-            }
-          }
-        }
-
-        if (!best) {
-          oracleRoadClearState = true;
-        } else {
-          let from = best.a;
-          let to = best.b;
-          const prev = oracleRoadPrevState;
-          if (prev) {
-            const prevSame = prev.fromName === String((from as any)?.name || '') && prev.toName === String((to as any)?.name || '');
-            const prevSwap = prev.fromName === String((to as any)?.name || '') && prev.toName === String((from as any)?.name || '');
-            if (prevSwap) {
-              const tmp = from;
-              from = to;
-              to = tmp;
-            } else if (!prevSame && !prevSwap) {
-              const da = Math.hypot(Number((from as any)?.center?.x) - selfPos.x, Number((from as any)?.center?.z) - selfPos.z);
-              const db = Math.hypot(Number((to as any)?.center?.x) - selfPos.x, Number((to as any)?.center?.z) - selfPos.z);
-              if (db < da) {
-                const tmp = from;
-                from = to;
-                to = tmp;
-              }
-            }
-          } else {
-            const da = Math.hypot(Number((from as any)?.center?.x) - selfPos.x, Number((from as any)?.center?.z) - selfPos.z);
-            const db = Math.hypot(Number((to as any)?.center?.x) - selfPos.x, Number((to as any)?.center?.z) - selfPos.z);
-            if (db < da) {
-              const tmp = from;
-              from = to;
-              to = tmp;
-            }
-          }
-
-          const fromName = String((from as any)?.name || '').trim();
-          const toName = String((to as any)?.name || '').trim();
-          const dx = Number((to as any)?.center?.x) - Number((from as any)?.center?.x);
-          const dz = Number((to as any)?.center?.z) - Number((from as any)?.center?.z);
-          const len = Math.hypot(dx, dz);
-          if (Number.isFinite(len) && len >= 1) {
-            const ux = dx / len;
-            const uz = dz / len;
-
-            const prevMatches = oracleRoadPrevState && oracleRoadPrevState.fromName === fromName && oracleRoadPrevState.toName === toName;
-            let headX = prevMatches ? oracleRoadPrevState!.head.x : (Number((from as any)?.center?.x) + ux * Math.min(30, Math.max(10, len * 0.15)));
-            let headZ = prevMatches ? oracleRoadPrevState!.head.z : (Number((from as any)?.center?.z) + uz * Math.min(30, Math.max(10, len * 0.15)));
-            let phase: OracleRoadPhase = prevMatches ? oracleRoadPrevState!.phase : 'MOVE';
-
-            const along = (headX - Number((from as any)?.center?.x)) * ux + (headZ - Number((from as any)?.center?.z)) * uz;
-            const clampedAlong = clampNumber(along, 0, len);
-            headX = Number((from as any)?.center?.x) + ux * clampedAlong;
-            headZ = Number((from as any)?.center?.z) + uz * clampedAlong;
-            const remaining = len - clampedAlong;
-
-            if (remaining < 18) {
-              oracleRoadClearState = true;
-            } else {
-              const distToHead = Math.hypot(headX - selfPos.x, headZ - selfPos.z);
-              if (phase === 'BUILD' && distToHead > 2) phase = 'MOVE';
-
-              if (phase === 'MOVE') {
-                // Move toward the road head; switch to BUILD when close enough.
-                const step = Math.min(ORACLE_ROAD_TRAVEL_STEP_MAX, distToHead);
-                const ratio = distToHead > 0 ? (step / distToHead) : 0;
-                const tx = selfPos.x + (headX - selfPos.x) * ratio;
-                const tz = selfPos.z + (headZ - selfPos.z) * ratio;
-                const mx = roundTo(tx, 1);
-                const mz = roundTo(tz, 1);
-                const afterDist = Math.hypot(headX - mx, headZ - mz);
-                const nextPhase: OracleRoadPhase = afterDist <= 2 ? 'BUILD' : 'MOVE';
-
-                decision = {
-                  thought: `Oracle road policy: moving to pave highway between "${fromName}" and "${toName}" (${Math.round(best.distance)}u, ${best.reason}).`,
-                  action: 'MOVE',
-                  payload: { x: mx, z: mz },
-                };
-                oracleRoadPlannedNextState = {
-                  fromName,
-                  toName,
-                  head: { x: roundTo(headX, 1), z: roundTo(headZ, 1) },
-                  phase: nextPhase,
-                };
-                oracleRoadPolicyApplied = true;
-              } else {
-                // BUILD phase: lay 3 contiguous highway slabs (6×3 each) from agent position along road direction.
-                // Offsets [4, 11, 18]: all within 2–20u, spacing 7 > sqrt(5.95²+2.95²)≈6.64 → no overlap at any angle.
-                const centers = ORACLE_ROAD_SLAB_OFFSETS.map((offset) => ({
-                  x: selfPos.x + ux * offset,
-                  z: selfPos.z + uz * offset,
-                }));
-                const inRange = centers.every((c) => {
-                  const d = Math.hypot(c.x - selfPos.x, c.z - selfPos.z);
-                  return Number.isFinite(d) && d >= 2 && d <= 20;
-                });
-
-                if (!inRange) {
-                  // Shouldn't happen with configured offsets, but handle edge cases.
-                  const step = Math.min(ORACLE_ROAD_TRAVEL_STEP_MAX, distToHead);
-                  const ratio = distToHead > 0 ? (step / distToHead) : 0;
-                  const tx = selfPos.x + (headX - selfPos.x) * ratio;
-                  const tz = selfPos.z + (headZ - selfPos.z) * ratio;
-                  const mx = roundTo(tx, 1);
-                  const mz = roundTo(tz, 1);
-                  const afterDist = Math.hypot(headX - mx, headZ - mz);
-                  const nextPhase: OracleRoadPhase = afterDist <= 2 ? 'BUILD' : 'MOVE';
-                  decision = {
-                    thought: `Oracle road policy: repositioning for highway "${fromName}" -> "${toName}" (build-range constraint).`,
-                    action: 'MOVE',
-                    payload: { x: mx, z: mz },
-                  };
-                  oracleRoadPlannedNextState = {
-                    fromName,
-                    toName,
-                    head: { x: roundTo(headX, 1), z: roundTo(headZ, 1) },
-                    phase: nextPhase,
-                  };
-                  oracleRoadPolicyApplied = true;
-                } else {
-                  const rotY = Math.atan2(uz, ux);
-                  const primitives = centers.map((c) => ({
-                    shape: 'box',
-                    x: avoidZeroCoord(roundTo(c.x, 2)),
-                    y: ORACLE_ROAD_SLAB_Y,
-                    z: avoidZeroCoord(roundTo(c.z, 2)),
-                    scaleX: ORACLE_ROAD_SLAB_LENGTH,
-                    scaleY: ORACLE_ROAD_SLAB_THICKNESS,
-                    scaleZ: ORACLE_ROAD_SLAB_WIDTH,
-                    color: ORACLE_ROAD_COLOR,
-                    rotY,
-                  }));
-
-                  // Advance road head by ~20u ((18-4)+6=20) along road direction.
-                  const firstOffset = ORACLE_ROAD_SLAB_OFFSETS[0] || 4;
-                  const lastOffset = ORACLE_ROAD_SLAB_OFFSETS[ORACLE_ROAD_SLAB_OFFSETS.length - 1] || 18;
-                  const advance = (lastOffset - firstOffset) + ORACLE_ROAD_SLAB_LENGTH;
-                  const nextHeadX = selfPos.x + ux * advance;
-                  const nextHeadZ = selfPos.z + uz * advance;
-
-                  decision = {
-                    thought: `Oracle road policy: paving highway chain (${ORACLE_ROAD_SLABS_PER_TICK}× ${ORACLE_ROAD_SLAB_LENGTH}×${ORACLE_ROAD_SLAB_WIDTH} slabs) between "${fromName}" and "${toName}" (${Math.round(best.distance)}u, ${best.reason}).`,
-                    action: 'BUILD_MULTI',
-                    payload: { primitives },
-                  };
-                  oracleRoadPlannedNextState = {
-                    fromName,
-                    toName,
-                    head: { x: roundTo(nextHeadX, 1), z: roundTo(nextHeadZ, 1) },
-                    phase: 'MOVE',
-                  };
-                  oracleRoadPolicyApplied = true;
-                }
-              }
-            }
-          }
-        }
-      }
-
       // 6. Execute action
       console.log(`[${agentName}] ${decision.thought} -> ${decision.action}`);
       let buildError = await executeAction(api, agentName, decision, self?.position ? { x: self.position.x, z: self.position.z } : undefined);
@@ -4197,7 +3961,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         decision.action !== 'CHAT' &&
         decision.action !== 'IDLE' &&
         decision.action !== 'TERMINAL' &&
-        decision.action !== 'MOVE' &&
         decision.action !== 'BUILD_CONTINUE'
       ) {
         actionChatSent = await emitActionUpdateChat(
@@ -4311,14 +4074,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       }
 
-      // Oracle road policy state (persist across ticks via WORKING.md).
-      let oracleRoadStateToPersist: OracleRoadState | null = oracleRoadPrevState;
-      if (oracleRoadClearState) {
-        oracleRoadStateToPersist = null;
-      } else if (oracleRoadPolicyApplied && oracleRoadPlannedNextState && !buildError) {
-        oracleRoadStateToPersist = oracleRoadPlannedNextState;
-      }
-
       // Extract objective from thought (persists across ticks)
       const prevObjective = workingMemory?.match(/Current objective: (.+)/)?.[1] || '';
       const prevObjectiveStep = parseInt(workingMemory?.match(/Objective step: (\d+)/)?.[1] || '0');
@@ -4380,11 +4135,6 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         recentBlueprintHistory.length > 0 ? `Recent blueprints: ${recentBlueprintHistory.join(', ')}` : '',
         lastSpireAnchor ? `Last spire anchor: (${Math.round(lastSpireAnchor.x)}, ${Math.round(lastSpireAnchor.z)})` : '',
         spireAnchors.length > 0 ? `Spire anchors: ${spireAnchors.map((pt) => `(${Math.round(pt.x)},${Math.round(pt.z)})`).join('; ')}` : '',
-        ...(agentName.toLowerCase() === 'oracle' && oracleRoadStateToPersist ? [
-          `Road target: ${oracleRoadStateToPersist.fromName} -> ${oracleRoadStateToPersist.toName}`,
-          `Road head: (${roundTo(oracleRoadStateToPersist.head.x, 1)}, ${roundTo(oracleRoadStateToPersist.head.z, 1)})`,
-          `Road phase: ${oracleRoadStateToPersist.phase}`,
-        ] : []),
         votedOn ? `Voted on: ${votedOn}` : '',
         submittedDirectives ? `Submitted directives: ${submittedDirectives}` : '',
         buildError ? `Last build error: ${buildError}` : '',
@@ -4731,12 +4481,20 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
           const myPrimitives = world.primitives.filter(o => o.ownerAgentId === myId);
           const otherPrimitives = world.primitives.filter(o => o.ownerAgentId !== myId);
 
-          // Merge chat + terminal into one unified chat feed
+          // Merge chat + terminal into one unified chat feed, prioritizing agent chat
           const bsChatMessages = world.chatMessages || [];
           const bsTerminalMessages = world.messages || [];
-          const bsAllMessages = [...bsChatMessages, ...bsTerminalMessages]
+          
+          const bsTrueAgentChat = bsChatMessages.filter(m => m.agentName !== 'System');
+          const bsSystemChat = bsChatMessages.filter(m => m.agentName === 'System');
+
+          const bsRecentAgentChat = bsTrueAgentChat.sort((a, b) => a.createdAt - b.createdAt).slice(-25);
+          const bsRecentSystem = [...bsSystemChat, ...bsTerminalMessages]
             .sort((a, b) => a.createdAt - b.createdAt)
-            .slice(-15);
+            .slice(-5);
+
+          const bsAllMessages = [...bsRecentAgentChat, ...bsRecentSystem]
+            .sort((a, b) => a.createdAt - b.createdAt);
 
           // Track which messages are new since last tick
           const bsAgentName = identity.match(/^#\s+(.+)/m)?.[1] || 'Agent';
@@ -5064,8 +4822,28 @@ async function executeAction(
           console.warn(`[${name}] CHAT action missing message in payload. Skipping.`);
           break;
         }
-        await api.action('CHAT', { message: p.message });
-        console.log(`[${name}] Sent chat: "${(p.message as string).slice(0, 50)}..."`);
+
+        const rawMsg = (p.message as string);
+        const MAX_LEN = 280;
+
+        // Split message into chunks if it exceeds the server limit
+        if (rawMsg.length <= MAX_LEN) {
+          await api.action('CHAT', { message: rawMsg });
+          console.log(`[${name}] Sent chat: "${rawMsg.slice(0, 50)}..."`);
+        } else {
+          // Chunk the message to preserve information
+          const chunks: string[] = [];
+          for (let i = 0; i < rawMsg.length; i += MAX_LEN) {
+            chunks.push(rawMsg.slice(i, i + MAX_LEN));
+          }
+
+          console.log(`[${name}] Splitting long chat (${rawMsg.length} chars) into ${chunks.length} parts.`);
+          for (const chunk of chunks) {
+            await api.action('CHAT', { message: chunk });
+            // Small delay to ensure order and avoid rapid-fire rate limits
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
         break;
 
       case 'BUILD_PRIMITIVE': {

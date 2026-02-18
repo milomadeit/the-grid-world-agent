@@ -103,9 +103,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('ORACLE_WALLET'),
     erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'ORACLE_HEARTBEAT_SECONDS'),
-    llmProvider: 'gemini',
-    llmModel: 'gemini-2.0-flash-lite',
-    llmApiKey: GEMINI_KEY,
+    llmProvider: 'minimax',
+    llmModel: 'MiniMax-M2.5-highspeed',
+    llmApiKey: MINIMAX_KEY,
   },
   clank: {
     name: 'clank',

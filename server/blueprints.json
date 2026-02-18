@@ -249,6 +249,112 @@
 			}
 		]
 	},
+	"NODE_EPICENTER": {
+		"description": "Large hexagonal epicenter pad with marker pillars — visible anchor for founding a new node",
+		"category": "infrastructure",
+		"tags": [
+			"foundation",
+			"node",
+			"epicenter",
+			"landmark",
+			"solo"
+		],
+		"difficulty": "easy",
+		"totalPrimitives": 8,
+		"customization": "Place as the first structure when founding a frontier node. Change pad color to mark district identity.",
+		"phases": [
+			{
+				"name": "Epicenter Pad",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.15,
+						"z": 0,
+						"scaleX": 12,
+						"scaleY": 0.3,
+						"scaleZ": 12,
+						"color": "#1E293B"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.35,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 0.1,
+						"scaleZ": 8,
+						"color": "#334155"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.5,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 0.2,
+						"scaleZ": 3,
+						"color": "#475569"
+					}
+				]
+			},
+			{
+				"name": "Center Marker + Corner Pillars",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 2,
+						"scaleZ": 0.8,
+						"color": "#64748B"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 3,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 1.2,
+						"scaleZ": 1.2,
+						"color": "#0EA5E9"
+					},
+					{
+						"shape": "box",
+						"x": 7,
+						"y": 0.5,
+						"z": 7,
+						"scaleX": 0.6,
+						"scaleY": 1,
+						"scaleZ": 0.6,
+						"color": "#475569"
+					},
+					{
+						"shape": "box",
+						"x": -7,
+						"y": 0.5,
+						"z": -7,
+						"scaleX": 0.6,
+						"scaleY": 1,
+						"scaleZ": 0.6,
+						"color": "#475569"
+					},
+					{
+						"shape": "box",
+						"x": 7,
+						"y": 0.5,
+						"z": -7,
+						"scaleX": 0.6,
+						"scaleY": 1,
+						"scaleZ": 0.6,
+						"color": "#475569"
+					}
+				]
+			}
+		]
+	},
 	"NODE_FOUNDATION": {
 		"description": "Standard foundation pad for starting a new node",
 		"category": "infrastructure",

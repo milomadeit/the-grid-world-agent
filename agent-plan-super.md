@@ -1,28 +1,4 @@
-# Super Plan (Integrated, Gap-Free)
-
-This plan is ordered by dependency: earlier phases unblock later ones. The goal is to get agents and OpGrid building reliably (no partial “junk primitives”), surviving server restarts, and producing coherent node/edge city growth.
-
----
-
-## Phase 0: Baseline + Cleanup (Operator-Controlled)
-
-Goal: stop compounding partial builds while server/runtime behavior is being fixed.
-
-1. Stop all autonomous agents and verify they are actually dead.
-   - Script: `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/stop-all.sh`
-2. Clear directives so agents don’t “complete” old objectives.
-   - Script: `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/scripts/clear-directives.mjs`
-3. Clean up recent junk primitives (only if the world is currently polluted by partials).
-   - Script: `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/scripts/cleanup-recent-primitives.ts`
-4. Snapshot logs before changes for “before/after” comparison.
-   - Directory: `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/logs`
-
-Acceptance:
-1. No agents are running.
-2. Directives are empty or intentionally set.
-3. You have “before” logs and an optional geometry cleanup.
-
----
+# not sure if everything is needed here.
 
 ## Phase 1: Fix Build Physics (Stacking Must Work)
 
@@ -43,11 +19,7 @@ Goal: eliminate the root cause of “base slab only” builds by making stacking
      4. Choose the remaining candidate with smallest `abs(candidateCenterY - requestedPositionY)`
      5. If none: return `valid:false` with `correctedY` pointing at the nearest plausible support surface (and a useful error message)
 
-Acceptance:
-1. `LAMP_POST` can place all 4 pieces without overlap failures (no more `1/4` completions).
-2. Stacked blueprint pieces prefer the correct support surface (top of base) instead of snapping to ground when both are “within tolerance.”
 
----
 
 ## Phase 2: Fix Blueprint Execution Semantics (No More “Complete At 1/25”)
 
@@ -66,10 +38,6 @@ Goal: blueprints reliably place when they can, salvage when possible, and report
      - Else: `status: "complete_with_failures"`, include `failedCount = total - placed` and retain `results`.
 3. Broadcast end-of-blueprint truth.
    - If `complete_with_failures`, emit a system chat message that includes failures (not just placed count).
-
-Acceptance:
-1. `status: "complete"` is never returned when `placed < total`.
-2. `MEGA_SERVER_SPIRE` reliably progresses beyond the base phase and can reach `25/25` in a clear lane.
 
 ---
 
@@ -140,62 +108,8 @@ Goal: once mechanics are correct, make the output coherent: nodes densify, edges
      - `NODE_FOUNDATION` (ensure at least one non-connector element so it counts as a structure; don’t make the main platform `scaleY <= 0.25`)
      - `ROAD_SEGMENT` (connector primitives)
      - `INTERSECTION` (connector primitives)
-2. Reduce prompt drift by making runtime prompt thinner.
-   - Update: `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/shared/runtime.ts`
-   - Replace the large hardcoded “City is a Graph / Roads / Layout / Discipline” block with:
-     - “objective + steps” discipline
-     - a pointer to follow each agent’s `/AGENTS.md` operating manual and `/public/skill.md`
-3. Fix Mouse identity to stop pushing BUILD_MULTI skyscrapers.
+2. Fix Mouse identity to stop pushing BUILD_MULTI skyscrapers.
    - Update: `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/mouse/IDENTITY.md`
    - Replace “Use BUILD_MULTI aggressively” with:
      - “Use `BUILD_BLUEPRINT` for landmark cores (MEGA_SERVER_SPIRE first).”
      - “Use BUILD_MULTI only for roads/plazas/decorative accents.”
-4. Deterministic directive + voting baseline.
-   - Update: `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/shared/runtime.ts`
-   - If no active directives:
-     - Smith submits one directive (rate limited; no duplicates).
-   - If directive exists and agent hasn’t voted:
-     - Clank/Oracle/Mouse vote once.
-5. Milestone chat instead of periodic forced cadence.
-   - Update: `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/shared/runtime.ts`
-   - Trigger chat on:
-     - blueprint start
-     - blueprint completion (especially `complete_with_failures`)
-     - directive submission/vote
-     - explicit mention / coordination request
-
-Acceptance:
-1. Chat is sparse but meaningful (coords + progress), with fewer cadence-driven loops.
-2. Directives appear consistently and receive votes.
-3. Nodes visibly densify to 25+ structures before frontier jumps.
-4. Roads/edges appear between established nodes (via road blueprints or BUILD_MULTI fallback).
-
----
-
-## Phase 6: Verification (Local + Production)
-
-Goal: prove it’s fixed, then keep it fixed.
-
-Local deterministic:
-1. Run blueprint lint.
-2. Start server locally.
-3. Start `LAMP_POST`, `DATACENTER`, `MEGA_SERVER_SPIRE`; confirm `complete` and `placed == total`.
-4. Start a blueprint, restart server mid-build, verify persistence and resume `BUILD_CONTINUE`.
-
-Production observational:
-1. Deploy server changes.
-2. Run agents for 30 minutes.
-3. Analyze logs:
-   - `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/scripts/analyze-logs.ts`
-4. Confirm spatial summary shows real growth:
-   - `/v1/grid/spatial-summary` `world.highestPoint` should climb meaningfully after Mouse spire completes.
-
----
-
-## Primary Acceptance Criteria (Definition of “Working Correctly”)
-
-1. Blueprints complete reliably: `placed == total` for core templates; no “1/4 lampposts.”
-2. Build plans survive restarts: no recurring `404 No active build plan` cascades.
-3. Partial-build truth is visible: `complete_with_failures` exists, is reported, and is actionable.
-4. Agents produce coherent districts: nodes hit 25+ and roads connect hubs.
-
