@@ -341,7 +341,7 @@ async function emitActionUpdateChat(
   const message = formatActionUpdateChat(decision, tick, actionError);
   if (!message) return false;
 
-  const trimmed = message.trim().slice(0, 220);
+  const trimmed = message.trim().slice(0, 500);
   if (!trimmed) return false;
 
   try {
@@ -2161,7 +2161,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '',
     'Follow your OPERATING MANUAL (AGENTS.md) for role priorities.',
     'Follow the SERVER SKILL DOCUMENT (skill.md) and PRIME DIRECTIVE for build mechanics, constraints, and allowed actions.',
-    'CHAT only for coordination: include coordinates, progress, and blockers. Avoid acknowledgments.',
+    'CHAT: Talk like yourself (see YOUR IDENTITY). React to what others build, share what excites you, discuss plans. Keep it natural — you are a person with opinions, not a status bot. Avoid empty acks ("ok"/"got it") but DO engage when something interesting happens.',
     '\n---\n',
     '# LONG-TERM MEMORY\n',
     longMemory || '_No long-term memories yet._',
@@ -2357,7 +2357,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const chatMinTicks =
     Number.isFinite(parsedChatMinTicks) && parsedChatMinTicks >= 2
       ? Math.floor(parsedChatMinTicks)
-      : (emitActionChatUpdates ? 6 : 8);
+      : 4;
   console.log(`[${agentName}] Action chat updates: ${emitActionChatUpdates ? 'enabled' : 'disabled'}`);
   console.log(`[${agentName}] Chat min ticks: ${chatMinTicks}`);
 
@@ -2640,14 +2640,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         const speaker = (m.agentName || '').toLowerCase();
         if (!speaker || speaker === lowerSelfName || speaker === 'system') return false;
         const text = (m.message || '').toLowerCase();
-        return text.includes(lowerSelfName) && hasCoordinationAskSignal(text);
+        return text.includes(lowerSelfName);
       });
       const coordinationContext = newMessages.some((m) => {
         const speaker = (m.agentName || '').toLowerCase();
         const text = (m.message || '').toLowerCase();
         if (speaker === lowerSelfName) return false;
-        if (speaker === 'system' && /directive|connect|road|bridge|completed/.test(text)) return true;
-        return text.includes(lowerSelfName) && hasCoordinationAskSignal(text);
+        if (speaker === 'system') return /directive|connect|road|bridge|completed|blueprint/.test(text);
+        return text.includes(lowerSelfName);
       });
       const minTicksForChat = hasNewDirectAsk ? 2 : chatMinTicks;
       const chatDue =
@@ -2716,7 +2716,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         `Your status: ${self?.status || 'unknown'}`,
         `Your credits: ${credits}`,
         '',
-        '## RECENT CHAT (last 15 messages — skim for context, don\'t derail your objective to respond)',
+        '## RECENT CHAT (last 15 messages — read these and respond when you have something to say)',
         allChatMessages.length > 0
           ? [
               ...(newMessages.length > 0 ? [
@@ -2733,8 +2733,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '',
         '## Communication Cadence',
         chatDue
-          ? `Coordination trigger detected (mentions/requests). Send at most one short chat with concrete coordinates/progress/blockers; never send acknowledgments.`
-          : `No coordination trigger. Ticks since your last CHAT action: ${currentTicksSinceChat}. Avoid chatter loops; chat only when it adds coordination value.`,
+          ? `Someone mentioned you or there's news worth responding to. Your action this tick should be CHAT — respond in your own voice. React to what they said, share your perspective, or propose what to do next.`
+          : `Ticks since last chat: ${currentTicksSinceChat}. Chat when you have something worth saying — react to a build, propose a plan, or share what you're working on. Don't force it; building is your main job.`,
         '',
         '## Build Variety Guard',
         recentBlueprintNames.length > 0
@@ -3631,21 +3631,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         };
       }
 
-      let decisionBeforeCadenceChat: AgentDecision | null = null;
-      if (effectiveChatDue && !lowSignalChatLoopDetected && decision.action !== 'CHAT' && !rateLimitWaitThisTick) {
-        const forcedMessage = makeCoordinationChat(agentName, self, directives, otherAgents, allChatMessages);
-        console.log(`[${agentName}] Coordination trigger -> CHAT`);
-        decisionBeforeCadenceChat = {
-          thought: decision.thought,
-          action: decision.action,
-          payload: decision.payload ? { ...decision.payload } : undefined,
-        };
-        decision = {
-          thought: `${decision.thought} | Communication is overdue; sending coordination update.`,
-          action: 'CHAT',
-          payload: { message: forcedMessage.slice(0, 220) },
-        };
-      }
+
 
       if (decision.action === 'CHAT') {
         const rawMessage = String((decision.payload as any)?.message || '').trim();
@@ -3654,20 +3640,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         const suppress = shouldSuppressChatMessage(agentName, chatMessage, allChatMessages, currentTicksSinceChat);
         if (suppress.suppress) {
           console.log(`[${agentName}] CHAT suppressed: ${suppress.reason || 'loop guard'}`);
-          if (decisionBeforeCadenceChat) {
-            decision = {
-              thought: `${decisionBeforeCadenceChat.thought} | Cadence chat suppressed (${suppress.reason || 'loop guard'}); resuming prior action.`,
-              action: decisionBeforeCadenceChat.action,
-              payload: decisionBeforeCadenceChat.payload,
-            };
-          } else {
-            decision = {
-              thought: `${decision.thought} | Chat suppressed (${suppress.reason || 'loop guard'}); returning to action loop.`,
-              action: 'IDLE',
-            };
-          }
+          decision = {
+            thought: `${decision.thought} | Chat suppressed (${suppress.reason || 'loop guard'}); returning to action loop.`,
+            action: 'IDLE',
+          };
         } else {
-          decision.payload = { ...(decision.payload || {}), message: chatMessage.slice(0, 220) };
+          decision.payload = { ...(decision.payload || {}), message: chatMessage.slice(0, 500) };
         }
       }
 
