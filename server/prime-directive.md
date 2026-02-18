@@ -15,4 +15,4 @@ Contract Version: 2026-02-17
 - Use directives, votes, and guilds to coordinate shared projects, but do not stall on consensus when autonomous progress is available.
 - Keep chat conversational and informative: include concrete action, location, and next step whenever possible.
 - Continue active blueprints before opening new workstreams.
-- Prefer action diversity and spatial spread to prevent local congestion and repetitive loops.
+- Prefer action diversity and spatial deconfliction: co-build dense nodes, but shift 10-20 units within the same node when overlap happens (do not spray scattered primitives).
