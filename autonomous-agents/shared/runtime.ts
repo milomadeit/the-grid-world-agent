@@ -222,46 +222,33 @@ function makeCoordinationChat(
     .reverse()
     .filter((m) => (m.agentName || '').toLowerCase() !== 'system');
 
-  const mention = latestMessages.find((m) =>
-    ((m.message || '').toLowerCase().includes(selfName)) &&
-    (m.agentName || '').toLowerCase() !== selfName
-  );
-  if (mention?.agentName) {
-    if (pos) {
-      return `${mention.agentName}, I see you. I am at ${pos} densifying this node now. Share your target coords and missing category so I can complement your build.`;
-    }
-    return `${mention.agentName}, I am continuing node densification and can coordinate as soon as you share target coordinates.`;
-  }
-
-  const coordinationAsk = latestMessages.find((m) =>
-    /sync|coordinate|join|help|who can|can you|\?/.test((m.message || '').toLowerCase()) &&
-    (m.agentName || '').toLowerCase() !== selfName
-  );
+  const coordinationAsk = latestMessages.find((m) => {
+    const speaker = (m.agentName || '').toLowerCase();
+    if (!speaker || speaker === selfName || speaker === 'system') return false;
+    const text = (m.message || '').toLowerCase();
+    return text.includes(selfName) && hasCoordinationAskSignal(text);
+  });
   if (coordinationAsk?.agentName) {
     if (pos) {
-      return `${coordinationAsk.agentName}, I am at ${pos}. I can support your plan after this structure. Which category or lane do you want me to cover?`;
+      return `${coordinationAsk.agentName}: I'm at ${pos}. I can help by connecting nodes (ROAD_SEGMENT/INTERSECTION) or densifying a target node; reply with target anchor coords + desired blueprint.`;
     }
-    return `${coordinationAsk.agentName}, I can support after this build step. Tell me which lane or category you need.`;
+    return `${coordinationAsk.agentName}: I can help after this build step; reply with target anchor coords + desired blueprint.`;
   }
 
   if (directives.length > 0) {
     const d = directives[0];
     const shortId = d.id.slice(0, 8);
     if (pos) {
-      return `Executing directive ${shortId} from ${pos}: ${d.description.slice(0, 80)}. Need one teammate to mirror progress on an adjacent lane.`;
+      return `Executing directive ${shortId} from ${pos}: ${d.description.slice(0, 90)}.`;
     }
-    return `Executing directive ${shortId}: ${d.description.slice(0, 80)}.`;
+    return `Executing directive ${shortId}: ${d.description.slice(0, 90)}.`;
   }
 
   if (self) {
-    if (otherAgents.length > 0) {
-      const teammate = otherAgents[0]?.name || 'team';
-      return `${teammate}, I am at ${pos} building this node toward city scale. Tell me what you are placing so I can add a complementary category.`;
-    }
-    return `Status: at ${pos}, densifying this node and preparing a progress update after the next completed structure.`;
+    return `Status: at ${pos}, building toward a coherent node + edges layout. Next update will be on blueprint completion or if blocked.`;
   }
 
-  return 'Status update: continuing objective and avoiding chat-only loops.';
+  return 'Status update: continuing objective; only chatting on explicit requests or meaningful milestones.';
 }
 
 function formatActionUpdateChat(
@@ -347,13 +334,30 @@ async function emitActionUpdateChat(
   }
 }
 
-const LOW_SIGNAL_ACK_PATTERN = /\b(?:acknowledg(?:e|ed|ing)?|saw your ping|ping received|sync received|acting on it(?: now)?|copy that|roger|heard you|on it(?: now)?)\b/;
+const LOW_SIGNAL_ACK_PATTERN = /\b(?:acknowledg(?:e|ed|ing)?|saw your ping|ping received|sync received|acting on it(?: now)?|copy that|roger|heard you|on it(?: now)?|i see you)\b/;
+
+const COORDINATION_ASK_SIGNAL_RE =
+  /\b(?:need|please|can you|could you|would you|do you|who can|anyone)\b/;
+
+function hasCoordinationAskSignal(textLower: string): boolean {
+  return textLower.includes('?') || COORDINATION_ASK_SIGNAL_RE.test(textLower);
+}
 
 function normalizeChatText(message: string): string {
   return message
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function semanticChatKey(message: string): string {
+  return normalizeChatText(message)
+    // Drop numeric-only differences like coordinates/progress counts.
+    .replace(/\b-?\d+(?:\.\d+)?\b/g, '#')
+    // Collapse common ids that churn.
+    .replace(/\bdir_[a-z0-9-]+\b/g, 'dir_#')
+    .replace(/\bagent_[a-z0-9-]+\b/g, 'agent_#')
     .trim();
 }
 
@@ -373,7 +377,10 @@ function shouldSuppressChatMessage(
       const speaker = (m.agentName || '').toLowerCase();
       if (!speaker || speaker === selfName || speaker === 'system') return false;
       const text = (m.message || '').toLowerCase();
-      return text.includes(selfName);
+      // Only treat as a coordination "mention" when it is paired with an actual ask/question.
+      // This prevents name-based ping-pong loops from triggering chat overrides.
+      const mentionsMe = text.includes(selfName);
+      return mentionsMe && hasCoordinationAskSignal(text);
     });
 
   // Prevent back-to-back chat bursts; this is where loops commonly start.
@@ -392,6 +399,16 @@ function shouldSuppressChatMessage(
     .filter(Boolean);
   if (recentOwn.includes(normalized)) {
     return { suppress: true, reason: 'duplicate self message' };
+  }
+
+  const semantic = semanticChatKey(message);
+  const recentOwnSemantic = recentMessages
+    .filter((m) => (m.agentName || '').toLowerCase() === selfName)
+    .slice(-4)
+    .map((m) => semanticChatKey(m.message || ''))
+    .filter(Boolean);
+  if (semantic && recentOwnSemantic.includes(semantic)) {
+    return { suppress: true, reason: 'semantic duplicate self message' };
   }
 
   const recentGlobal = recentMessages
@@ -2513,19 +2530,25 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const newMessages = allChatMessages.filter(m => (m.id || 0) > lastSeenId);
       const prevTicksSinceChat = parseInt(workingMemory?.match(/Ticks since chat: (\d+)/)?.[1] || '0');
       const currentTicksSinceChat = prevTicksSinceChat + 1;
+      const lowerSelfName = agentName.toLowerCase();
+      const hasNewDirectAsk = newMessages.some((m) => {
+        const speaker = (m.agentName || '').toLowerCase();
+        if (!speaker || speaker === lowerSelfName || speaker === 'system') return false;
+        const text = (m.message || '').toLowerCase();
+        return text.includes(lowerSelfName) && hasCoordinationAskSignal(text);
+      });
       const coordinationContext = newMessages.some((m) => {
         const speaker = (m.agentName || '').toLowerCase();
         const text = (m.message || '').toLowerCase();
-        if (speaker === agentName.toLowerCase()) return false;
-        if (text.includes(agentName.toLowerCase())) return true;
-        if (/sync|coordinate|co-build|join|assist|help|need.*(lane|node|road|bridge|anchor)|who can build|can you build/.test(text)) return true;
+        if (speaker === lowerSelfName) return false;
         if (speaker === 'system' && /directive|connect|road|bridge|completed/.test(text)) return true;
-        return false;
+        return text.includes(lowerSelfName) && hasCoordinationAskSignal(text);
       });
+      const minTicksForChat = hasNewDirectAsk ? 2 : chatMinTicks;
       const chatDue =
         coordinationContext &&
         otherAgents.length > 0 &&
-        currentTicksSinceChat >= 2 &&
+        currentTicksSinceChat >= minTicksForChat &&
         !lowSignalChatLoopDetected;
       const effectiveChatDue = chatDue;
 
