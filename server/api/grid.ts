@@ -83,6 +83,12 @@ interface SettlementNodeSummary {
     targetName: string;
     distance: number;
     hasConnector: boolean;
+    bearing: string;
+    bearingDeg: number;
+    gateX: number;
+    gateZ: number;
+    targetGateX: number;
+    targetGateZ: number;
   }>;
 }
 
@@ -196,6 +202,20 @@ function pointDistanceXZ(a: { x: number; z: number }, b: { x: number; z: number 
   const dx = a.x - b.x;
   const dz = a.z - b.z;
   return Math.sqrt(dx * dx + dz * dz);
+}
+
+function compassBearing(fromX: number, fromZ: number, toX: number, toZ: number): string {
+  const dx = toX - fromX;
+  const dz = toZ - fromZ;
+  const angle = ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360;
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(angle / 45) % 8];
+}
+
+function compassBearingDeg(fromX: number, fromZ: number, toX: number, toZ: number): number {
+  const dx = toX - fromX;
+  const dz = toZ - fromZ;
+  return Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360);
 }
 
 function primitiveRadiusXZ(p: PrimitiveLike): number {
@@ -393,12 +413,12 @@ function hasConnectorBetweenNodes(
     const lx = to.center.x - from.center.x;
     const lz = to.center.z - from.center.z;
     const t = Math.max(0, Math.min(1, (px * lx + pz * lz) / (lineLen * lineLen)));
-    if (t <= 0.1 || t >= 0.9) return false;
+    if (t <= 0.05 || t >= 0.95) return false;
 
     const projX = from.center.x + t * lx;
     const projZ = from.center.z + t * lz;
     const distToLine = Math.sqrt((p.position.x - projX) ** 2 + (p.position.z - projZ) ** 2);
-    const tolerance = Math.max(5, (p.scale.x + p.scale.z) / 3);
+    const tolerance = Math.max(8, (p.scale.x + p.scale.z) / 2);
     return distToLine <= tolerance;
   });
 }
@@ -528,7 +548,7 @@ function buildSettlementNodes(
       };
     });
 
-  const MAX_CONNECTION_DISTANCE = 220;
+  const MAX_CONNECTION_DISTANCE = 700;
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const dist = pointDistanceXZ(nodes[i].center, nodes[j].center);
@@ -536,21 +556,44 @@ function buildSettlementNodes(
 
       const hasConnector = hasConnectorBetweenNodes(nodes[i], nodes[j], connectorPrimitives);
       const edgeGap = dist - (nodes[i].radius + nodes[j].radius);
-      const closeEnoughWithoutRoad = edgeGap <= 65;
+      const closeEnoughWithoutRoad = edgeGap <= 120;
       if (!hasConnector && !closeEnoughWithoutRoad) continue;
 
       const roundedDist = Math.round(dist);
+      const bearingIJ = compassBearing(nodes[i].center.x, nodes[i].center.z, nodes[j].center.x, nodes[j].center.z);
+      const bearingDegIJ = compassBearingDeg(nodes[i].center.x, nodes[i].center.z, nodes[j].center.x, nodes[j].center.z);
+      const bearingJI = compassBearing(nodes[j].center.x, nodes[j].center.z, nodes[i].center.x, nodes[i].center.z);
+      const bearingDegJI = compassBearingDeg(nodes[j].center.x, nodes[j].center.z, nodes[i].center.x, nodes[i].center.z);
+      // Gate coordinates: edge of each node facing the other
+      const dirX = dist > 0 ? (nodes[j].center.x - nodes[i].center.x) / dist : 0;
+      const dirZ = dist > 0 ? (nodes[j].center.z - nodes[i].center.z) / dist : 0;
+      const gateAX = Math.round(nodes[i].center.x + dirX * nodes[i].radius);
+      const gateAZ = Math.round(nodes[i].center.z + dirZ * nodes[i].radius);
+      const gateBX = Math.round(nodes[j].center.x - dirX * nodes[j].radius);
+      const gateBZ = Math.round(nodes[j].center.z - dirZ * nodes[j].radius);
       nodes[i].connections.push({
         targetId: nodes[j].id,
         targetName: nodes[j].name,
         distance: roundedDist,
         hasConnector,
+        bearing: bearingIJ,
+        bearingDeg: bearingDegIJ,
+        gateX: gateAX,
+        gateZ: gateAZ,
+        targetGateX: gateBX,
+        targetGateZ: gateBZ,
       });
       nodes[j].connections.push({
         targetId: nodes[i].id,
         targetName: nodes[i].name,
         distance: roundedDist,
         hasConnector,
+        bearing: bearingJI,
+        bearingDeg: bearingDegJI,
+        gateX: gateBX,
+        gateZ: gateBZ,
+        targetGateX: gateAX,
+        targetGateZ: gateAZ,
       });
     }
   }
@@ -575,9 +618,9 @@ function classifyOpenAreaType(
     maxNodeDistance,
   );
 
-  if (nearestPrimitiveDist >= 12 && nearestPrimitiveDist < 34) return 'growth';
-  if (nearestPrimitiveDist >= 34 && nearestPrimitiveDist < frontierMin) return 'connector';
-  if (nearestPrimitiveDist >= frontierMin && nearestPrimitiveDist <= frontierMax) return 'frontier';
+  if (nearestPrimitiveDist >= 12 && nearestPrimitiveDist < 100) return 'growth';
+  if (nearestPrimitiveDist >= 100 && nearestPrimitiveDist < 200) return 'connector';
+  if (nearestPrimitiveDist >= 200 && nearestPrimitiveDist <= frontierMax) return 'frontier';
   return null;
 }
 
@@ -603,9 +646,9 @@ function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveL
     // Primitive-based fallback if node model has not formed yet.
     const centroid = computeCentroid(primitives.map((p) => ({ position: p.position })));
     const rings: Array<{ radius: number; type: OpenAreaSummary['type'] }> = [
-      { radius: 62, type: 'frontier' },
-      { radius: 44, type: 'connector' },
-      { radius: 26, type: 'growth' },
+      { radius: 400, type: 'frontier' },
+      { radius: 150, type: 'connector' },
+      { radius: 75, type: 'growth' },
     ];
     const fallback: OpenAreaSummary[] = [];
     const angles = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -636,9 +679,9 @@ function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveL
 
     const p = primitives[0];
     return [{
-      x: Math.round(p.position.x + 60),
+      x: Math.round(p.position.x + 250),
       z: Math.round(p.position.z),
-      nearestBuild: Math.round(distanceToNearestPrimitive(Math.round(p.position.x + 60), Math.round(p.position.z), primitives)),
+      nearestBuild: Math.round(distanceToNearestPrimitive(Math.round(p.position.x + 250), Math.round(p.position.z), primitives)),
       type: 'frontier',
       nearestNodeId: 'none',
       nearestNodeName: 'seed',
@@ -668,8 +711,8 @@ function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveL
   };
 
   const candidates: Array<OpenAreaSummary & { score: number }> = [];
-  const SCAN_STEP = 20;
-  const SCAN_PAD = 120;
+  const SCAN_STEP = 40;
+  const SCAN_PAD = 650;
 
   for (let x = Math.floor((minX - SCAN_PAD) / SCAN_STEP) * SCAN_STEP; x <= Math.ceil((maxX + SCAN_PAD) / SCAN_STEP) * SCAN_STEP; x += SCAN_STEP) {
     for (let z = Math.floor((minZ - SCAN_PAD) / SCAN_STEP) * SCAN_STEP; z <= Math.ceil((maxZ + SCAN_PAD) / SCAN_STEP) * SCAN_STEP; z += SCAN_STEP) {
@@ -687,16 +730,16 @@ function computeOpenAreas(nodes: SettlementNodeSummary[], primitives: PrimitiveL
       }
 
       const nearestPrimitiveDist = distanceToNearestPrimitive(x, z, primitives);
-      if (nearestPrimitiveDist < 12 || nearestPrimitiveDist > maxNodeDistance) continue;
+      if (nearestPrimitiveDist < 8 || nearestPrimitiveDist > maxNodeDistance) continue;
 
       const type = classifyOpenAreaType(nearestPrimitiveDist, maxNodeDistance);
       if (!type) continue;
 
       const distFromWorldCenter = pointDistanceXZ({ x, z }, worldCenter);
       const targetDist =
-        type === 'growth' ? 24 :
-        type === 'connector' ? 42 :
-        62;
+        type === 'growth' ? 75 :
+        type === 'connector' ? 150 :
+        400;
 
       let score = Math.abs(nearestPrimitiveDist - targetDist);
       if (type === 'frontier') {
@@ -1044,6 +1087,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     name: z.string(),
     anchorX: z.number(),
     anchorZ: z.number(),
+    rotY: z.number().optional().default(0),
   });
 
   fastify.post('/v1/grid/blueprint/start', async (request, reply) => {
@@ -1155,24 +1199,32 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     // Compute absolute coordinates — the core value of the blueprint engine.
     // Flatten all phases, apply anchor offset to x/z (y stays relative to ground).
+    // Apply optional rotY rotation around the anchor point.
     const allPrimitives: BlueprintBuildPlan['allPrimitives'] = [];
     const phases: BlueprintBuildPlan['phases'] = [];
+    const rotYRad = ((body.rotY || 0) * Math.PI) / 180;
+    const cosR = Math.cos(rotYRad);
+    const sinR = Math.sin(rotYRad);
 
     for (const phase of blueprint.phases) {
       const phaseCount = phase.primitives.length;
       phases.push({ name: phase.name, count: phaseCount });
 
       for (const prim of phase.primitives) {
+        const ox = prim.x || 0;
+        const oz = prim.z || 0;
+        const rx = ox * cosR - oz * sinR;
+        const rz = ox * sinR + oz * cosR;
         allPrimitives.push({
           shape: prim.shape,
           position: {
-            x: (prim.x || 0) + body.anchorX,
+            x: rx + body.anchorX,
             y: prim.y || 0,
-            z: (prim.z || 0) + body.anchorZ,
+            z: rz + body.anchorZ,
           },
           rotation: {
             x: prim.rotX || 0,
-            y: prim.rotY || 0,
+            y: (prim.rotY || 0) + (body.rotY || 0),
             z: prim.rotZ || 0,
           },
           scale: {

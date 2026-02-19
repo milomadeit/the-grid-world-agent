@@ -619,8 +619,8 @@ export class GridAPIClient {
   // --- Blueprint Building ---
 
   /** Start building a blueprint at a chosen anchor point. */
-  async startBlueprint(name: string, anchorX: number, anchorZ: number): Promise<any> {
-    return this.request('POST', '/v1/grid/blueprint/start', { name, anchorX, anchorZ });
+  async startBlueprint(name: string, anchorX: number, anchorZ: number, rotY?: number): Promise<any> {
+    return this.request('POST', '/v1/grid/blueprint/start', { name, anchorX, anchorZ, ...(rotY != null ? { rotY } : {}) });
   }
 
   /** Place the next batch of up to 5 primitives from the active blueprint. */

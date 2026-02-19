@@ -116,8 +116,8 @@ interface SpatialTickMetrics {
 const NODE_EXPANSION_GATE = 25;
 const NODE_STRONG_DENSITY_TARGET = 50;
 const NODE_MEGA_TARGET = 100;
-const NODE_EXPANSION_MIN_DISTANCE = 50;
-const NODE_EXPANSION_MAX_DISTANCE = 69;
+const NODE_EXPANSION_MIN_DISTANCE = 200;
+const NODE_EXPANSION_MAX_DISTANCE = 600;
 
 // Mouse: signature landmark policy (avoid spire spam)
 const MOUSE_SPIRE_MIN_DISTANCE = 90;
@@ -800,7 +800,19 @@ function pushRecentBlueprintName(recentNames: string[], name: string, max = 8): 
   return [normalized, ...filtered].slice(0, max);
 }
 
+function compassBearing(fromX: number, fromZ: number, toX: number, toZ: number): string {
+  const dx = toX - fromX;
+  const dz = toZ - fromZ;
+  const angle = ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360;
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(angle / 45) % 8];
+}
 
+function compassBearingDeg(fromX: number, fromZ: number, toX: number, toZ: number): number {
+  const dx = toX - fromX;
+  const dz = toZ - fromZ;
+  return Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360);
+}
 
 function parseCoordPair(text: string): { x: number; z: number } | null {
   const m = String(text || '').match(/\((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\)/);
@@ -1263,7 +1275,7 @@ interface SettlementNode {
   theme: NodeTheme;
   name: string;
   missingCategories: BuildCategory[];
-  connections: Array<{ targetIdx: number; distance: number; hasBridge: boolean }>;
+  connections: Array<{ targetIdx: number; distance: number; hasBridge: boolean; bearing?: string; bearingDeg?: number; gateX?: number; gateZ?: number; targetGateX?: number; targetGateZ?: number }>;
 }
 
 function tierWeight(tier: NodeTier): number {
@@ -1579,8 +1591,19 @@ function computeSettlementNodes(
             && (p.shape === 'plane' || p.shape === 'box' || p.shape === 'cylinder');
         });
 
-        nodes[i].connections.push({ targetIdx: j, distance: Math.round(dist), hasBridge: hasRoad });
-        nodes[j].connections.push({ targetIdx: i, distance: Math.round(dist), hasBridge: hasRoad });
+        const connDist = Math.round(dist);
+        const bIJ = compassBearing(nodes[i].center.x, nodes[i].center.z, nodes[j].center.x, nodes[j].center.z);
+        const bDegIJ = compassBearingDeg(nodes[i].center.x, nodes[i].center.z, nodes[j].center.x, nodes[j].center.z);
+        const bJI = compassBearing(nodes[j].center.x, nodes[j].center.z, nodes[i].center.x, nodes[i].center.z);
+        const bDegJI = compassBearingDeg(nodes[j].center.x, nodes[j].center.z, nodes[i].center.x, nodes[i].center.z);
+        const dirX = dist > 0 ? (nodes[j].center.x - nodes[i].center.x) / dist : 0;
+        const dirZ = dist > 0 ? (nodes[j].center.z - nodes[i].center.z) / dist : 0;
+        const gAX = Math.round(nodes[i].center.x + dirX * nodes[i].radius);
+        const gAZ = Math.round(nodes[i].center.z + dirZ * nodes[i].radius);
+        const gBX = Math.round(nodes[j].center.x - dirX * nodes[j].radius);
+        const gBZ = Math.round(nodes[j].center.z - dirZ * nodes[j].radius);
+        nodes[i].connections.push({ targetIdx: j, distance: connDist, hasBridge: hasRoad, bearing: bIJ, bearingDeg: bDegIJ, gateX: gAX, gateZ: gAZ, targetGateX: gBX, targetGateZ: gBZ });
+        nodes[j].connections.push({ targetIdx: i, distance: connDist, hasBridge: hasRoad, bearing: bJI, bearingDeg: bDegJI, gateX: gBX, gateZ: gBZ, targetGateX: gAX, targetGateZ: gAZ });
       }
     }
   }
@@ -1778,14 +1801,17 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
     if (dist < closestDist) { closestDist = dist; closestNode = node; }
 
     const builderStr = node.builders.length > 0 ? ` | ${node.builders.join(', ')}` : '';
-    lines.push(`- **${tierLabel(node.tier)} "${node.name}"** (${node.center.x.toFixed(0)}, ${node.center.z.toFixed(0)}) — ${node.count} structures, ${node.theme}${builderStr}`);
+    const nodeBearing = compassBearing(agentPos.x, agentPos.z, node.center.x, node.center.z);
+    const nodeBearingDeg = compassBearingDeg(agentPos.x, agentPos.z, node.center.x, node.center.z);
+    lines.push(`- **${tierLabel(node.tier)} "${node.name}"** (${node.center.x.toFixed(0)}, ${node.center.z.toFixed(0)}) — ${Math.round(dist)}u ${nodeBearing} (${nodeBearingDeg}deg) — ${node.count} structures, ${node.theme}${builderStr}`);
 
     // Show connections
     if (node.connections.length > 0) {
       for (const conn of node.connections) {
         const target = nodes[conn.targetIdx];
         const bridgeLabel = conn.hasBridge ? 'ROAD exists' : 'NO ROAD';
-        lines.push(`  → Connected to "${target.name}" (${conn.distance}u, ${bridgeLabel})`);
+        const connBearing = conn.bearing || compassBearing(node.center.x, node.center.z, target.center.x, target.center.z);
+        lines.push(`  → Connected to "${target.name}" (${conn.distance}u ${connBearing}, ${bridgeLabel})`);
       }
     } else if (!isSmallTier(node.tier)) {
       lines.push(`  → ISOLATED — no connections to any node`);
@@ -1836,11 +1862,19 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
       lines.push(`${unconnectedPairs.length} established node pair(s) lack visible road connections.`);
       lines.push('Your role is to connect the world — roads between established nodes are your top priority.');
       for (const pair of unconnectedPairs.slice(0, 5)) {
-        const midX = Math.round((pair.from.center.x + pair.to.center.x) / 2);
-        const midZ = Math.round((pair.from.center.z + pair.to.center.z) / 2);
-        lines.push(`- "${pair.from.name}" ↔ "${pair.to.name}" — ${pair.dist}u apart, NO ROAD. Midpoint: (${midX}, ${midZ})`);
+        const pDist = pair.dist || 1;
+        const pDirX = (pair.to.center.x - pair.from.center.x) / pDist;
+        const pDirZ = (pair.to.center.z - pair.from.center.z) / pDist;
+        const gateAX = Math.round(pair.from.center.x + pDirX * pair.from.radius);
+        const gateAZ = Math.round(pair.from.center.z + pDirZ * pair.from.radius);
+        const gateBX = Math.round(pair.to.center.x - pDirX * pair.to.radius);
+        const gateBZ = Math.round(pair.to.center.z - pDirZ * pair.to.radius);
+        const gapDist = Math.round(Math.sqrt((gateBX - gateAX) ** 2 + (gateBZ - gateAZ) ** 2));
+        const pBearing = compassBearing(pair.from.center.x, pair.from.center.z, pair.to.center.x, pair.to.center.z);
+        const pBearingDeg = compassBearingDeg(pair.from.center.x, pair.from.center.z, pair.to.center.x, pair.to.center.z);
+        lines.push(`- "${pair.from.name}" → "${pair.to.name}" — ${pair.dist}u ${pBearing} (${pBearingDeg}deg), Gate A: (${gateAX}, ${gateAZ}), Gate B: (${gateBX}, ${gateBZ}), Gap: ${gapDist}u`);
       }
-      lines.push('Approach: MOVE to the midpoint between two unconnected nodes, then place ROAD_SEGMENT or flat connector slabs (BUILD_MULTI with scaleY ≤ 0.25) along the line between their centers.');
+      lines.push('Approach: MOVE to Gate A, then place ROAD_SEGMENT or flat connector slabs (BUILD_MULTI with scaleY ≤ 0.25) along the bearing toward Gate B. Use rotY matching the bearingDeg to orient road segments.');
     }
 
     // Build a pool of possible suggestions
@@ -1848,9 +1882,13 @@ function formatSettlementMap(nodes: SettlementNode[], agentPos: { x: number; z: 
 
     // Road suggestions (multiple)
     for (const pair of unconnectedPairs.slice(0, 3)) {
-      const midX = Math.round((pair.from.center.x + pair.to.center.x) / 2);
-      const midZ = Math.round((pair.from.center.z + pair.to.center.z) / 2);
-      allSuggestions.push(`ROAD: Connect "${pair.from.name}" ↔ "${pair.to.name}" (${pair.dist}u, midpoint: ${midX},${midZ})`);
+      const rDist = pair.dist || 1;
+      const rDirX = (pair.to.center.x - pair.from.center.x) / rDist;
+      const rDirZ = (pair.to.center.z - pair.from.center.z) / rDist;
+      const rGateX = Math.round(pair.from.center.x + rDirX * pair.from.radius);
+      const rGateZ = Math.round(pair.from.center.z + rDirZ * pair.from.radius);
+      const rBearing = compassBearing(pair.from.center.x, pair.from.center.z, pair.to.center.x, pair.to.center.z);
+      allSuggestions.push(`ROAD: Connect "${pair.from.name}" → "${pair.to.name}" (${pair.dist}u ${rBearing}, start at gate: ${rGateX},${rGateZ})`);
     }
 
     // Structure suggestions at different nodes
@@ -2358,7 +2396,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     'Payload formats:',
     '  MOVE: {"x": 5, "z": 3}',
     '  CHAT: {"message": "Hello!"}',
-    '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120}  \u2190 USE coordinates from SAFE BUILD SPOTS above!',
+    '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120,"rotY":90}  \u2190 USE coordinates from SAFE BUILD SPOTS above! rotY is optional (0-360 degrees)',
     '  BUILD_CONTINUE: {}  \u2190 place next batch from your active blueprint (must be near site)',
     '  CANCEL_BUILD: {}  \u2190 abandon current blueprint (placed pieces stay)',
     '  BUILD_PRIMITIVE: {"shape": "cylinder", "x": 100, "y": 1, "z": 100, "scaleX": 2, "scaleY": 2, "scaleZ": 2, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
@@ -2881,7 +2919,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const primData = world.primitives.map(p => ({ position: p.position, scale: p.scale || { x: 1, z: 1 }, shape: p.shape }));
           const localSafeSpots = findSafeBuildSpots(myPos, primData);
           const SETTLEMENT_PROXIMITY_THRESHOLD = 5;
-          const MAX_SETTLEMENT_DIST = 70;
+          const MAX_SETTLEMENT_DIST = 601;
           const enforceSettlementDistance = primData.length >= SETTLEMENT_PROXIMITY_THRESHOLD;
           const nearestPrimitiveDistance = (x: number, z: number): number => {
             if (primData.length === 0) return Infinity;
@@ -2966,7 +3004,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
             if (isGuildAgent) {
               // Guild agents: STAY and DENSIFY
-              const targetDist = nodeIsDense ? 24 : 18;
+              const targetDist = nodeIsDense ? 75 : 50;
               score = Math.abs(distFromAgent - targetDist);
 
               // Strong growth preference
@@ -2984,7 +3022,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
               // Keep pre-density builds close until at least 50 structures.
               if (!nodeIsDense && spot.nearestBuild >= NODE_EXPANSION_MIN_DISTANCE) score += 22;
-              if (!nodeIsEstablished && distFromAgent > 40) score += 20;
+              if (!nodeIsEstablished && distFromAgent > 120) score += 20;
 
               // BONUS for spots near other guild agents (encourage clustering)
               const nearestGuildAgent = otherAgents
@@ -2994,11 +3032,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
             } else if (isMouse) {
               // Mouse: build a solo mega-node near the settlement distance boundary.
-              const targetDist = nodeIsMega ? 28 : 14;
+              const targetDist = nodeIsMega ? 75 : 40;
               score = Math.abs(distFromAgent - targetDist);
 
               if (spot.type === 'frontier') {
-                const frontierBandPenalty = Math.abs(66 - spot.nearestBuild);
+                const frontierBandPenalty = Math.abs(400 - spot.nearestBuild);
                 score += frontierBandPenalty * 0.8;
               }
 
@@ -3030,8 +3068,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               else if (nearestGuildAgent < 80) score += 24;
 
               // Strong preference to stay near current position (don't scatter)
-              if (!nodeIsMega && distFromAgent < 20) score -= 30;
-              if (!nodeIsMega && distFromAgent > 45) score += 24;
+              if (!nodeIsMega && distFromAgent < 50) score -= 30;
+              if (!nodeIsMega && distFromAgent > 120) score += 24;
 
             } else {
               // External/unknown agents: default to growth
@@ -3060,9 +3098,10 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           lines.push('## SAFE BUILD SPOTS (server map + local clearance heuristic)');
           for (const spot of safeSpots) {
             const distFromAgent = Math.round(Math.sqrt((spot.x - myPos.x) ** 2 + (spot.z - myPos.z) ** 2));
+            const spotBearing = compassBearing(myPos.x, myPos.z, spot.x, spot.z);
             const typeLabel = spot.type ? `, ${spot.type}` : '';
             const nodeLabel = spot.nearestNodeName ? `, near "${spot.nearestNodeName}"` : '';
-            lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u from you, ${spot.nearestBuild}u from nearest build${typeLabel}${nodeLabel}`);
+            lines.push(`- **(${spot.x}, ${spot.z})** — ${distFromAgent}u ${spotBearing} from you, ${spot.nearestBuild}u from nearest build${typeLabel}${nodeLabel}`);
           }
           lines.push('');
           lines.push('**IMPORTANT:** MOVE within 20u of a spot FIRST, then use it as anchorX/anchorZ. You must be within 20u of the build site.');
@@ -3172,7 +3211,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                   cachedBlueprintCatalog = [
                     '## BLUEPRINT CATALOG',
                     'Pick a blueprint and start building. The server computes all coordinates for you.',
-                    '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120}',
+                    '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120,"rotY":90}  (rotY optional, 0-360 degrees)',
                     '',
                     ...Object.entries(blueprints).map(([name, bp]: [string, any]) =>
                       `- **${name}** — ${bp.description} | ${bp.totalPrimitives} pieces, ~${Math.ceil(bp.totalPrimitives / 5)} ticks | ${bp.difficulty}`
@@ -4600,7 +4639,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             'Payload formats:',
             '  MOVE: {"x": 5, "z": 3}',
             '  CHAT: {"message": "Hello!"}',
-            '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120}  ← start a blueprint build',
+            '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120,"rotY":90}  ← start a blueprint build (rotY optional, 0-360 degrees)',
             '  BUILD_CONTINUE: {}  ← place next batch (must be near site)',
             '  CANCEL_BUILD: {}  ← abandon current blueprint',
             '  BUILD_PRIMITIVE: {"shape": "box", "x": 100, "y": 0.5, "z": 100, "scaleX": 1, "scaleY": 1, "scaleZ": 1, "rotX": 0, "rotY": 0, "rotZ": 0, "color": "#3b82f6"}',
@@ -4967,9 +5006,10 @@ async function executeAction(
         await api.startBlueprint(
           p.name as string,
           p.anchorX as number,
-          p.anchorZ as number
+          p.anchorZ as number,
+          p.rotY != null ? Number(p.rotY) : undefined
         );
-        console.log(`[${name}] Started blueprint: ${p.name} at (${p.anchorX}, ${p.anchorZ})`);
+        console.log(`[${name}] Started blueprint: ${p.name} at (${p.anchorX}, ${p.anchorZ}) rotY=${p.rotY ?? 0}`);
         break;
 
       case 'BUILD_CONTINUE': {
