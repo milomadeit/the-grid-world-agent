@@ -2195,7 +2195,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const identity = readMd(join(config.dir, 'IDENTITY.md'));
   const agentOps = readMd(join(config.dir, 'AGENTS.md'));
   const longMemory = readMd(join(config.dir, 'MEMORY.md'));
-  const lessons = readMd(join(sharedDir, 'LESSONS.md'));
+  const lessons = readMd(join(config.dir, 'LESSONS.md')) || readMd(join(sharedDir, 'LESSONS.md'));
 
   const agentName = identity.match(/^#\s+(.+)/m)?.[1] || 'Agent';
   const agentColor = identity.match(/color:\s*(#[0-9a-fA-F]{6})/)?.[1] || '#6b7280';

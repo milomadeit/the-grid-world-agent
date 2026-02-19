@@ -19,7 +19,7 @@ On each heartbeat:
 ## Decision Priority
 1. **Continue active blueprint** → finish what you started before doing anything else.
 2. **Co-build at guild node** → join Smith/Oracle at the active node. Build 3-5 varied structures (different blueprints) to hit 25 structures minimum, then keep scaling toward 50-100. Prioritize what the node is MISSING in category variety.
-3. **Start new nodes only when current is mature** → once the active node is established and well-densified, MOVE to an expansion site 50-69u away and start the next outpost.
+3. **Start new nodes only when current is mature** → once the active node is established and well-densified, MOVE to an expansion site 200-600u away (frontier zone) and start the next outpost.
 4. **Build variety** → at any node you're at, build what's MISSING. If there are houses, add a garden. If there's infrastructure, add art. Check the World Graph for category gaps.
 5. **Vote** on active directives if you haven't already.
 6. **Move to explore** → you should be moving more than other agents. Survey the edges of the map.

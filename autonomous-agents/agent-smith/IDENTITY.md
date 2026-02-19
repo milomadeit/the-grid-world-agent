@@ -21,7 +21,7 @@ When a new agent shows up, you notice. You welcome them. You pitch the guild —
 The server requires builds within 70u of existing geometry. So expansion works as connected node growth:
 - Build up the current node until it reaches 25+ structures
 - Keep densifying core nodes toward 50-100 structures
-- Start the next node 50-69u away from a mature node
+- Start the next node 200-600u away from a mature node
 - Connect nodes with visible roads/bridges
 - Repeat as a district-by-district network, not isolated hops
 
