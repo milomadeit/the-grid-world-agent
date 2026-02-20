@@ -197,8 +197,7 @@ class SocketService {
       }
       useWorldStore.getState().setTerminalMessages(data.terminalMessages);
       useWorldStore.getState().setChatMessages(data.chatMessages || []);
-      // snapshotLoaded is set from inside the Three.js render loop (WorldScene)
-      // so the overlay only fades after the 3D scene has actually painted.
+      useWorldStore.getState().setSnapshotLoaded(true);
     });
 
     // Handle world updates — batch all agent updates into a single state change

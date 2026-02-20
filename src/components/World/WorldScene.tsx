@@ -5,7 +5,7 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import InfiniteGrid from './InfiniteGrid';
 import AgentBlob from './AgentBlob';
-import WorldPrimitive from './WorldPrimitive';
+import InstancedPrimitives from './InstancedPrimitives';
 import Terminal3D from './Terminal3D';
 import ObjectInfoModal from '../UI/ObjectInfoModal';
 import { useWorldStore } from '../../store';
@@ -28,21 +28,6 @@ interface CameraControlsProps {
   mapView?: boolean;
 }
 
-/** Signals snapshotLoaded from inside the Three.js render loop so the
- *  loading overlay only fades after the scene has actually painted agents. */
-function SnapshotGate() {
-  const agents = useWorldStore((s) => s.agents);
-  const snapshotLoaded = useWorldStore((s) => s.snapshotLoaded);
-  const setSnapshotLoaded = useWorldStore((s) => s.setSnapshotLoaded);
-
-  useFrame(() => {
-    if (!snapshotLoaded && agents.length > 0) {
-      setSnapshotLoaded(true);
-    }
-  });
-
-  return null;
-}
 
 const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked, mapView }) => {
   const controlsRef = useRef<any>(null);
@@ -109,9 +94,7 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
 
   // Read agents directly from the store — avoids re-renders from App passing new array refs
   const agents = useWorldStore((state) => state.agents);
-  const worldPrimitives = useWorldStore((state) => state.worldPrimitives);
   const selectedPrimitive = useWorldStore((state) => state.selectedPrimitive);
-  const setSelectedPrimitive = useWorldStore((state) => state.setSelectedPrimitive);
 
   return (
     <div className="w-full h-full cursor-crosshair">
@@ -137,7 +120,6 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
         />
 
         <Suspense fallback={null}>
-          <SnapshotGate />
           {/* Ground plane for click events - transparent but visible for raycasting */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
@@ -162,14 +144,7 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
 
           <Terminal3D />
 
-          {worldPrimitives.map((prim) => (
-            <WorldPrimitive
-              key={prim.id}
-              data={prim}
-              isSelected={selectedPrimitive?.id === prim.id}
-              onClick={() => setSelectedPrimitive(prim)}
-            />
-          ))}
+          <InstancedPrimitives />
 
           {agents.map((agent) => (
             <AgentBlob
