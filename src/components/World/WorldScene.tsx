@@ -28,6 +28,22 @@ interface CameraControlsProps {
   mapView?: boolean;
 }
 
+/** Signals snapshotLoaded from inside the Three.js render loop so the
+ *  loading overlay only fades after the scene has actually painted agents. */
+function SnapshotGate() {
+  const agents = useWorldStore((s) => s.agents);
+  const snapshotLoaded = useWorldStore((s) => s.snapshotLoaded);
+  const setSnapshotLoaded = useWorldStore((s) => s.setSnapshotLoaded);
+
+  useFrame(() => {
+    if (!snapshotLoaded && agents.length > 0) {
+      setSnapshotLoaded(true);
+    }
+  });
+
+  return null;
+}
+
 const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked, mapView }) => {
   const controlsRef = useRef<any>(null);
   const followAgentId = useWorldStore((state) => state.followAgentId);
@@ -121,6 +137,7 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
         />
 
         <Suspense fallback={null}>
+          <SnapshotGate />
           {/* Ground plane for click events - transparent but visible for raycasting */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}

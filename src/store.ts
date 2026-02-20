@@ -21,6 +21,7 @@ interface WorldStore extends WorldState {
   directives: Directive[];
   selectedPrimitive: WorldPrimitive | null;
   terminalOpen: boolean;
+  snapshotLoaded: boolean;
 
   // Actions
   setAgents: (agents: Agent[]) => void;
@@ -50,6 +51,7 @@ interface WorldStore extends WorldState {
   setGuilds: (guilds: Guild[]) => void;
   setDirectives: (directives: Directive[]) => void;
   setSelectedPrimitive: (primitive: WorldPrimitive | null) => void;
+  setSnapshotLoaded: (loaded: boolean) => void;
   toggleTerminal: () => void;
   reset: () => void;
 }
@@ -77,6 +79,7 @@ const initialState = {
   directives: [],
   selectedPrimitive: null,
   terminalOpen: false,
+  snapshotLoaded: false,
 };
 
 const MAX_TERMINAL_MESSAGES = 300;
@@ -188,6 +191,8 @@ export const useWorldStore = create<WorldStore>((set) => ({
   setDirectives: (directives) => set({ directives }),
   
   setSelectedPrimitive: (selectedPrimitive) => set({ selectedPrimitive }),
+
+  setSnapshotLoaded: (snapshotLoaded) => set({ snapshotLoaded }),
 
   toggleTerminal: () => set((state) => ({ terminalOpen: !state.terminalOpen })),
 }));

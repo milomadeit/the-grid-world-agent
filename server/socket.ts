@@ -10,7 +10,7 @@ const SOCKET_INPUT_RATE_LIMIT = { limit: 30, windowMs: 10_000 };
 const SOCKET_CHAT_RATE_LIMIT = { limit: 5, windowMs: 20_000 };
 const SOCKET_MOVE_RATE_LIMIT = { limit: 20, windowMs: 10_000 };
 const SNAPSHOT_TERMINAL_MESSAGE_LIMIT = 30;
-const SNAPSHOT_CHAT_MESSAGE_LIMIT = 300;
+const SNAPSHOT_CHAT_MESSAGE_LIMIT = 150;
 
 function extractSocketToken(socket: any): string | null {
   const authToken = typeof socket.handshake?.auth?.token === 'string'
