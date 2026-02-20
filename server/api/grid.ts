@@ -1148,6 +1148,29 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Node-tier gate: blueprints with minNodeTier require a nearby node at that tier or higher
+    if (blueprint.minNodeTier) {
+      const requiredRank = tierRank(blueprint.minNodeTier as NodeTier);
+      const allPrimsForTier = world.getWorldPrimitives() as unknown as PrimitiveLike[];
+      const connForTier = allPrimsForTier.filter(isConnectorPrimitive);
+      const structsForTier = buildStructureSummaries(allPrimsForTier);
+      const nodesForTier = buildSettlementNodes(structsForTier, connForTier);
+      // Find nearest node to the blueprint anchor
+      let bestNode: SettlementNodeSummary | null = null;
+      let bestDist = Infinity;
+      for (const n of nodesForTier) {
+        const d = Math.hypot(n.center.x - body.anchorX, n.center.z - body.anchorZ);
+        if (d < bestDist) { bestDist = d; bestNode = n; }
+      }
+      if (!bestNode || tierRank(bestNode.tier) < requiredRank) {
+        const nodeName = bestNode?.name ?? 'none nearby';
+        const nodeTier = bestNode?.tier ?? 'none';
+        return reply.code(403).send({
+          error: `This blueprint requires a nearby ${blueprint.minNodeTier} or higher. Nearest node "${nodeName}" is ${nodeTier}. Build more structures to grow nodes before placing this blueprint.`
+        });
+      }
+    }
+
     // Reject if agent already has an active plan
     if (world.getBuildPlan(agentId)) {
       return reply.code(409).send({

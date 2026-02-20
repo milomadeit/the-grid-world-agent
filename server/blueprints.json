@@ -917,7 +917,7 @@
 					{
 						"shape": "plane",
 						"x": 0,
-						"y": 1.0,
+						"y": 1,
 						"z": -0.4,
 						"scaleX": 1.8,
 						"scaleY": 0.3,
@@ -962,7 +962,7 @@
 					{
 						"shape": "sphere",
 						"x": -0.7,
-						"y": 1.0,
+						"y": 1,
 						"z": -0.55,
 						"scaleX": 0.1,
 						"scaleY": 0.1,
@@ -2457,6 +2457,3644 @@
 						"scaleY": 1.4,
 						"scaleZ": 1.4,
 						"color": "#FDE68A"
+					}
+				]
+			}
+		]
+	},
+	"HIGH_RISE": {
+		"description": "Squat commercial tower with floor bands, lobby level, and rooftop mechanical unit",
+		"category": "architecture",
+		"minNodeTier": "server-node",
+		"tags": [
+			"commercial",
+			"tower",
+			"urban",
+			"solo"
+		],
+		"difficulty": "medium",
+		"totalPrimitives": 25,
+		"customization": "Glass blue (#4A90D9) for modern office, warm sandstone (#D4A574) for classic. Scale up for taller variant.",
+		"phases": [
+			{
+				"name": "Foundation + Lobby",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.25,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 0.5,
+						"scaleZ": 14,
+						"color": "#3B3B3B"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 3,
+						"z": 0,
+						"scaleX": 13,
+						"scaleY": 5,
+						"scaleZ": 13,
+						"color": "#4A4A5A"
+					},
+					{
+						"shape": "cylinder",
+						"x": -4,
+						"y": 3,
+						"z": -6.5,
+						"scaleX": 0.6,
+						"scaleY": 5,
+						"scaleZ": 0.6,
+						"color": "#C0C0C0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 3,
+						"z": -6.5,
+						"scaleX": 0.6,
+						"scaleY": 5,
+						"scaleZ": 0.6,
+						"color": "#C0C0C0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 4,
+						"y": 3,
+						"z": -6.5,
+						"scaleX": 0.6,
+						"scaleY": 5,
+						"scaleZ": 0.6,
+						"color": "#C0C0C0"
+					}
+				]
+			},
+			{
+				"name": "Lower Floors",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 10.5,
+						"z": 0,
+						"scaleX": 12,
+						"scaleY": 10,
+						"scaleZ": 12,
+						"color": "#5A6A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 6,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 10,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 14,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 16,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					}
+				]
+			},
+			{
+				"name": "Upper Floors",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 25.5,
+						"z": 0,
+						"scaleX": 12,
+						"scaleY": 20,
+						"scaleZ": 12,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 20,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 24,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 28,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 32,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					}
+				]
+			},
+			{
+				"name": "Top Floors + Crown",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 43.5,
+						"z": 0,
+						"scaleX": 12,
+						"scaleY": 16,
+						"scaleZ": 12,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 38,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 42,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 46,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 50,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#8090A0"
+					}
+				]
+			},
+			{
+				"name": "Rooftop Mechanical",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 52,
+						"z": 0,
+						"scaleX": 13,
+						"scaleY": 0.4,
+						"scaleZ": 13,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 54,
+						"z": 0,
+						"scaleX": 6,
+						"scaleY": 3,
+						"scaleZ": 6,
+						"color": "#4A4A4A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 3,
+						"y": 56.5,
+						"z": 3,
+						"scaleX": 1.5,
+						"scaleY": 2,
+						"scaleZ": 1.5,
+						"color": "#606060"
+					},
+					{
+						"shape": "torus",
+						"x": 3,
+						"y": 57.8,
+						"z": 3,
+						"scaleX": 1,
+						"scaleY": 0.3,
+						"scaleZ": 1,
+						"color": "#00CED1"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 56,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#FF4444"
+					}
+				]
+			}
+		]
+	},
+	"SKYSCRAPER": {
+		"description": "Massive glass-and-steel tower with visible floor divisions, mid-height setback terrace, lobby columns, and crown antenna",
+		"category": "architecture",
+		"minNodeTier": "city-node",
+		"tags": [
+			"skyscraper",
+			"landmark",
+			"urban",
+			"collaborative"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 38,
+		"customization": "Steel blue (#4A7FB5) for corporate, dark glass (#2C3E50) for sleek modern, gold accents (#FFD700) for luxury.",
+		"phases": [
+			{
+				"name": "Foundation Platform",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.3,
+						"z": 0,
+						"scaleX": 24,
+						"scaleY": 0.6,
+						"scaleZ": 24,
+						"color": "#2C2C2C"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.2,
+						"z": 0,
+						"scaleX": 22,
+						"scaleY": 1.2,
+						"scaleZ": 22,
+						"color": "#3A3A3A"
+					},
+					{
+						"shape": "cylinder",
+						"x": -8,
+						"y": 3,
+						"z": -11,
+						"scaleX": 0.8,
+						"scaleY": 4,
+						"scaleZ": 0.8,
+						"color": "#D0D0D0"
+					},
+					{
+						"shape": "cylinder",
+						"x": -3,
+						"y": 3,
+						"z": -11,
+						"scaleX": 0.8,
+						"scaleY": 4,
+						"scaleZ": 0.8,
+						"color": "#D0D0D0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 3,
+						"y": 3,
+						"z": -11,
+						"scaleX": 0.8,
+						"scaleY": 4,
+						"scaleZ": 0.8,
+						"color": "#D0D0D0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 8,
+						"y": 3,
+						"z": -11,
+						"scaleX": 0.8,
+						"scaleY": 4,
+						"scaleZ": 0.8,
+						"color": "#D0D0D0"
+					}
+				]
+			},
+			{
+				"name": "Lower Tower Body",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 17.5,
+						"z": 0,
+						"scaleX": 20,
+						"scaleY": 25,
+						"scaleZ": 20,
+						"color": "#4A5A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 8,
+						"z": 0,
+						"scaleX": 21,
+						"scaleY": 0.4,
+						"scaleZ": 21,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 14,
+						"z": 0,
+						"scaleX": 21,
+						"scaleY": 0.4,
+						"scaleZ": 21,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 20,
+						"z": 0,
+						"scaleX": 21,
+						"scaleY": 0.4,
+						"scaleZ": 21,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 26,
+						"z": 0,
+						"scaleX": 21,
+						"scaleY": 0.4,
+						"scaleZ": 21,
+						"color": "#7A8A9A"
+					}
+				]
+			},
+			{
+				"name": "Setback Terrace",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 30.5,
+						"z": 0,
+						"scaleX": 22,
+						"scaleY": 1,
+						"scaleZ": 22,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": -9,
+						"y": 31.5,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1,
+						"scaleZ": 20,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 9,
+						"y": 31.5,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1,
+						"scaleZ": 20,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 31.5,
+						"z": -9,
+						"scaleX": 18,
+						"scaleY": 1,
+						"scaleZ": 0.4,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 31.5,
+						"z": 9,
+						"scaleX": 18,
+						"scaleY": 1,
+						"scaleZ": 0.4,
+						"color": "#8A8A8A"
+					}
+				]
+			},
+			{
+				"name": "Upper Tower Body",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 55,
+						"z": 0,
+						"scaleX": 16,
+						"scaleY": 46,
+						"scaleZ": 16,
+						"color": "#5A6A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 38,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 46,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 54,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 62,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 70,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					}
+				]
+			},
+			{
+				"name": "Upper Floor Bands",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 84,
+						"z": 0,
+						"scaleX": 16,
+						"scaleY": 12,
+						"scaleZ": 16,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 80,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 86,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 90,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 94,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					}
+				]
+			},
+			{
+				"name": "Top Section",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 102,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 12,
+						"scaleZ": 14,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 98,
+						"z": 0,
+						"scaleX": 15,
+						"scaleY": 0.4,
+						"scaleZ": 15,
+						"color": "#8A9AAA"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 104,
+						"z": 0,
+						"scaleX": 15,
+						"scaleY": 0.4,
+						"scaleZ": 15,
+						"color": "#8A9AAA"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 108.5,
+						"z": 0,
+						"scaleX": 16,
+						"scaleY": 1,
+						"scaleZ": 16,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 109.5,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 0.6,
+						"scaleZ": 8,
+						"color": "#9AAABC"
+					}
+				]
+			},
+			{
+				"name": "Crown + Antenna",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 113,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 6,
+						"scaleZ": 8,
+						"color": "#8A9AAA"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 116.5,
+						"z": 0,
+						"scaleX": 5,
+						"scaleY": 0.5,
+						"scaleZ": 5,
+						"color": "#B0C0D0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 121,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 8,
+						"scaleZ": 1.2,
+						"color": "#D0D0D0"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 123,
+						"z": 0,
+						"scaleX": 2.5,
+						"scaleY": 0.4,
+						"scaleZ": 2.5,
+						"color": "#E0E0E0"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 127,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 4,
+						"scaleZ": 0.8,
+						"color": "#F0F0F0"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 129.5,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 1.2,
+						"scaleZ": 1.2,
+						"color": "#FF4444"
+					}
+				]
+			}
+		]
+	},
+	"MEGA_SKYSCRAPER": {
+		"description": "Supertall tower with huge base platform, 3 setback tiers with decorative rings, observation deck, and spire crown with glowing orb",
+		"category": "architecture",
+		"minNodeTier": "metropolis-node",
+		"tags": [
+			"mega",
+			"skyscraper",
+			"landmark",
+			"collaborative"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 46,
+		"customization": "Dark steel (#3A4A5A) for imposing, silver (#C0C8D0) for futuristic. Swap orb color for agent identity.",
+		"phases": [
+			{
+				"name": "Base Platform",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.4,
+						"z": 0,
+						"scaleX": 32,
+						"scaleY": 0.8,
+						"scaleZ": 32,
+						"color": "#1E1E2E"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.6,
+						"z": 0,
+						"scaleX": 28,
+						"scaleY": 1.6,
+						"scaleZ": 28,
+						"color": "#2A2A3A"
+					},
+					{
+						"shape": "cylinder",
+						"x": -10,
+						"y": 3.5,
+						"z": -14,
+						"scaleX": 1,
+						"scaleY": 5,
+						"scaleZ": 1,
+						"color": "#D0D0D0"
+					},
+					{
+						"shape": "cylinder",
+						"x": -4,
+						"y": 3.5,
+						"z": -14,
+						"scaleX": 1,
+						"scaleY": 5,
+						"scaleZ": 1,
+						"color": "#D0D0D0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 4,
+						"y": 3.5,
+						"z": -14,
+						"scaleX": 1,
+						"scaleY": 5,
+						"scaleZ": 1,
+						"color": "#D0D0D0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 10,
+						"y": 3.5,
+						"z": -14,
+						"scaleX": 1,
+						"scaleY": 5,
+						"scaleZ": 1,
+						"color": "#D0D0D0"
+					}
+				]
+			},
+			{
+				"name": "Tier 1 Body",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 21,
+						"z": 0,
+						"scaleX": 26,
+						"scaleY": 30,
+						"scaleZ": 26,
+						"color": "#3A4A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 12,
+						"z": 0,
+						"scaleX": 27,
+						"scaleY": 0.4,
+						"scaleZ": 27,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 20,
+						"z": 0,
+						"scaleX": 27,
+						"scaleY": 0.4,
+						"scaleZ": 27,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 28,
+						"z": 0,
+						"scaleX": 27,
+						"scaleY": 0.4,
+						"scaleZ": 27,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 36.5,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 0.6,
+						"scaleZ": 14,
+						"color": "#7A9ABE"
+					}
+				]
+			},
+			{
+				"name": "Tier 1 Setback Terrace",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 37,
+						"z": 0,
+						"scaleX": 28,
+						"scaleY": 1,
+						"scaleZ": 28,
+						"color": "#4A4A5A"
+					},
+					{
+						"shape": "box",
+						"x": -12,
+						"y": 38,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1.2,
+						"scaleZ": 24,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 12,
+						"y": 38,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1.2,
+						"scaleZ": 24,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 38,
+						"z": -12,
+						"scaleX": 24,
+						"scaleY": 1.2,
+						"scaleZ": 0.4,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 38,
+						"z": 12,
+						"scaleX": 24,
+						"scaleY": 1.2,
+						"scaleZ": 0.4,
+						"color": "#7A7A8A"
+					}
+				]
+			},
+			{
+				"name": "Tier 2 Body",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 58.5,
+						"z": 0,
+						"scaleX": 22,
+						"scaleY": 38,
+						"scaleZ": 22,
+						"color": "#4A5A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 45,
+						"z": 0,
+						"scaleX": 23,
+						"scaleY": 0.4,
+						"scaleZ": 23,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 53,
+						"z": 0,
+						"scaleX": 23,
+						"scaleY": 0.4,
+						"scaleZ": 23,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 61,
+						"z": 0,
+						"scaleX": 23,
+						"scaleY": 0.4,
+						"scaleZ": 23,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 69,
+						"z": 0,
+						"scaleX": 23,
+						"scaleY": 0.4,
+						"scaleZ": 23,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 78,
+						"z": 0,
+						"scaleX": 12,
+						"scaleY": 0.6,
+						"scaleZ": 12,
+						"color": "#7A9ABE"
+					}
+				]
+			},
+			{
+				"name": "Tier 2 Setback + Tier 3 Lower",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 78.5,
+						"z": 0,
+						"scaleX": 24,
+						"scaleY": 1,
+						"scaleZ": 24,
+						"color": "#4A4A5A"
+					},
+					{
+						"shape": "box",
+						"x": -10,
+						"y": 79.5,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1.2,
+						"scaleZ": 18,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 10,
+						"y": 79.5,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1.2,
+						"scaleZ": 18,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 79.5,
+						"z": -10,
+						"scaleX": 20,
+						"scaleY": 1.2,
+						"scaleZ": 0.4,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 79.5,
+						"z": 10,
+						"scaleX": 20,
+						"scaleY": 1.2,
+						"scaleZ": 0.4,
+						"color": "#7A7A8A"
+					}
+				]
+			},
+			{
+				"name": "Tier 3 Body",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 104.5,
+						"z": 0,
+						"scaleX": 16,
+						"scaleY": 44,
+						"scaleZ": 16,
+						"color": "#5A6A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 90,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 100,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 110,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 120,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.4,
+						"scaleZ": 17,
+						"color": "#7A8A9A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 127,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 0.6,
+						"scaleZ": 10,
+						"color": "#7A9ABE"
+					}
+				]
+			},
+			{
+				"name": "Observation Deck",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 128,
+						"z": 0,
+						"scaleX": 20,
+						"scaleY": 1,
+						"scaleZ": 20,
+						"color": "#4A4A5A"
+					},
+					{
+						"shape": "box",
+						"x": -8,
+						"y": 129,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1.5,
+						"scaleZ": 16,
+						"color": "#8A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 8,
+						"y": 129,
+						"z": 0,
+						"scaleX": 0.4,
+						"scaleY": 1.5,
+						"scaleZ": 16,
+						"color": "#8A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 129,
+						"z": -8,
+						"scaleX": 16,
+						"scaleY": 1.5,
+						"scaleZ": 0.4,
+						"color": "#8A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 129,
+						"z": 8,
+						"scaleX": 16,
+						"scaleY": 1.5,
+						"scaleZ": 0.4,
+						"color": "#8A8A9A"
+					}
+				]
+			},
+			{
+				"name": "Spire Crown",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 140,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 20,
+						"scaleZ": 10,
+						"color": "#6A7A8A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 150.5,
+						"z": 0,
+						"scaleX": 6,
+						"scaleY": 0.6,
+						"scaleZ": 6,
+						"color": "#AAC0E0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 158,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 14,
+						"scaleZ": 2,
+						"color": "#C0D0E0"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 170,
+						"z": 0,
+						"scaleX": 2.5,
+						"scaleY": 10,
+						"scaleZ": 2.5,
+						"color": "#D0E0F0"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 166,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 0.5,
+						"scaleZ": 3,
+						"color": "#90B0D0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 178,
+						"z": 0,
+						"scaleX": 0.6,
+						"scaleY": 6,
+						"scaleZ": 0.6,
+						"color": "#E0E8F0"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 183,
+						"z": 0,
+						"scaleX": 0.5,
+						"scaleY": 4,
+						"scaleZ": 0.5,
+						"color": "#F0F4F8"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 186,
+						"z": 0,
+						"scaleX": 2.5,
+						"scaleY": 2.5,
+						"scaleZ": 2.5,
+						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"CATHEDRAL": {
+		"description": "Grand hall with twin front towers, cone spires, central nave, rose window, arched entrance, flying buttresses, and central spire",
+		"category": "architecture",
+		"minNodeTier": "forest-node",
+		"tags": [
+			"landmark",
+			"religious",
+			"grand",
+			"collaborative"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 44,
+		"customization": "Stone grey (#808080) for classic, dark (#3A3A3A) for gothic, sandstone (#D4A574) for Mediterranean.",
+		"phases": [
+			{
+				"name": "Foundation + Nave Base",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.3,
+						"z": 0,
+						"scaleX": 20,
+						"scaleY": 0.6,
+						"scaleZ": 14,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 5,
+						"z": 0,
+						"scaleX": 16,
+						"scaleY": 9,
+						"scaleZ": 10,
+						"color": "#808080"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 10,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 1,
+						"scaleZ": 12,
+						"color": "#909090"
+					},
+					{
+						"shape": "box",
+						"x": -6,
+						"y": 7.5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 14,
+						"scaleZ": 10,
+						"color": "#707070"
+					},
+					{
+						"shape": "box",
+						"x": 6,
+						"y": 7.5,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 14,
+						"scaleZ": 10,
+						"color": "#707070"
+					}
+				]
+			},
+			{
+				"name": "Nave Roof",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -3,
+						"y": 12,
+						"z": 0,
+						"scaleX": 7,
+						"scaleY": 0.4,
+						"scaleZ": 12,
+						"rotZ": 0.35,
+						"color": "#6A5A4A"
+					},
+					{
+						"shape": "box",
+						"x": 3,
+						"y": 12,
+						"z": 0,
+						"scaleX": 7,
+						"scaleY": 0.4,
+						"scaleZ": 12,
+						"rotZ": -0.35,
+						"color": "#6A5A4A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 9.5,
+						"z": 0,
+						"scaleX": 16.5,
+						"scaleY": 0.3,
+						"scaleZ": 10.5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 15,
+						"z": 0,
+						"scaleX": 0.6,
+						"scaleY": 1,
+						"scaleZ": 12,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 5,
+						"z": -7,
+						"scaleX": 16,
+						"scaleY": 9,
+						"scaleZ": 0.4,
+						"color": "#8A8A8A"
+					}
+				]
+			},
+			{
+				"name": "Entrance + Rose Window",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 3,
+						"z": -7,
+						"scaleX": 4,
+						"scaleY": 5,
+						"scaleZ": 0.6,
+						"color": "#5A4030"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 5,
+						"z": -7.2,
+						"scaleX": 2.5,
+						"scaleY": 2.5,
+						"scaleZ": 0.3,
+						"color": "#4A90D9"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 10,
+						"z": -7.3,
+						"scaleX": 3,
+						"scaleY": 3,
+						"scaleZ": 0.4,
+						"color": "#C040A0"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 10,
+						"z": -7.5,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 0.3,
+						"color": "#FFD700"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 13,
+						"z": -7,
+						"scaleX": 10,
+						"scaleY": 1,
+						"scaleZ": 0.5,
+						"color": "#707070"
+					}
+				]
+			},
+			{
+				"name": "Left Tower",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -8,
+						"y": 15,
+						"z": -5,
+						"scaleX": 4,
+						"scaleY": 20,
+						"scaleZ": 4,
+						"color": "#707070"
+					},
+					{
+						"shape": "box",
+						"x": -8,
+						"y": 25.5,
+						"z": -5,
+						"scaleX": 4.5,
+						"scaleY": 1,
+						"scaleZ": 4.5,
+						"color": "#808080"
+					},
+					{
+						"shape": "box",
+						"x": -8,
+						"y": 30,
+						"z": -5,
+						"scaleX": 3.5,
+						"scaleY": 8,
+						"scaleZ": 3.5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "box",
+						"x": -8,
+						"y": 34.5,
+						"z": -5,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 4,
+						"color": "#808080"
+					},
+					{
+						"shape": "cone",
+						"x": -8,
+						"y": 42,
+						"z": -5,
+						"scaleX": 3,
+						"scaleY": 14,
+						"scaleZ": 3,
+						"color": "#505050"
+					},
+					{
+						"shape": "sphere",
+						"x": -8,
+						"y": 49.5,
+						"z": -5,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#FFD700"
+					}
+				]
+			},
+			{
+				"name": "Right Tower",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 8,
+						"y": 15,
+						"z": -5,
+						"scaleX": 4,
+						"scaleY": 20,
+						"scaleZ": 4,
+						"color": "#707070"
+					},
+					{
+						"shape": "box",
+						"x": 8,
+						"y": 25.5,
+						"z": -5,
+						"scaleX": 4.5,
+						"scaleY": 1,
+						"scaleZ": 4.5,
+						"color": "#808080"
+					},
+					{
+						"shape": "box",
+						"x": 8,
+						"y": 30,
+						"z": -5,
+						"scaleX": 3.5,
+						"scaleY": 8,
+						"scaleZ": 3.5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "box",
+						"x": 8,
+						"y": 34.5,
+						"z": -5,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 4,
+						"color": "#808080"
+					},
+					{
+						"shape": "cone",
+						"x": 8,
+						"y": 42,
+						"z": -5,
+						"scaleX": 3,
+						"scaleY": 14,
+						"scaleZ": 3,
+						"color": "#505050"
+					},
+					{
+						"shape": "sphere",
+						"x": 8,
+						"y": 49.5,
+						"z": -5,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#FFD700"
+					}
+				]
+			},
+			{
+				"name": "Flying Buttresses (Left)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -8.5,
+						"y": 4,
+						"z": -3,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": 0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": -8.5,
+						"y": 4,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": 0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": -8.5,
+						"y": 4,
+						"z": 3,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": 0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": -8.5,
+						"y": 7,
+						"z": -3,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": 0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": -8.5,
+						"y": 7,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": 0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": -8.5,
+						"y": 7,
+						"z": 3,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": 0.5,
+						"color": "#6A6A6A"
+					}
+				]
+			},
+			{
+				"name": "Flying Buttresses (Right)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 8.5,
+						"y": 4,
+						"z": -3,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": -0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 8.5,
+						"y": 4,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": -0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 8.5,
+						"y": 4,
+						"z": 3,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": -0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 8.5,
+						"y": 7,
+						"z": -3,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": -0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 8.5,
+						"y": 7,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": -0.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 8.5,
+						"y": 7,
+						"z": 3,
+						"scaleX": 4,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"rotZ": -0.5,
+						"color": "#6A6A6A"
+					}
+				]
+			},
+			{
+				"name": "Central Spire",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 20,
+						"z": 2,
+						"scaleX": 2,
+						"scaleY": 10,
+						"scaleZ": 2,
+						"color": "#606060"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 25.5,
+						"z": 2,
+						"scaleX": 3,
+						"scaleY": 1,
+						"scaleZ": 3,
+						"color": "#707070"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 40,
+						"z": 2,
+						"scaleX": 2.5,
+						"scaleY": 28,
+						"scaleZ": 2.5,
+						"color": "#505050"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 35,
+						"z": 2,
+						"scaleX": 2.5,
+						"scaleY": 0.4,
+						"scaleZ": 2.5,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 55,
+						"z": 2,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 1.5,
+						"color": "#FFD700"
+					}
+				]
+			}
+		]
+	},
+	"COLOSSEUM": {
+		"description": "Massive circular arena with tiered cylinder rings, arched openings, central arena floor, and decorative pillars",
+		"category": "architecture",
+		"minNodeTier": "city-node",
+		"tags": [
+			"landmark",
+			"arena",
+			"massive",
+			"collaborative"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 45,
+		"customization": "Sandstone (#D4A574) for Roman, grey (#808080) for modern arena, dark (#3A3A3A) for dystopian.",
+		"phases": [
+			{
+				"name": "Arena Floor + Inner Ring",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.15,
+						"z": 0,
+						"scaleX": 44,
+						"scaleY": 0.3,
+						"scaleZ": 44,
+						"color": "#C4A882"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 0.4,
+						"z": 0,
+						"scaleX": 26,
+						"scaleY": 0.5,
+						"scaleZ": 26,
+						"color": "#D4B892"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 3.5,
+						"z": 0,
+						"scaleX": 30,
+						"scaleY": 6,
+						"scaleZ": 30,
+						"color": "#A08A6A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 3,
+						"z": 0,
+						"scaleX": 26,
+						"scaleY": 6,
+						"scaleZ": 26,
+						"color": "#C4A882"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 7,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 0.4,
+						"scaleZ": 14,
+						"color": "#8A7A5A"
+					}
+				]
+			},
+			{
+				"name": "Middle Ring",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 8,
+						"z": 0,
+						"scaleX": 36,
+						"scaleY": 10,
+						"scaleZ": 36,
+						"color": "#9A8A6A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 8,
+						"z": 0,
+						"scaleX": 32,
+						"scaleY": 10,
+						"scaleZ": 32,
+						"color": "#C4A882"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 13.5,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.5,
+						"scaleZ": 17,
+						"color": "#8A7A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 13.5,
+						"z": 0,
+						"scaleX": 36.5,
+						"scaleY": 1,
+						"scaleZ": 36.5,
+						"color": "#B09A7A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 6.5,
+						"z": 0,
+						"scaleX": 17,
+						"scaleY": 0.5,
+						"scaleZ": 17,
+						"color": "#8A7A5A"
+					}
+				]
+			},
+			{
+				"name": "Outer Ring",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 18,
+						"z": 0,
+						"scaleX": 44,
+						"scaleY": 8,
+						"scaleZ": 44,
+						"color": "#8A7A5A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 18,
+						"z": 0,
+						"scaleX": 40,
+						"scaleY": 8,
+						"scaleZ": 40,
+						"color": "#C4A882"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 22.5,
+						"z": 0,
+						"scaleX": 22,
+						"scaleY": 0.6,
+						"scaleZ": 22,
+						"color": "#7A6A4A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 22.5,
+						"z": 0,
+						"scaleX": 44.5,
+						"scaleY": 1,
+						"scaleZ": 44.5,
+						"color": "#A08A6A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 14.5,
+						"z": 0,
+						"scaleX": 22,
+						"scaleY": 0.5,
+						"scaleZ": 22,
+						"color": "#7A6A4A"
+					}
+				]
+			},
+			{
+				"name": "Outer Crown + Top Trim",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 26,
+						"z": 0,
+						"scaleX": 44,
+						"scaleY": 6,
+						"scaleZ": 44,
+						"color": "#7A6A4A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 26,
+						"z": 0,
+						"scaleX": 42,
+						"scaleY": 6,
+						"scaleZ": 42,
+						"color": "#C4A882"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 29.5,
+						"z": 0,
+						"scaleX": 44.5,
+						"scaleY": 1,
+						"scaleZ": 44.5,
+						"color": "#9A8A6A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 29.5,
+						"z": 0,
+						"scaleX": 22.5,
+						"scaleY": 0.6,
+						"scaleZ": 22.5,
+						"color": "#6A5A3A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 23.5,
+						"z": 0,
+						"scaleX": 22.5,
+						"scaleY": 0.5,
+						"scaleZ": 22.5,
+						"color": "#6A5A3A"
+					}
+				]
+			},
+			{
+				"name": "Arched Openings (North/South)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 6,
+						"z": -18,
+						"scaleX": 5,
+						"scaleY": 10,
+						"scaleZ": 3,
+						"color": "#3A2A1A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 9,
+						"z": -18,
+						"scaleX": 2,
+						"scaleY": 2.5,
+						"scaleZ": 0.5,
+						"color": "#B09A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 6,
+						"z": 18,
+						"scaleX": 5,
+						"scaleY": 10,
+						"scaleZ": 3,
+						"color": "#3A2A1A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 9,
+						"z": 18,
+						"scaleX": 2,
+						"scaleY": 2.5,
+						"scaleZ": 0.5,
+						"color": "#B09A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 12,
+						"z": -18,
+						"scaleX": 6,
+						"scaleY": 1,
+						"scaleZ": 3.5,
+						"color": "#9A8A6A"
+					}
+				]
+			},
+			{
+				"name": "Arched Openings (East/West)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -18,
+						"y": 6,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 10,
+						"scaleZ": 5,
+						"color": "#3A2A1A"
+					},
+					{
+						"shape": "torus",
+						"x": -18,
+						"y": 9,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2.5,
+						"scaleZ": 0.5,
+						"rotY": 1.57,
+						"color": "#B09A7A"
+					},
+					{
+						"shape": "box",
+						"x": 18,
+						"y": 6,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 10,
+						"scaleZ": 5,
+						"color": "#3A2A1A"
+					},
+					{
+						"shape": "torus",
+						"x": 18,
+						"y": 9,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2.5,
+						"scaleZ": 0.5,
+						"rotY": 1.57,
+						"color": "#B09A7A"
+					},
+					{
+						"shape": "box",
+						"x": 18,
+						"y": 12,
+						"z": 0,
+						"scaleX": 3.5,
+						"scaleY": 1,
+						"scaleZ": 6,
+						"color": "#9A8A6A"
+					}
+				]
+			},
+			{
+				"name": "Pillars (Outer Ring)",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 15.6,
+						"y": 15,
+						"z": 15.6,
+						"scaleX": 1,
+						"scaleY": 28,
+						"scaleZ": 1,
+						"color": "#D0C0A0"
+					},
+					{
+						"shape": "cylinder",
+						"x": -15.6,
+						"y": 15,
+						"z": 15.6,
+						"scaleX": 1,
+						"scaleY": 28,
+						"scaleZ": 1,
+						"color": "#D0C0A0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 15.6,
+						"y": 15,
+						"z": -15.6,
+						"scaleX": 1,
+						"scaleY": 28,
+						"scaleZ": 1,
+						"color": "#D0C0A0"
+					},
+					{
+						"shape": "cylinder",
+						"x": -15.6,
+						"y": 15,
+						"z": -15.6,
+						"scaleX": 1,
+						"scaleY": 28,
+						"scaleZ": 1,
+						"color": "#D0C0A0"
+					},
+					{
+						"shape": "sphere",
+						"x": 15.6,
+						"y": 29.5,
+						"z": 15.6,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 1.5,
+						"color": "#FFD700"
+					}
+				]
+			},
+			{
+				"name": "Pillar Caps + Center Marker",
+				"primitives": [
+					{
+						"shape": "sphere",
+						"x": -15.6,
+						"y": 29.5,
+						"z": 15.6,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 1.5,
+						"color": "#FFD700"
+					},
+					{
+						"shape": "sphere",
+						"x": 15.6,
+						"y": 29.5,
+						"z": -15.6,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 1.5,
+						"color": "#FFD700"
+					},
+					{
+						"shape": "sphere",
+						"x": -15.6,
+						"y": 29.5,
+						"z": -15.6,
+						"scaleX": 1.5,
+						"scaleY": 1.5,
+						"scaleZ": 1.5,
+						"color": "#FFD700"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 1.5,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2.5,
+						"scaleZ": 2,
+						"color": "#8A7A5A"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 3.5,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2,
+						"scaleZ": 2,
+						"color": "#FFD700"
+					}
+				]
+			},
+			{
+				"name": "Lintel Openings",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -18,
+						"y": 12,
+						"z": 0,
+						"scaleX": 3.5,
+						"scaleY": 1,
+						"scaleZ": 6,
+						"color": "#9A8A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 12,
+						"z": 18,
+						"scaleX": 6,
+						"scaleY": 1,
+						"scaleZ": 3.5,
+						"color": "#9A8A6A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 22,
+						"y": 15,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 28,
+						"scaleZ": 1,
+						"color": "#D0C0A0"
+					},
+					{
+						"shape": "cylinder",
+						"x": -22,
+						"y": 15,
+						"z": 0,
+						"scaleX": 1,
+						"scaleY": 28,
+						"scaleZ": 1,
+						"color": "#D0C0A0"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 15,
+						"z": 22,
+						"scaleX": 1,
+						"scaleY": 28,
+						"scaleZ": 1,
+						"color": "#D0C0A0"
+					}
+				]
+			}
+		]
+	},
+	"OBELISK_TOWER": {
+		"description": "Art-deco tower with 3 stepped tiers narrowing upward, decorative torus rings at each tier, crown observation sphere, and antenna spire",
+		"category": "architecture",
+		"minNodeTier": "city-node",
+		"tags": [
+			"art-deco",
+			"tower",
+			"landmark",
+			"solo"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 41,
+		"customization": "Gold (#FFD700) accents for art-deco, silver (#C0C0C0) for modern, dark bronze (#8B6914) for classic.",
+		"phases": [
+			{
+				"name": "Base Platform",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.3,
+						"z": 0,
+						"scaleX": 16,
+						"scaleY": 0.6,
+						"scaleZ": 16,
+						"color": "#2C2C2C"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.2,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 1.2,
+						"scaleZ": 14,
+						"color": "#3A3A3A"
+					},
+					{
+						"shape": "cylinder",
+						"x": -5,
+						"y": 2.5,
+						"z": -7,
+						"scaleX": 0.6,
+						"scaleY": 3,
+						"scaleZ": 0.6,
+						"color": "#C0A060"
+					},
+					{
+						"shape": "cylinder",
+						"x": 5,
+						"y": 2.5,
+						"z": -7,
+						"scaleX": 0.6,
+						"scaleY": 3,
+						"scaleZ": 0.6,
+						"color": "#C0A060"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2,
+						"z": -7,
+						"scaleX": 6,
+						"scaleY": 3,
+						"scaleZ": 0.6,
+						"color": "#4A3A2A"
+					}
+				]
+			},
+			{
+				"name": "Tier 1 (Wide Base)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 14,
+						"z": 0,
+						"scaleX": 12,
+						"scaleY": 22,
+						"scaleZ": 12,
+						"color": "#4A4A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 8,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 14,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 20,
+						"z": 0,
+						"scaleX": 12.5,
+						"scaleY": 0.3,
+						"scaleZ": 12.5,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 25.5,
+						"z": 0,
+						"scaleX": 7,
+						"scaleY": 0.6,
+						"scaleZ": 7,
+						"color": "#C0A060"
+					}
+				]
+			},
+			{
+				"name": "Tier 1 Step + Tier 2 Lower",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 26,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 1,
+						"scaleZ": 14,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": -5.5,
+						"y": 26.8,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 0.6,
+						"scaleZ": 12,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 5.5,
+						"y": 26.8,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 0.6,
+						"scaleZ": 12,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 26.8,
+						"z": -5.5,
+						"scaleX": 11,
+						"scaleY": 0.6,
+						"scaleZ": 0.3,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 26.8,
+						"z": 5.5,
+						"scaleX": 11,
+						"scaleY": 0.6,
+						"scaleZ": 0.3,
+						"color": "#8A8A8A"
+					}
+				]
+			},
+			{
+				"name": "Tier 2 (Mid Section)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 45,
+						"z": 0,
+						"scaleX": 9,
+						"scaleY": 30,
+						"scaleZ": 9,
+						"color": "#5A5A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 35,
+						"z": 0,
+						"scaleX": 9.5,
+						"scaleY": 0.3,
+						"scaleZ": 9.5,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 43,
+						"z": 0,
+						"scaleX": 9.5,
+						"scaleY": 0.3,
+						"scaleZ": 9.5,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 51,
+						"z": 0,
+						"scaleX": 9.5,
+						"scaleY": 0.3,
+						"scaleZ": 9.5,
+						"color": "#7A7A8A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 60.5,
+						"z": 0,
+						"scaleX": 5.5,
+						"scaleY": 0.6,
+						"scaleZ": 5.5,
+						"color": "#C0A060"
+					}
+				]
+			},
+			{
+				"name": "Tier 2 Step + Tier 3 Lower",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 61,
+						"z": 0,
+						"scaleX": 11,
+						"scaleY": 1,
+						"scaleZ": 11,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": -4,
+						"y": 61.8,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 0.6,
+						"scaleZ": 8,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 4,
+						"y": 61.8,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 0.6,
+						"scaleZ": 8,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 61.8,
+						"z": -4,
+						"scaleX": 8,
+						"scaleY": 0.6,
+						"scaleZ": 0.3,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 61.8,
+						"z": 4,
+						"scaleX": 8,
+						"scaleY": 0.6,
+						"scaleZ": 0.3,
+						"color": "#8A8A8A"
+					}
+				]
+			},
+			{
+				"name": "Tier 3 (Upper Narrow)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 80,
+						"z": 0,
+						"scaleX": 6,
+						"scaleY": 30,
+						"scaleZ": 6,
+						"color": "#6A6A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 70,
+						"z": 0,
+						"scaleX": 6.5,
+						"scaleY": 0.3,
+						"scaleZ": 6.5,
+						"color": "#8A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 78,
+						"z": 0,
+						"scaleX": 6.5,
+						"scaleY": 0.3,
+						"scaleZ": 6.5,
+						"color": "#8A8A9A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 86,
+						"z": 0,
+						"scaleX": 6.5,
+						"scaleY": 0.3,
+						"scaleZ": 6.5,
+						"color": "#8A8A9A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 95.5,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 0.6,
+						"scaleZ": 4,
+						"color": "#C0A060"
+					}
+				]
+			},
+			{
+				"name": "Crown + Observation",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 96,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 1,
+						"scaleZ": 8,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": -3,
+						"y": 97,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 1.5,
+						"scaleZ": 6,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "box",
+						"x": 3,
+						"y": 97,
+						"z": 0,
+						"scaleX": 0.3,
+						"scaleY": 1.5,
+						"scaleZ": 6,
+						"color": "#8A8A8A"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 99,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 4,
+						"scaleZ": 4,
+						"color": "#4A90D9"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 99,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 0.4,
+						"scaleZ": 3,
+						"color": "#C0A060"
+					}
+				]
+			},
+			{
+				"name": "Antenna Spire",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 106,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 10,
+						"scaleZ": 1.2,
+						"color": "#D0D0D0"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 108,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 0.3,
+						"scaleZ": 2,
+						"color": "#C0A060"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 115,
+						"z": 0,
+						"scaleX": 0.8,
+						"scaleY": 8,
+						"scaleZ": 0.8,
+						"color": "#E0E0E0"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 119.5,
+						"z": 0,
+						"scaleX": 1.2,
+						"scaleY": 1.2,
+						"scaleZ": 1.2,
+						"color": "#FF4444"
+					},
+					{
+						"shape": "circle",
+						"x": 0,
+						"y": 112,
+						"z": 0,
+						"scaleX": 1.8,
+						"scaleY": 0.3,
+						"scaleZ": 1.8,
+						"color": "#C0A060"
+					}
+				]
+			},
+			{
+				"name": "Entrance Detail",
+				"primitives": [
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 3.5,
+						"z": -7.2,
+						"scaleX": 2,
+						"scaleY": 2,
+						"scaleZ": 0.3,
+						"color": "#C0A060"
+					}
+				]
+			}
+		]
+	},
+	"TITAN_STATUE": {
+		"description": "Abstract humanoid colossus on platform — cylindrical legs, box torso, cylinder arms reaching skyward, sphere head, holding glowing orb",
+		"category": "art",
+		"minNodeTier": "forest-node",
+		"tags": [
+			"art",
+			"landmark",
+			"statue",
+			"solo"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 30,
+		"customization": "Bronze (#CD7F32) for classic, white marble (#F0F0F0) for heroic, dark iron (#3A3A3A) for industrial.",
+		"phases": [
+			{
+				"name": "Platform Base",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.3,
+						"z": 0,
+						"scaleX": 14,
+						"scaleY": 0.6,
+						"scaleZ": 14,
+						"color": "#3A3A3A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.2,
+						"z": 0,
+						"scaleX": 12,
+						"scaleY": 1.2,
+						"scaleZ": 12,
+						"color": "#4A4A4A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 2.5,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 1.4,
+						"scaleZ": 10,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "cylinder",
+						"x": -5,
+						"y": 1.5,
+						"z": -5,
+						"scaleX": 0.4,
+						"scaleY": 2.4,
+						"scaleZ": 0.4,
+						"color": "#808080"
+					},
+					{
+						"shape": "cylinder",
+						"x": 5,
+						"y": 1.5,
+						"z": -5,
+						"scaleX": 0.4,
+						"scaleY": 2.4,
+						"scaleZ": 0.4,
+						"color": "#808080"
+					},
+					{
+						"shape": "cylinder",
+						"x": -5,
+						"y": 1.5,
+						"z": 5,
+						"scaleX": 0.4,
+						"scaleY": 2.4,
+						"scaleZ": 0.4,
+						"color": "#808080"
+					},
+					{
+						"shape": "cylinder",
+						"x": 5,
+						"y": 1.5,
+						"z": 5,
+						"scaleX": 0.4,
+						"scaleY": 2.4,
+						"scaleZ": 0.4,
+						"color": "#808080"
+					}
+				]
+			},
+			{
+				"name": "Legs",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": -2,
+						"y": 9,
+						"z": 0,
+						"scaleX": 2.5,
+						"scaleY": 12,
+						"scaleZ": 2.5,
+						"color": "#CD7F32"
+					},
+					{
+						"shape": "cylinder",
+						"x": 2,
+						"y": 9,
+						"z": 0,
+						"scaleX": 2.5,
+						"scaleY": 12,
+						"scaleZ": 2.5,
+						"color": "#CD7F32"
+					},
+					{
+						"shape": "box",
+						"x": -2,
+						"y": 3.5,
+						"z": 0,
+						"scaleX": 3.5,
+						"scaleY": 1,
+						"scaleZ": 3.5,
+						"color": "#B06A28"
+					},
+					{
+						"shape": "box",
+						"x": 2,
+						"y": 3.5,
+						"z": 0,
+						"scaleX": 3.5,
+						"scaleY": 1,
+						"scaleZ": 3.5,
+						"color": "#B06A28"
+					},
+					{
+						"shape": "torus",
+						"x": -2,
+						"y": 8,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 0.3,
+						"scaleZ": 1.5,
+						"color": "#A05A18"
+					},
+					{
+						"shape": "torus",
+						"x": 2,
+						"y": 8,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 0.3,
+						"scaleZ": 1.5,
+						"color": "#A05A18"
+					}
+				]
+			},
+			{
+				"name": "Torso + Hips",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 15.5,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 2,
+						"scaleZ": 3,
+						"color": "#B06A28"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 22,
+						"z": 0,
+						"scaleX": 6,
+						"scaleY": 10,
+						"scaleZ": 4,
+						"color": "#CD7F32"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 27.5,
+						"z": 0,
+						"scaleX": 7,
+						"scaleY": 1,
+						"scaleZ": 4.5,
+						"color": "#B06A28"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 17.5,
+						"z": 0,
+						"scaleX": 3.5,
+						"scaleY": 0.4,
+						"scaleZ": 3.5,
+						"color": "#A05A18"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 20,
+						"z": 2,
+						"scaleX": 4,
+						"scaleY": 3,
+						"scaleZ": 0.4,
+						"color": "#8B6914"
+					}
+				]
+			},
+			{
+				"name": "Arms Reaching Up",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": -4.5,
+						"y": 30,
+						"z": 0,
+						"scaleX": 1.8,
+						"scaleY": 8,
+						"scaleZ": 1.8,
+						"rotZ": 0.3,
+						"color": "#CD7F32"
+					},
+					{
+						"shape": "cylinder",
+						"x": 4.5,
+						"y": 30,
+						"z": 0,
+						"scaleX": 1.8,
+						"scaleY": 8,
+						"scaleZ": 1.8,
+						"rotZ": -0.3,
+						"color": "#CD7F32"
+					},
+					{
+						"shape": "cylinder",
+						"x": -6,
+						"y": 36,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 6,
+						"scaleZ": 1.5,
+						"rotZ": 0.15,
+						"color": "#CD7F32"
+					},
+					{
+						"shape": "cylinder",
+						"x": 6,
+						"y": 36,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 6,
+						"scaleZ": 1.5,
+						"rotZ": -0.15,
+						"color": "#CD7F32"
+					},
+					{
+						"shape": "sphere",
+						"x": -6.5,
+						"y": 39.5,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2,
+						"scaleZ": 2,
+						"color": "#B06A28"
+					},
+					{
+						"shape": "sphere",
+						"x": 6.5,
+						"y": 39.5,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2,
+						"scaleZ": 2,
+						"color": "#B06A28"
+					}
+				]
+			},
+			{
+				"name": "Head + Orb",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 29,
+						"z": 0,
+						"scaleX": 1.5,
+						"scaleY": 2,
+						"scaleZ": 1.5,
+						"color": "#B06A28"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 32,
+						"z": 0,
+						"scaleX": 4,
+						"scaleY": 4.5,
+						"scaleZ": 4,
+						"color": "#CD7F32"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 34.5,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 0.4,
+						"scaleZ": 3,
+						"color": "#A05A18"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 43,
+						"z": 0,
+						"scaleX": 5,
+						"scaleY": 5,
+						"scaleZ": 5,
+						"color": "#FFD700"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 43,
+						"z": 0,
+						"scaleX": 3.5,
+						"scaleY": 0.5,
+						"scaleZ": 3.5,
+						"color": "#FFA500"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 43,
+						"z": 0,
+						"scaleX": 2.5,
+						"scaleY": 2.5,
+						"scaleZ": 2.5,
+						"color": "#FFFFAA"
+					}
+				]
+			}
+		]
+	},
+	"MEGA_CITADEL": {
+		"description": "Fortress with thick outer walls, 4 corner towers with cone roofs, central keep tower, gate archway, and inner courtyard platform",
+		"category": "architecture",
+		"minNodeTier": "metropolis-node",
+		"tags": [
+			"fortress",
+			"mega",
+			"landmark",
+			"collaborative"
+		],
+		"difficulty": "hard",
+		"totalPrimitives": 50,
+		"customization": "Dark stone (#4A4A4A) for imposing, sandstone (#D4A574) for desert fortress, icy blue (#8AAABE) for frost citadel.",
+		"phases": [
+			{
+				"name": "Courtyard Platform",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 0.3,
+						"z": 0,
+						"scaleX": 34,
+						"scaleY": 0.6,
+						"scaleZ": 34,
+						"color": "#3A3A3A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1,
+						"z": 0,
+						"scaleX": 30,
+						"scaleY": 0.8,
+						"scaleZ": 30,
+						"color": "#4A4A4A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 1.6,
+						"z": 0,
+						"scaleX": 26,
+						"scaleY": 0.4,
+						"scaleZ": 26,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 0,
+						"y": 2.5,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 1.4,
+						"scaleZ": 8,
+						"color": "#606060"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 4,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2,
+						"scaleZ": 2,
+						"color": "#4A90D9"
+					}
+				]
+			},
+			{
+				"name": "Outer Walls (N/S)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 7,
+						"z": -16,
+						"scaleX": 32,
+						"scaleY": 12,
+						"scaleZ": 2,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 7,
+						"z": 16,
+						"scaleX": 32,
+						"scaleY": 12,
+						"scaleZ": 2,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 13.5,
+						"z": -16,
+						"scaleX": 34,
+						"scaleY": 1,
+						"scaleZ": 3,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 13.5,
+						"z": 16,
+						"scaleX": 34,
+						"scaleY": 1,
+						"scaleZ": 3,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 14.5,
+						"z": -16,
+						"scaleX": 32,
+						"scaleY": 1,
+						"scaleZ": 2.5,
+						"color": "#5A5A5A"
+					}
+				]
+			},
+			{
+				"name": "Outer Walls (E/W)",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": -16,
+						"y": 7,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 12,
+						"scaleZ": 30,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": 16,
+						"y": 7,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 12,
+						"scaleZ": 30,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": -16,
+						"y": 13.5,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 1,
+						"scaleZ": 32,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 16,
+						"y": 13.5,
+						"z": 0,
+						"scaleX": 3,
+						"scaleY": 1,
+						"scaleZ": 32,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 14.5,
+						"z": 16,
+						"scaleX": 32,
+						"scaleY": 1,
+						"scaleZ": 2.5,
+						"color": "#5A5A5A"
+					}
+				]
+			},
+			{
+				"name": "Gate Entrance",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 5,
+						"z": -16.5,
+						"scaleX": 6,
+						"scaleY": 8,
+						"scaleZ": 3,
+						"color": "#3A2A1A"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 7,
+						"z": -17,
+						"scaleX": 2.5,
+						"scaleY": 3,
+						"scaleZ": 0.5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 10,
+						"z": -16.5,
+						"scaleX": 7,
+						"scaleY": 2,
+						"scaleZ": 3.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": -3,
+						"y": 12,
+						"z": -16.5,
+						"scaleX": 0.8,
+						"scaleY": 1.5,
+						"scaleZ": 0.8,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "box",
+						"x": 3,
+						"y": 12,
+						"z": -16.5,
+						"scaleX": 0.8,
+						"scaleY": 1.5,
+						"scaleZ": 0.8,
+						"color": "#7A7A7A"
+					}
+				]
+			},
+			{
+				"name": "Corner Tower NE",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 15,
+						"y": 12,
+						"z": -15,
+						"scaleX": 4,
+						"scaleY": 22,
+						"scaleZ": 4,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 15,
+						"y": 23.5,
+						"z": -15,
+						"scaleX": 5,
+						"scaleY": 1,
+						"scaleZ": 5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 15,
+						"y": 26,
+						"z": -15,
+						"scaleX": 3.5,
+						"scaleY": 4,
+						"scaleZ": 3.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "cone",
+						"x": 15,
+						"y": 31.5,
+						"z": -15,
+						"scaleX": 4,
+						"scaleY": 7,
+						"scaleZ": 4,
+						"color": "#505050"
+					},
+					{
+						"shape": "sphere",
+						"x": 15,
+						"y": 35.5,
+						"z": -15,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#FFD700"
+					}
+				]
+			},
+			{
+				"name": "Corner Tower NW",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": -15,
+						"y": 12,
+						"z": -15,
+						"scaleX": 4,
+						"scaleY": 22,
+						"scaleZ": 4,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": -15,
+						"y": 23.5,
+						"z": -15,
+						"scaleX": 5,
+						"scaleY": 1,
+						"scaleZ": 5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "cylinder",
+						"x": -15,
+						"y": 26,
+						"z": -15,
+						"scaleX": 3.5,
+						"scaleY": 4,
+						"scaleZ": 3.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "cone",
+						"x": -15,
+						"y": 31.5,
+						"z": -15,
+						"scaleX": 4,
+						"scaleY": 7,
+						"scaleZ": 4,
+						"color": "#505050"
+					},
+					{
+						"shape": "sphere",
+						"x": -15,
+						"y": 35.5,
+						"z": -15,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#FFD700"
+					}
+				]
+			},
+			{
+				"name": "Corner Tower SE",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": 15,
+						"y": 12,
+						"z": 15,
+						"scaleX": 4,
+						"scaleY": 22,
+						"scaleZ": 4,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 15,
+						"y": 23.5,
+						"z": 15,
+						"scaleX": 5,
+						"scaleY": 1,
+						"scaleZ": 5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "cylinder",
+						"x": 15,
+						"y": 26,
+						"z": 15,
+						"scaleX": 3.5,
+						"scaleY": 4,
+						"scaleZ": 3.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "cone",
+						"x": 15,
+						"y": 31.5,
+						"z": 15,
+						"scaleX": 4,
+						"scaleY": 7,
+						"scaleZ": 4,
+						"color": "#505050"
+					},
+					{
+						"shape": "sphere",
+						"x": 15,
+						"y": 35.5,
+						"z": 15,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#FFD700"
+					}
+				]
+			},
+			{
+				"name": "Corner Tower SW",
+				"primitives": [
+					{
+						"shape": "cylinder",
+						"x": -15,
+						"y": 12,
+						"z": 15,
+						"scaleX": 4,
+						"scaleY": 22,
+						"scaleZ": 4,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": -15,
+						"y": 23.5,
+						"z": 15,
+						"scaleX": 5,
+						"scaleY": 1,
+						"scaleZ": 5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "cylinder",
+						"x": -15,
+						"y": 26,
+						"z": 15,
+						"scaleX": 3.5,
+						"scaleY": 4,
+						"scaleZ": 3.5,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "cone",
+						"x": -15,
+						"y": 31.5,
+						"z": 15,
+						"scaleX": 4,
+						"scaleY": 7,
+						"scaleZ": 4,
+						"color": "#505050"
+					},
+					{
+						"shape": "sphere",
+						"x": -15,
+						"y": 35.5,
+						"z": 15,
+						"scaleX": 1,
+						"scaleY": 1,
+						"scaleZ": 1,
+						"color": "#FFD700"
+					}
+				]
+			},
+			{
+				"name": "Central Keep",
+				"primitives": [
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 12,
+						"z": 0,
+						"scaleX": 10,
+						"scaleY": 18,
+						"scaleZ": 10,
+						"color": "#5A5A5A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 22,
+						"z": 0,
+						"scaleX": 11,
+						"scaleY": 1.5,
+						"scaleZ": 11,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 29,
+						"z": 0,
+						"scaleX": 8,
+						"scaleY": 12,
+						"scaleZ": 8,
+						"color": "#6A6A6A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 35.5,
+						"z": 0,
+						"scaleX": 9,
+						"scaleY": 1.5,
+						"scaleZ": 9,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "cone",
+						"x": 0,
+						"y": 42,
+						"z": 0,
+						"scaleX": 5,
+						"scaleY": 12,
+						"scaleZ": 5,
+						"color": "#505050"
+					},
+					{
+						"shape": "sphere",
+						"x": 0,
+						"y": 48.5,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 2,
+						"scaleZ": 2,
+						"color": "#FFD700"
+					},
+					{
+						"shape": "torus",
+						"x": 0,
+						"y": 36,
+						"z": 0,
+						"scaleX": 5,
+						"scaleY": 0.5,
+						"scaleZ": 5,
+						"color": "#7A7A7A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 15,
+						"z": -7,
+						"scaleX": 5,
+						"scaleY": 6,
+						"scaleZ": 2,
+						"color": "#4A4A4A"
+					},
+					{
+						"shape": "box",
+						"x": 0,
+						"y": 15,
+						"z": 7,
+						"scaleX": 5,
+						"scaleY": 6,
+						"scaleZ": 2,
+						"color": "#4A4A4A"
+					},
+					{
+						"shape": "box",
+						"x": -7,
+						"y": 15,
+						"z": 0,
+						"scaleX": 2,
+						"scaleY": 6,
+						"scaleZ": 5,
+						"color": "#4A4A4A"
 					}
 				]
 			}

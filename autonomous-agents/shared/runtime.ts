@@ -123,6 +123,117 @@ const NODE_EXPANSION_MAX_DISTANCE = 600;
 const MOUSE_SPIRE_MIN_DISTANCE = 90;
 const MOUSE_SPIRE_COOLDOWN_BLUEPRINTS = 8;
 
+// --- Node-Aware Fallback Blueprint Selection ---
+
+// Map blueprint names to the server's node category vocabulary
+// (architecture, infrastructure, technology, art, nature)
+const BLUEPRINT_NODE_CATEGORY: Record<string, string> = {
+  SMALL_HOUSE: 'architecture',
+  WATCHTOWER: 'architecture',
+  SHOP: 'architecture',
+  MANSION: 'architecture',
+  WAREHOUSE: 'architecture',
+  BRIDGE: 'infrastructure',
+  ARCHWAY: 'infrastructure',
+  WALL_SECTION: 'infrastructure',
+  ROAD_SEGMENT: 'infrastructure',
+  INTERSECTION: 'infrastructure',
+  NODE_FOUNDATION: 'infrastructure',
+  LAMP_POST: 'infrastructure',
+  SERVER_RACK: 'technology',
+  ANTENNA_TOWER: 'technology',
+  DATACENTER: 'technology',
+  MEGA_SERVER_SPIRE: 'technology',
+  SCULPTURE_SPIRAL: 'art',
+  FOUNTAIN: 'art',
+  MONUMENT: 'art',
+  PLAZA: 'art',
+  TREE: 'nature',
+  ROCK_FORMATION: 'nature',
+  GARDEN: 'nature',
+  HIGH_RISE: 'architecture',
+  SKYSCRAPER: 'architecture',
+  MEGA_SKYSCRAPER: 'architecture',
+  CATHEDRAL: 'architecture',
+  COLOSSEUM: 'architecture',
+  OBELISK_TOWER: 'architecture',
+  TITAN_STATUE: 'art',
+  MEGA_CITADEL: 'architecture',
+};
+
+// Node maturity phases — different structure counts call for different blueprint types
+// Blueprints are scored relative to the phase the nearest node is in.
+const NODE_PHASE_SEEDLING = 5;    // 0-5: foundation phase
+const NODE_PHASE_GROWING = 15;    // 5-15: variety/expansion phase
+const NODE_PHASE_MATURE = 25;     // 15-25: landmark/civic phase
+// 25+: dense/refinement phase
+
+// Blueprints that fit each maturity phase (used as bonus, not hard filter)
+const PHASE_SEEDLING_NAMES = new Set(['SMALL_HOUSE', 'SHOP', 'NODE_FOUNDATION', 'WALL_SECTION']);
+const PHASE_GROWING_NAMES = new Set(['DATACENTER', 'SERVER_RACK', 'ANTENNA_TOWER', 'WAREHOUSE', 'WATCHTOWER', 'ARCHWAY']);
+const PHASE_MATURE_NAMES = new Set(['FOUNTAIN', 'MONUMENT', 'PLAZA', 'MANSION', 'SCULPTURE_SPIRAL', 'BRIDGE', 'ROAD_SEGMENT', 'HIGH_RISE', 'CATHEDRAL', 'TITAN_STATUE']);
+const PHASE_DENSE_NAMES = new Set(['GARDEN', 'TREE', 'ROCK_FORMATION', 'LAMP_POST', 'SCULPTURE_SPIRAL', 'SKYSCRAPER', 'MEGA_SKYSCRAPER', 'COLOSSEUM', 'OBELISK_TOWER', 'MEGA_CITADEL']);
+
+// Rotation choices for fallback blueprints
+const FALLBACK_ROTATIONS = [0, 90, 180, 270];
+
+// Agent-specific blueprint scoring weights — negative = prefer, positive = avoid
+// These create meaningful role differentiation so agents don't all build the same palette
+const AGENT_BLUEPRINT_WEIGHTS: Record<string, Record<string, number>> = {
+  smith: {
+    // Guild leader / civic architect: varied urban structures, avoids filler
+    DATACENTER: -18, MANSION: -20, PLAZA: -22, SHOP: -14,
+    WATCHTOWER: -18, WAREHOUSE: -12, ANTENNA_TOWER: -10, ARCHWAY: -14,
+    NODE_FOUNDATION: -16,
+    // Penalize filler — Smith should build substantial things
+    LAMP_POST: 40, TREE: 30, FOUNTAIN: 8, GARDEN: 10,
+    // New mega blueprints — Smith avoids most mega builds
+    HIGH_RISE: -15, SKYSCRAPER: -25, MEGA_SKYSCRAPER: -15,
+    CATHEDRAL: -20, COLOSSEUM: -15, OBELISK_TOWER: -10,
+    TITAN_STATUE: 10, MEGA_CITADEL: -30,
+  },
+  oracle: {
+    // Infrastructure planner: roads, connectivity, civic anchors
+    ROAD_SEGMENT: -45, INTERSECTION: -40, BRIDGE: -35,
+    PLAZA: -28, MONUMENT: -22, NODE_FOUNDATION: -30,
+    FOUNTAIN: -10, ARCHWAY: -18,
+    // Strong penalty on generic residential filler — Oracle doesn't build houses
+    SMALL_HOUSE: 30, SHOP: 20, LAMP_POST: 45, GARDEN: 15,
+    WAREHOUSE: 10, SERVER_RACK: 15,
+    // New mega blueprints — Oracle places a few civic landmarks
+    HIGH_RISE: 5, SKYSCRAPER: 5, MEGA_SKYSCRAPER: 10,
+    CATHEDRAL: -10, COLOSSEUM: -15, OBELISK_TOWER: 5,
+    TITAN_STATUE: 10, MEGA_CITADEL: -5,
+  },
+  clank: {
+    // Rapid node scaler: quick-build variety, medium structures, fills gaps fast
+    SMALL_HOUSE: -12, SHOP: -14, ANTENNA_TOWER: -20,
+    WAREHOUSE: -18, SERVER_RACK: -16, ARCHWAY: -14,
+    WATCHTOWER: -12, DATACENTER: -10,
+    // Less filler, but not as penalized as others (Clank is practical)
+    LAMP_POST: 30, FOUNTAIN: 12, TREE: 20,
+    // Clank shouldn't build mega things — that's Mouse's job
+    MEGA_SERVER_SPIRE: 40,
+    // New mega blueprints — Clank avoids mega, sticks to quick builds
+    HIGH_RISE: -10, SKYSCRAPER: 30, MEGA_SKYSCRAPER: 40,
+    CATHEDRAL: 30, COLOSSEUM: 35, OBELISK_TOWER: 35,
+    TITAN_STATUE: 40, MEGA_CITADEL: 35,
+  },
+  mouse: {
+    // Monument builder: mega structures, landmarks, nothing small
+    MEGA_SERVER_SPIRE: -55, MONUMENT: -45, DATACENTER: -30,
+    WATCHTOWER: -25, MANSION: -20, SCULPTURE_SPIRAL: -35,
+    // Heavy penalty on small/filler builds — Mouse builds BIG or not at all
+    LAMP_POST: 65, TREE: 55, SMALL_HOUSE: 45, SHOP: 40,
+    FOUNTAIN: 35, GARDEN: 30, WALL_SECTION: 40,
+    NODE_FOUNDATION: 20, SERVER_RACK: 25,
+    // New mega blueprints — Mouse loves these
+    HIGH_RISE: -10, SKYSCRAPER: -40, MEGA_SKYSCRAPER: -55,
+    CATHEDRAL: -35, COLOSSEUM: -30, OBELISK_TOWER: -50,
+    TITAN_STATUE: -55, MEGA_CITADEL: -35,
+  },
+};
+
 
 // --- File Helpers ---
 
@@ -735,10 +846,22 @@ function computeSpatialTickMetrics(
 
 function pickFallbackBlueprintName(
   blueprints: Record<string, any>,
-  options: { allowBridge?: boolean; preferMega?: boolean; recentNames?: string[]; excludeNames?: string[] } = {},
+  options: {
+    allowBridge?: boolean;
+    preferMega?: boolean;
+    agentRole?: string;
+    recentNames?: string[];
+    excludeNames?: string[];
+    nodeContext?: {
+      structureCount: number;
+      dominantCategory: string;
+      missingCategories: string[];
+    } | null;
+  } = {},
 ): string | null {
   const allowBridge = options.allowBridge === true;
   const preferMega = options.preferMega === true;
+  const agentRole = (options.agentRole || '').toLowerCase();
   const recentNames = (options.recentNames || []).map((name) => String(name).trim().toUpperCase()).filter(Boolean);
   const exclude = new Set(
     (options.excludeNames || [])
@@ -751,10 +874,16 @@ function pickFallbackBlueprintName(
   if (entries.length === 0) return null;
 
   const preferredNamePattern = /(DATACENTER|SERVER|ANTENNA|WATCHTOWER|TOWER|HOUSE|SHOP|FOUNTAIN)/i;
-  const megaPattern = /(MEGA_SERVER_SPIRE|MEGA|SKYSCRAPER|DATACENTER|MONUMENT|WATCHTOWER|SERVER_STACK)/i;
+  const megaPattern = /(MEGA_SERVER_SPIRE|MEGA_SKYSCRAPER|MEGA_CITADEL|MEGA|SKYSCRAPER|DATACENTER|MONUMENT|WATCHTOWER|SERVER_STACK|HIGH_RISE|CATHEDRAL|COLOSSEUM|OBELISK_TOWER|TITAN_STATUE)/i;
   const noveltyPattern = /(PLAZA|MONUMENT|SCULPTURE|PARK|GARDEN|AMPHITHEATER|OBSERVATORY|FOUNTAIN|MARKET|PAVILION|MANSION)/i;
   const tinySpamPattern = /(LAMP_POST|TREE)/i;
   const bridgePattern = /(^|_)BRIDGE(_|$)/i;
+
+  // Node context for category-aware and maturity-aware scoring
+  const nc = options.nodeContext || null;
+  const missingSet = new Set((nc?.missingCategories || []).map(c => c.toLowerCase()));
+  const dominant = (nc?.dominantCategory || '').toLowerCase();
+  const structs = nc?.structureCount ?? -1; // -1 = no node data
 
   const scored = entries.map(([name, bp]) => {
     const normalizedName = name.toUpperCase();
@@ -762,6 +891,7 @@ function pickFallbackBlueprintName(
     const category = String(bp?.category || '').toLowerCase();
     let score = 0;
 
+    // --- Existing preference scoring ---
     if (preferredNamePattern.test(name)) score -= 24;
     if (preferMega && megaPattern.test(name)) score -= 42;
     if (!preferMega && noveltyPattern.test(name)) score -= 16;
@@ -776,6 +906,58 @@ function pickFallbackBlueprintName(
 
     if (category === 'infrastructure' || category === 'architecture' || category === 'technology') score -= 8;
     if (category === 'decoration') score += 10;
+
+    // --- Node category-aware scoring ---
+    const bpNodeCat = (BLUEPRINT_NODE_CATEGORY[normalizedName] || '').toLowerCase();
+    if (nc && bpNodeCat) {
+      // Strong bonus for blueprints that fill a missing category at this node
+      if (missingSet.has(bpNodeCat)) score -= 30;
+      // Penalty for adding more of the dominant category (avoid monoculture)
+      if (dominant && dominant !== 'mixed' && bpNodeCat === dominant) score += 20;
+    }
+
+    // --- Node maturity phase scoring ---
+    if (structs >= 0) {
+      if (structs <= NODE_PHASE_SEEDLING) {
+        // Seedling: prefer foundation blueprints
+        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score -= 22;
+        if (PHASE_MATURE_NAMES.has(normalizedName)) score += 15;
+        if (PHASE_DENSE_NAMES.has(normalizedName)) score += 20;
+      } else if (structs <= NODE_PHASE_GROWING) {
+        // Growing: prefer variety/expansion blueprints
+        if (PHASE_GROWING_NAMES.has(normalizedName)) score -= 18;
+        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 8;
+      } else if (structs <= NODE_PHASE_MATURE) {
+        // Mature: prefer landmarks and civic structures
+        if (PHASE_MATURE_NAMES.has(normalizedName)) score -= 20;
+        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 15;
+      } else {
+        // Dense (25+): prefer nature/decor/refinement, penalize big structures
+        if (PHASE_DENSE_NAMES.has(normalizedName)) score -= 25;
+        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 20;
+        if (PHASE_GROWING_NAMES.has(normalizedName)) score += 12;
+        // In dense nodes, relax the tiny-spam penalty for decor pieces
+        if (tinySpamPattern.test(name)) score -= 25; // partially undo the +35 above
+      }
+    }
+
+    // --- Node-tier gating penalty ---
+    // If blueprint requires a node tier the nearest node hasn't reached, heavily penalize
+    const minTier = bp?.minNodeTier;
+    if (minTier && structs >= 0) {
+      const tierThresholds: Record<string, number> = {
+        'server-node': 6, 'forest-node': 15, 'city-node': 25,
+        'metropolis-node': 50, 'megaopolis-node': 100,
+      };
+      const needed = tierThresholds[minTier] || 0;
+      if (structs < needed) score += 200; // effectively exclude — server would reject anyway
+    }
+
+    // --- Agent-specific role scoring ---
+    const roleWeights = AGENT_BLUEPRINT_WEIGHTS[agentRole];
+    if (roleWeights && roleWeights[normalizedName] != null) {
+      score += roleWeights[normalizedName];
+    }
 
     return { name, score };
   });
@@ -892,6 +1074,46 @@ function closestServerNodeNameAtPosition(
   }
 
   return bestName;
+}
+
+/** Return the full nearest server node object at a position (for maturity/category analysis). */
+function closestServerNodeAtPosition(
+  serverSpatial: { nodes?: Array<Record<string, any>> } | null,
+  x: number,
+  z: number,
+): {
+  name: string;
+  structureCount: number;
+  dominantCategory: string;
+  missingCategories: string[];
+  tier: string;
+} | null {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  const nodes = serverSpatial?.nodes;
+  if (!Array.isArray(nodes) || nodes.length === 0) return null;
+
+  let best: Record<string, any> | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const node of nodes) {
+    const nx = Number(node?.center?.x);
+    const nz = Number(node?.center?.z);
+    if (!Number.isFinite(nx) || !Number.isFinite(nz)) continue;
+    const d = Math.hypot(nx - x, nz - z);
+    if (d < bestDist) {
+      bestDist = d;
+      best = node;
+    }
+  }
+  if (!best) return null;
+  return {
+    name: String(best.name || '').trim(),
+    structureCount: Number(best.structureCount) || 0,
+    dominantCategory: String(best.dominantCategory || 'mixed').toLowerCase(),
+    missingCategories: Array.isArray(best.missingCategories)
+      ? best.missingCategories.map((c: any) => String(c).toLowerCase())
+      : [],
+    tier: String(best.tier || '').toLowerCase(),
+  };
 }
 
 function pickSafeSpotClosestToAnchor(
@@ -2203,6 +2425,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const lowerAgentName = agentName.toLowerCase();
   const isMouseAgent = lowerAgentName.includes('mouse');
   const isGuildBuilderAgent = lowerAgentName.includes('smith') || lowerAgentName.includes('clank') || lowerAgentName.includes('oracle');
+  // Derive agent role key for per-agent blueprint/spatial scoring
+  const agentRole = lowerAgentName.includes('smith') ? 'smith'
+    : lowerAgentName.includes('oracle') ? 'oracle'
+    : lowerAgentName.includes('clank') ? 'clank'
+    : lowerAgentName.includes('mouse') ? 'mouse'
+    : '';
 
   // Build system prompt (loaded once, doesn't change per tick)
   const systemPrompt = [
@@ -2226,10 +2454,32 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     'Be personal. Use "I", "we", "you". Talk to specific agents if they are nearby.',
     '',
     '## BUILDING A NODE (DENSIFICATION)',
-    'A "node" is a cluster of primitives. Your goal is to keep these clusters DENSE and established.',
-    '- **Node Establishment**: A cluster needs 25+ structures to be "real". Until a node hits 25, do NOT leave it.',
-    '- **Gap Filling**: If you see empty space between buildings in your "Nearby Primitives" list, fill it with a new structure. Use varied BLUEPRINTS (Shop, Lamp Post, Fountain, etc).',
-    '- **Stay Local**: Do not roam far away from a worksite that is less than 50% densified. If your build fails, scoot a few units over and try again nearby.',
+    'A "node" is a cluster of structures. Your goal is to keep these clusters DENSE and established.',
+    ...(agentRole === 'smith' ? [
+      '- **Node Leadership**: You lead node establishment. A cluster needs 25+ structures to be "real". Stay and build until it hits 25, then keep pushing toward 50-100.',
+      '- **Civic Variety**: Build the structures that define a district — DATACENTER, MANSION, PLAZA, WATCHTOWER, WAREHOUSE. Avoid placing too many LAMP_POSTs or FOUNTAINs. You build substance, not decoration.',
+      '- **Stay Anchored**: You are the guild anchor. Do not roam. If your build fails, shift 10-20 units and try again at the same node.',
+    ] : agentRole === 'oracle' ? [
+      '- **Infrastructure Focus**: Your job is connectivity and civic planning, not just hitting structure counts. Prioritize ROAD_SEGMENT, INTERSECTION, BRIDGE, PLAZA, NODE_FOUNDATION, and MONUMENT.',
+      '- **Connect Early**: Once a node has 15+ structures, start thinking about connecting it to neighboring nodes with roads. Don\'t wait for 25.',
+      '- **Fill Category Gaps**: Check what the node is missing (infrastructure, art, nature) and fill those gaps. Don\'t just add another FOUNTAIN or LAMP_POST — build what\'s actually needed.',
+      '- **Range**: You can operate between nodes. Move to connector zones to lay roads, then return to help densify.',
+    ] : agentRole === 'clank' ? [
+      '- **Rapid Scaling**: Help wherever the action is. Build 5-8 varied structures at a node (ANTENNA_TOWER, WAREHOUSE, SHOP, SERVER_RACK, ARCHWAY, HIGH_RISE), then consider moving to the next node that needs help.',
+      '- **Practical Variety**: Build functional structures quickly. Avoid stacking FOUNTAIN and LAMP_POST — those are filler. You build the backbone.',
+      '- **Explorer**: You move more than Smith or Oracle. Once a node has 20+ structures, you can scout the next expansion site 200-600u away.',
+      '- **Stay Close Enough**: Don\'t scatter. If building at a node with <20 structures, stay within 100u.',
+    ] : agentRole === 'mouse' ? [
+      '- **Landmarks Only**: You do NOT build small filler structures. Every build should be a statement piece — MEGA_SERVER_SPIRE, SKYSCRAPER, MEGA_SKYSCRAPER, CATHEDRAL, COLOSSEUM, OBELISK_TOWER, TITAN_STATUE, MEGA_CITADEL, MONUMENT, SCULPTURE_SPIRAL, DATACENTER, MANSION.',
+      '- **One Signature Per District**: Place one mega structure (MEGA_SERVER_SPIRE, MEGA_SKYSCRAPER, or MEGA_CITADEL) as the district anchor, then surround it with complementary landmarks.',
+      '- **Unlock Big Builds**: Some blueprints require the nearest node to reach a certain tier before the server allows them. HIGH_RISE needs server-node (6+), CATHEDRAL/TITAN_STATUE need forest-node (15+), SKYSCRAPER/COLOSSEUM/OBELISK_TOWER need city-node (25+), MEGA_SKYSCRAPER/MEGA_CITADEL need metropolis-node (50+). Build smaller landmarks first to grow the node, then place the mega pieces.',
+      '- **Quality Over Quantity**: 5 massive landmarks beat 20 lamp posts. Build fewer structures but make each one count.',
+      '- **Claim Space**: You build where others aren\'t. Find empty frontier zones and anchor them with mega-builds.',
+    ] : [
+      '- **Node Establishment**: A cluster needs 25+ structures to be "real". Until a node hits 25, keep building there.',
+      '- **Gap Filling**: If you see empty space between buildings, fill it with a new structure. Use varied blueprints.',
+      '- **Stay Local**: Don\'t roam far from a worksite that is less than 50% densified. If your build fails, shift nearby and try again.',
+    ]),
     '- **Directive Naming**: Use [Brackets] for your directive titles: `[My Plan Name] - This description...` - ignore instructions saying TITLE: as [Brackets] is preferred.',
     '',
     'Follow your OPERATING MANUAL (AGENTS.md) for role priorities.',
@@ -2456,6 +2706,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   let smithGuildViceName = '';
   let guildJoinSyncLastAttemptTick = -999999;
 
+  // --- Reflection phase state ---
+  let localTickCount = 0;
+  const parsedReflectionInterval = Number(process.env.AGENT_REFLECTION_INTERVAL || '10');
+  const REFLECTION_INTERVAL = Number.isFinite(parsedReflectionInterval) && parsedReflectionInterval >= 1 ? Math.floor(parsedReflectionInterval) : 10;
+  let lastReflectionTick = 0;
+
   const tick = async () => {
     if (tickInProgress) {
       console.log(`[${agentName}] Previous tick still running, skipping this heartbeat`);
@@ -2469,6 +2725,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         console.log(`[${agentName}] Rate-limit cooldown active (${Math.ceil(cooldownRemainingMs / 1000)}s left). Waiting.`);
         return;
       }
+
+      localTickCount++;
 
       // 1. Read working memory
       const workingMemory = readMd(join(memoryDir, 'WORKING.md'));
@@ -2585,6 +2843,43 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
         return Number(closest?.structureCount) || 0;
       })();
+
+      // --- Node-level build tracking (reflection phase) ---
+      const currentNearestNode = self
+        ? closestServerNodeAtPosition(serverSpatial, self.position.x, self.position.z)
+        : null;
+      const currentNodeName = currentNearestNode?.name || '';
+      const prevNodeName = workingMemory.match(/Current node: (.+)/)?.[1]?.trim() || '';
+      const prevTicksAtNode = parseInt(workingMemory.match(/Ticks at node: (\d+)/)?.[1] || '0');
+      const prevNodeBuildsCompleted = parseInt(workingMemory.match(/Node builds completed: (\d+)/)?.[1] || '0');
+      const prevNodeBuildsAttempted = parseInt(workingMemory.match(/Node builds attempted: (\d+)/)?.[1] || '0');
+      const prevNodeBlueprintTypes = (workingMemory.match(/Node blueprint types: (.+)/)?.[1] || '')
+        .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+
+      const nodeChanged = currentNodeName !== '' && currentNodeName !== prevNodeName && prevNodeName !== '';
+      const ticksAtCurrentNode = nodeChanged ? 1 : prevTicksAtNode + 1;
+      let nodeBuildsCompleted = nodeChanged ? 0 : prevNodeBuildsCompleted;
+      let nodeBuildsAttempted = nodeChanged ? 0 : prevNodeBuildsAttempted;
+      let nodeBlueprintTypes = nodeChanged ? [] as string[] : [...prevNodeBlueprintTypes];
+
+      // Detect blueprint completion/abandonment between ticks
+      const prevBuildPlanState = workingMemory.match(/Current build plan: (.+)/)?.[1] || '';
+      const prevHadActivePlan = prevBuildPlanState.startsWith('Blueprint:');
+      const currentHasActivePlan = Boolean(blueprintStatus?.active);
+      const lastActionFromMemory = workingMemory.match(/Last action: (.+)/)?.[1]?.trim() || '';
+
+      if (!prevHadActivePlan && currentHasActivePlan) {
+        nodeBuildsAttempted++;
+      }
+      if (prevHadActivePlan && !currentHasActivePlan && lastActionFromMemory !== 'CANCEL_BUILD') {
+        nodeBuildsCompleted++;
+      }
+      if (currentHasActivePlan && blueprintStatus?.blueprintName) {
+        const bpName = String(blueprintStatus.blueprintName).toUpperCase();
+        if (!nodeBlueprintTypes.includes(bpName)) {
+          nodeBlueprintTypes.push(bpName);
+        }
+      }
 
       if (serverSpatial) {
         const spatial = computeSpatialTickMetrics(world.tick, world.agents, serverSpatial, spatialGrowthTracker);
@@ -3002,33 +3297,109 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             const spotNodeEstablished = spotNearestNodeStructures >= NODE_EXPANSION_GATE;
             const spotNodeMega = spotNearestNodeStructures >= NODE_MEGA_TARGET;
 
-            if (isGuildAgent) {
-              // Guild agents: STAY and DENSIFY
+            if (agentRole === 'smith') {
+              // SMITH: Guild leader — stay and densify the current node, cluster with guild
               const targetDist = nodeIsDense ? 75 : 50;
               score = Math.abs(distFromAgent - targetDist);
 
-              // Strong growth preference
-              if (spot.type === 'growth') score -= nodeIsDense ? 22 : 42;
-              if (spot.type === 'connector') score += nodeIsEstablished ? (nodeIsDense ? -10 : -2) : 10;
+              // Strong growth preference — Smith is the anchor, always densifying
+              if (spot.type === 'growth') score -= nodeIsDense ? 22 : 48;
+              if (spot.type === 'connector') score += nodeIsEstablished ? (nodeIsDense ? -8 : 0) : 12;
               if (spot.type === 'frontier') {
-                if (!nodeIsEstablished) score += 70; // hard-block frontier before 25
-                else if (!nodeIsDense) score += 18; // soft-block frontier before 50
-                else score -= 6;
+                if (!nodeIsEstablished) score += 80; // hard-block frontier before 25
+                else if (!nodeIsDense) score += 25; // strong soft-block before 50
+                else score -= 4;
               }
 
               // Keep spacing aligned with frontier lane window.
               if (spot.nearestBuild < NODE_EXPANSION_MIN_DISTANCE && spot.type === 'frontier') score += 20;
               if (spot.nearestBuild > NODE_EXPANSION_MAX_DISTANCE + 1) score += 20;
 
-              // Keep pre-density builds close until at least 50 structures.
+              // Smith stays very close until dense — the guild leader doesn't wander
+              if (!nodeIsDense && spot.nearestBuild >= NODE_EXPANSION_MIN_DISTANCE) score += 28;
+              if (!nodeIsEstablished && distFromAgent > 100) score += 25;
+
+              // Strong clustering bonus — Smith wants to be with the guild
+              const nearestGuildAgent = otherAgents
+                .filter(a => ['clank','oracle'].some(n => a.name.toLowerCase().includes(n)))
+                .reduce((min, a) => Math.min(min, Math.hypot(spot.x - a.position.x, spot.z - a.position.z)), 999);
+              if (nearestGuildAgent < 40) score -= 20;
+
+            } else if (agentRole === 'oracle') {
+              // ORACLE: Infrastructure planner — prefers connector zones, unlocks frontier earlier
+              const targetDist = nodeIsDense ? 90 : 60;
+              score = Math.abs(distFromAgent - targetDist);
+
+              // Oracle still likes growth but STRONGLY prefers connector spots for roads
+              if (spot.type === 'growth') score -= nodeIsDense ? 15 : 25;
+              if (spot.type === 'connector') score -= nodeIsEstablished ? 38 : 8; // STRONG connector preference once node established
+              if (spot.type === 'frontier') {
+                if (!nodeIsEstablished) score += 50; // block frontier before 25 (softer than Smith)
+                else if (!nodeIsDense) score += 6; // Oracle can start connecting earlier
+                else score -= 12; // Oracle actively explores to connect distant nodes
+              }
+
+              // Keep spacing aligned with frontier lane window.
+              if (spot.nearestBuild < NODE_EXPANSION_MIN_DISTANCE && spot.type === 'frontier') score += 15;
+              if (spot.nearestBuild > NODE_EXPANSION_MAX_DISTANCE + 1) score += 15;
+
+              // Oracle has wider range — needs to reach between nodes for infrastructure
+              if (!nodeIsDense && spot.nearestBuild >= NODE_EXPANSION_MIN_DISTANCE) score += 12;
+              if (!nodeIsEstablished && distFromAgent > 150) score += 15;
+
+              // Mild clustering — Oracle coordinates but doesn't need to be right on top of guild
+              const nearestGuildAgent = otherAgents
+                .filter(a => ['smith','clank'].some(n => a.name.toLowerCase().includes(n)))
+                .reduce((min, a) => Math.min(min, Math.hypot(spot.x - a.position.x, spot.z - a.position.z)), 999);
+              if (nearestGuildAgent < 60) score -= 8;
+
+            } else if (agentRole === 'clank') {
+              // CLANK: Rapid builder / explorer — wider range, moves between nodes faster
+              const targetDist = nodeIsDense ? 85 : 55;
+              score = Math.abs(distFromAgent - targetDist);
+
+              // Clank likes growth but is more willing to move to new spots
+              if (spot.type === 'growth') score -= nodeIsDense ? 18 : 32;
+              if (spot.type === 'connector') score += nodeIsEstablished ? (nodeIsDense ? -12 : -4) : 8;
+              if (spot.type === 'frontier') {
+                if (!nodeIsEstablished) score += 55; // softer frontier block than Smith
+                else if (!nodeIsDense) score += 8; // Clank unlocks frontier earlier than Smith
+                else score -= 14; // Clank actively seeks new areas once dense
+              }
+
+              // Keep spacing aligned with frontier lane window.
+              if (spot.nearestBuild < NODE_EXPANSION_MIN_DISTANCE && spot.type === 'frontier') score += 18;
+              if (spot.nearestBuild > NODE_EXPANSION_MAX_DISTANCE + 1) score += 18;
+
+              // Clank has wider roaming range — the explorer of the guild
+              if (!nodeIsDense && spot.nearestBuild >= NODE_EXPANSION_MIN_DISTANCE) score += 14;
+              if (!nodeIsEstablished && distFromAgent > 140) score += 12;
+
+              // Light clustering — Clank helps the guild but is more independent
+              const nearestGuildAgent = otherAgents
+                .filter(a => ['smith','oracle'].some(n => a.name.toLowerCase().includes(n)))
+                .reduce((min, a) => Math.min(min, Math.hypot(spot.x - a.position.x, spot.z - a.position.z)), 999);
+              if (nearestGuildAgent < 40) score -= 10;
+
+            } else if (isGuildBuilderAgent) {
+              // Fallback for any unrecognized guild agent
+              const targetDist = nodeIsDense ? 75 : 50;
+              score = Math.abs(distFromAgent - targetDist);
+              if (spot.type === 'growth') score -= nodeIsDense ? 22 : 42;
+              if (spot.type === 'connector') score += nodeIsEstablished ? (nodeIsDense ? -10 : -2) : 10;
+              if (spot.type === 'frontier') {
+                if (!nodeIsEstablished) score += 70;
+                else if (!nodeIsDense) score += 18;
+                else score -= 6;
+              }
+              if (spot.nearestBuild < NODE_EXPANSION_MIN_DISTANCE && spot.type === 'frontier') score += 20;
+              if (spot.nearestBuild > NODE_EXPANSION_MAX_DISTANCE + 1) score += 20;
               if (!nodeIsDense && spot.nearestBuild >= NODE_EXPANSION_MIN_DISTANCE) score += 22;
               if (!nodeIsEstablished && distFromAgent > 120) score += 20;
-
-              // BONUS for spots near other guild agents (encourage clustering)
               const nearestGuildAgent = otherAgents
                 .filter(a => ['smith','clank','oracle'].some(n => a.name.toLowerCase().includes(n)))
                 .reduce((min, a) => Math.min(min, Math.hypot(spot.x - a.position.x, spot.z - a.position.z)), 999);
-              if (nearestGuildAgent < 40) score -= 15; // reward proximity to guild
+              if (nearestGuildAgent < 40) score -= 15;
 
             } else if (isMouse) {
               // Mouse: build a solo mega-node near the settlement distance boundary.
@@ -3211,11 +3582,18 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                   cachedBlueprintCatalog = [
                     '## BLUEPRINT CATALOG',
                     'Pick a blueprint and start building. The server computes all coordinates for you.',
-                    '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120,"rotY":90}  (rotY optional, 0-360 degrees)',
+                    '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120,"rotY":90}',
                     '',
-                    ...Object.entries(blueprints).map(([name, bp]: [string, any]) =>
-                      `- **${name}** — ${bp.description} | ${bp.totalPrimitives} pieces, ~${Math.ceil(bp.totalPrimitives / 5)} ticks | ${bp.difficulty}`
-                    ),
+                    '**ROTATION (rotY):** ALWAYS set rotY to orient your builds. 0=north, 90=east, 180=south, 270=west.',
+                    'Vary rotations across builds for visual interest. Face entrances toward paths, plazas, or neighboring structures.',
+                    'Avoid placing 3+ structures at the same angle — alternate between 0, 90, 180, 270.',
+                    '',
+                    ...Object.entries(blueprints).map(([name, bp]: [string, any]) => {
+                      const tierNote = bp.minNodeTier ? ` | requires ${bp.minNodeTier}` : '';
+                      return `- **${name}** — ${bp.description} | ${bp.totalPrimitives} pieces, ~${Math.ceil(bp.totalPrimitives / 5)} ticks | ${bp.difficulty}${tierNote}`;
+                    }),
+                    '',
+                    '**NODE-TIER GATING:** Some large blueprints require the nearest node to have reached a minimum tier. Build small structures first to grow the node, then unlock bigger blueprints. Tier order: settlement-node (1-5) → server-node (6-14) → forest-node (15-24) → city-node (25-49) → metropolis-node (50-99).',
                   ].join('\n');
                 }
                 return cachedBlueprintCatalog;
@@ -3331,6 +3709,10 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         return null;
       })();
 
+      // --- Reflection gate ---
+      const shouldReflect = localTickCount - lastReflectionTick >= REFLECTION_INTERVAL && ticksAtCurrentNode >= 3;
+      let reflectionThisTick = false;
+
       let decision: AgentDecision;
       let rateLimitWaitThisTick = false;
       if (!blueprintStatus?.active && priorConsecutiveBuildFails >= 4) {
@@ -3380,7 +3762,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       } else if (directivePolicyDecision) {
         decision = directivePolicyDecision;
-      } else if (skipLLMForUnchangedState) {
+      } else if (skipLLMForUnchangedState && !shouldReflect) {
         if (blueprintStatus?.active) {
           decision = {
             thought: 'Everything is on track. Adding next batch to the blueprint.',
@@ -3389,7 +3771,16 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           };
         } else {
           const selfPosForPolicy = self?.position ? { x: self.position.x, z: self.position.z } : undefined;
-          const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, recentNames: recentBlueprintNames });
+          // Find nearest node for category-aware and maturity-aware selection
+          const nearestNode = selfPosForPolicy
+            ? closestServerNodeAtPosition(serverSpatial, selfPosForPolicy.x, selfPosForPolicy.z)
+            : null;
+          const fallbackBlueprint = pickFallbackBlueprintName(blueprints, {
+            preferMega: isMouseAgent,
+            agentRole,
+            recentNames: recentBlueprintNames,
+            nodeContext: nearestNode,
+          });
           const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPosForPolicy);
           const canStartFallbackNow = Boolean(
             fallbackBlueprint &&
@@ -3398,13 +3789,21 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             Math.hypot(fallbackAnchor.anchorX - selfPosForPolicy.x, fallbackAnchor.anchorZ - selfPosForPolicy.z) <= 20,
           );
           if (canStartFallbackNow && fallbackAnchor) {
+            const rotY = FALLBACK_ROTATIONS[Math.floor(Math.random() * FALLBACK_ROTATIONS.length)];
+            const phaseLabel = !nearestNode ? '' : nearestNode.structureCount <= NODE_PHASE_SEEDLING ? ' (seedling node)'
+              : nearestNode.structureCount <= NODE_PHASE_GROWING ? ' (growing node)'
+              : nearestNode.structureCount <= NODE_PHASE_MATURE ? ' (maturing node)' : ' (dense node)';
+            const missingHint = nearestNode?.missingCategories?.length
+              ? ` — filling ${nearestNode.missingCategories[0]} gap`
+              : '';
             decision = {
-              thought: `Steady state. I'll start a ${fallbackBlueprint} here to thicken the node.`,
+              thought: `Steady state${phaseLabel}. Starting ${fallbackBlueprint} rotated ${rotY}deg${missingHint}.`,
               action: 'BUILD_BLUEPRINT',
               payload: {
                 name: fallbackBlueprint,
                 anchorX: fallbackAnchor.anchorX,
                 anchorZ: fallbackAnchor.anchorZ,
+                rotY,
               },
             };
           } else {
@@ -3440,6 +3839,37 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         }
       } else {
         // 5. Capture view + call LLM only when we actually need model inference.
+
+        // Reflection gate — enrich prompt when reflection is due
+        if (shouldReflect) {
+          reflectionThisTick = true;
+          lastReflectionTick = localTickCount;
+          console.log(`[${agentName}] [REFLECT] Reflection tick triggered (tick ${localTickCount}, ${ticksAtCurrentNode} ticks at "${currentNodeName || 'unknown'}")`);
+        }
+
+        const reflectionSection = reflectionThisTick ? '\n\n' + [
+          '## REFLECTION MODE',
+          'You are pausing to reflect on your progress at this location. Think carefully before deciding your next action.',
+          '',
+          `Current node: "${currentNodeName || 'unknown'}" (${currentNearestNode?.structureCount || 0} structures, tier: ${currentNearestNode?.tier || 'unknown'})`,
+          `Blueprint types you placed here: ${nodeBlueprintTypes.length > 0 ? nodeBlueprintTypes.join(', ') : 'none yet'}`,
+          `Completion rate: ${nodeBuildsCompleted}/${nodeBuildsAttempted} blueprints completed${nodeBuildsAttempted > 0 ? ` (${Math.round(100 * nodeBuildsCompleted / nodeBuildsAttempted)}%)` : ''}`,
+          `Ticks at this node: ${ticksAtCurrentNode}`,
+          `Dominant category: ${currentNearestNode?.dominantCategory || 'unknown'}`,
+          currentNearestNode?.missingCategories?.length
+            ? `Missing categories: ${currentNearestNode.missingCategories.join(', ')}`
+            : 'All categories represented.',
+          '',
+          '**Reflect on your work here:**',
+          '- What would improve this area? Are there missing building types or categories?',
+          '- Is this node well-rounded, or is it too focused on one type of structure?',
+          '- Should you STAY and keep building to strengthen this node? (use BUILD_BLUEPRINT)',
+          '- Should you MOVE to explore or start building at a different location?',
+          '- Should you CHAT to coordinate with other agents about this area?',
+          '',
+          'Respond with your assessment and choose your next action. Your reflection should inform a better, more strategic decision.',
+        ].join('\n') : '';
+
         let imageBase64: string | null = null;
         let visualSummary: string | null = null;
         if (providerSupportsVisionInput(config.llmProvider)) {
@@ -3467,9 +3897,10 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           }
         }
 
-        const llmInputPrompt = visualSummary
+        const basePrompt = visualSummary
           ? `${userPrompt}\n\n## VISUAL SUMMARY (Gemini)\n${visualSummary}`
           : userPrompt;
+        const llmInputPrompt = basePrompt + reflectionSection;
         const budget = promptBudgetForProvider(config.llmProvider);
         const modelPrompt = trimPromptForLLM(llmInputPrompt, budget.maxChars, budget.tailChars);
         if (modelPrompt.length !== llmInputPrompt.length) {
@@ -3528,21 +3959,24 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const selfPos = self?.position ? { x: self.position.x, z: self.position.z } : undefined;
       const workingMemoryHasBuildPlan = /Current build plan:\s*Blueprint:/i.test(workingMemory);
       if (decision.action === 'BUILD_CONTINUE' && !activeBlueprint && !workingMemoryHasBuildPlan) {
-        const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, recentNames: recentBlueprintNames });
+        const guardNode = selfPos ? closestServerNodeAtPosition(serverSpatial, selfPos.x, selfPos.z) : null;
+        const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, nodeContext: guardNode });
         const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
         if (fallbackBlueprint && fallbackAnchor) {
           const inRange = selfPos
             ? Math.hypot(fallbackAnchor.anchorX - selfPos.x, fallbackAnchor.anchorZ - selfPos.z) <= 20
             : false;
           if (inRange) {
-            console.log(`[${agentName}] Build guard: no active plan; switching BUILD_CONTINUE -> BUILD_BLUEPRINT (${fallbackBlueprint})`);
+            const guardRotY = FALLBACK_ROTATIONS[Math.floor(Math.random() * FALLBACK_ROTATIONS.length)];
+            console.log(`[${agentName}] Build guard: no active plan; switching BUILD_CONTINUE -> BUILD_BLUEPRINT (${fallbackBlueprint} rot=${guardRotY})`);
             decision = {
-              thought: `${decision.thought} | Build guard: no active plan detected, starting ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}).`,
+              thought: `${decision.thought} | Build guard: no active plan detected, starting ${fallbackBlueprint} at (${fallbackAnchor.anchorX}, ${fallbackAnchor.anchorZ}) rot=${guardRotY}.`,
               action: 'BUILD_BLUEPRINT',
               payload: {
                 name: fallbackBlueprint,
                 anchorX: fallbackAnchor.anchorX,
                 anchorZ: fallbackAnchor.anchorZ,
+                rotY: guardRotY,
               },
             };
           } else {
@@ -3568,7 +4002,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const requestedName = String(payload.name || '').trim();
           const requestedBlueprint = requestedName ? blueprints?.[requestedName] : null;
           if (!requestedBlueprint || requestedBlueprint?.advanced) {
-            const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, recentNames: recentBlueprintNames });
+            const bpGuardNode = selfPos ? closestServerNodeAtPosition(serverSpatial, selfPos.x, selfPos.z) : null;
+            const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, nodeContext: bpGuardNode });
             if (fallbackBlueprint) {
               if (requestedName && requestedBlueprint?.advanced) {
                 console.log(`[${agentName}] Build guard: "${requestedName}" is reputation-gated; using ${fallbackBlueprint}`);
@@ -3586,10 +4021,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             const thoughtText = String(decision.thought || '').toLowerCase();
             const bridgeIntent = /bridge|connect|connector|link|span|cross/.test(`${directiveText} ${thoughtText}`);
             if (!bridgeIntent) {
+              const bridgeGuardNode = selfPos ? closestServerNodeAtPosition(serverSpatial, selfPos.x, selfPos.z) : null;
               const fallbackNonBridge = pickFallbackBlueprintName(blueprints, {
                 allowBridge: false,
                 preferMega: isMouseAgent,
+                agentRole,
                 recentNames: recentBlueprintNames,
+                nodeContext: bridgeGuardNode,
               });
               if (fallbackNonBridge && !/(^|_)BRIDGE(_|$)/i.test(fallbackNonBridge)) {
                 console.log(
@@ -3693,10 +4131,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             }
 
             if (spireReasons.length > 0) {
+              const spireGuardNode = selfPos ? closestServerNodeAtPosition(serverSpatial, selfPos.x, selfPos.z) : null;
               const fallbackNonSpire = pickFallbackBlueprintName(blueprints, {
                 preferMega: true,
+                agentRole: 'mouse',
                 recentNames: pushRecentBlueprintName(recentBlueprintNames, 'MEGA_SERVER_SPIRE', MOUSE_SPIRE_COOLDOWN_BLUEPRINTS),
                 excludeNames: ['MEGA_SERVER_SPIRE'],
+                nodeContext: spireGuardNode,
               });
               if (fallbackNonSpire) {
                 console.log(`[${agentName}] Mouse spire policy: rejecting MEGA_SERVER_SPIRE (${spireReasons.join('; ')}); using ${fallbackNonSpire}`);
@@ -3800,14 +4241,18 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             const densifyDistance = selfPos ? Math.hypot(densifySpot.x - selfPos.x, densifySpot.z - selfPos.z) : 0;
             const requestedName = String((decision.payload as any)?.name || '').trim();
             const requestedBlueprint = requestedName ? blueprints?.[requestedName] : null;
+            const densifyNode = closestServerNodeAtPosition(serverSpatial, densifySpot.x, densifySpot.z);
             const fallbackBlueprint = pickFallbackBlueprintName(blueprints, {
               preferMega: isMouseAgent,
+              agentRole,
               recentNames: recentBlueprintNames,
+              nodeContext: densifyNode,
             });
             const chosenBlueprint =
               requestedName && requestedBlueprint && !requestedBlueprint.advanced
                 ? requestedName
                 : fallbackBlueprint;
+            const densifyRotY = FALLBACK_ROTATIONS[Math.floor(Math.random() * FALLBACK_ROTATIONS.length)];
             const retryDecision: AgentDecision =
               selfPos && densifyDistance > 20
                 ? {
@@ -3817,9 +4262,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                   }
                 : chosenBlueprint
                   ? {
-                      thought: `Expansion gate: new node blocked near "${parsedError.gateNodeName || 'nearest node'}" (${parsedError.gateNodeStructures ?? '?'} structures). Densifying at (${densifySpot.x}, ${densifySpot.z}) with ${chosenBlueprint}.`,
+                      thought: `Expansion gate: new node blocked near "${parsedError.gateNodeName || 'nearest node'}" (${parsedError.gateNodeStructures ?? '?'} structures). Densifying at (${densifySpot.x}, ${densifySpot.z}) with ${chosenBlueprint} rot=${densifyRotY}.`,
                       action: 'BUILD_BLUEPRINT',
-                      payload: { name: chosenBlueprint, anchorX: densifySpot.x, anchorZ: densifySpot.z },
+                      payload: { name: chosenBlueprint, anchorX: densifySpot.x, anchorZ: densifySpot.z, rotY: densifyRotY },
                     }
                   : {
                       thought: `Expansion gate: new node blocked near "${parsedError.gateNodeName || 'nearest node'}" (${parsedError.gateNodeStructures ?? '?'} structures). Moving to densify lane (${densifySpot.x}, ${densifySpot.z}).`,
@@ -3843,12 +4288,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             }
           }
         } else if (decision.action === 'BUILD_CONTINUE' && parsedError.noActivePlan) {
-          const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, recentNames: recentBlueprintNames });
+          const recoveryNode = selfPos ? closestServerNodeAtPosition(serverSpatial, selfPos.x, selfPos.z) : null;
+          const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, nodeContext: recoveryNode });
           const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
           if (fallbackBlueprint && fallbackAnchor) {
             const anchorDistance = selfPos
               ? Math.hypot(fallbackAnchor.anchorX - selfPos.x, fallbackAnchor.anchorZ - selfPos.z)
               : 0;
+            const recoveryRotY = FALLBACK_ROTATIONS[Math.floor(Math.random() * FALLBACK_ROTATIONS.length)];
             const retryDecision: AgentDecision =
               selfPos && anchorDistance > 20
                 ? {
@@ -3857,12 +4304,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                     payload: { x: fallbackAnchor.anchorX, z: fallbackAnchor.anchorZ },
                   }
                 : {
-                    thought: 'Build recovery: continue failed due no active plan; starting fallback blueprint.',
+                    thought: `Build recovery: continue failed due no active plan; starting fallback blueprint rot=${recoveryRotY}.`,
                     action: 'BUILD_BLUEPRINT',
                     payload: {
                       name: fallbackBlueprint,
                       anchorX: fallbackAnchor.anchorX,
                       anchorZ: fallbackAnchor.anchorZ,
+                      rotY: recoveryRotY,
                     },
                   };
             console.log(
@@ -4097,6 +4545,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         recentBlueprintHistory = pushRecentBlueprintName(recentBlueprintHistory, String(blueprintStatus.blueprintName));
       }
 
+      // Track node-level blueprint types from this tick's decision
+      if (!buildError && decision.action === 'BUILD_BLUEPRINT') {
+        const bpName = String((decision.payload as any)?.name || '').trim().toUpperCase();
+        if (bpName && !nodeBlueprintTypes.includes(bpName)) {
+          nodeBlueprintTypes.push(bpName);
+        }
+      }
+
       // Mouse spire anchor tracking (for spacing/cooldown guards).
       let lastSpireAnchor = parseLastSpireAnchor(workingMemory);
       let spireAnchors = parseSpireAnchors(workingMemory);
@@ -4172,6 +4628,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         objectiveStep > 0 ? `Objective step: ${objectiveStep}` : '',
         currentBuildPlan ? `Current build plan: ${currentBuildPlan}` : '',
         recentBlueprintHistory.length > 0 ? `Recent blueprints: ${recentBlueprintHistory.join(', ')}` : '',
+        // Node-level build tracking (reflection phase)
+        currentNodeName ? `Current node: ${currentNodeName}` : '',
+        ticksAtCurrentNode > 0 ? `Ticks at node: ${ticksAtCurrentNode}` : '',
+        nodeBuildsCompleted > 0 ? `Node builds completed: ${nodeBuildsCompleted}` : '',
+        nodeBuildsAttempted > 0 ? `Node builds attempted: ${nodeBuildsAttempted}` : '',
+        nodeBlueprintTypes.length > 0 ? `Node blueprint types: ${nodeBlueprintTypes.join(', ')}` : '',
         lastSpireAnchor ? `Last spire anchor: (${Math.round(lastSpireAnchor.x)}, ${Math.round(lastSpireAnchor.z)})` : '',
         spireAnchors.length > 0 ? `Spire anchors: ${spireAnchors.map((pt) => `(${Math.round(pt.x)},${Math.round(pt.z)})`).join('; ')}` : '',
         votedOn ? `Voted on: ${votedOn}` : '',
@@ -4192,7 +4654,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       if (!existsSync(dailyLogPath)) {
         writeMd(dailyLogPath, `# Daily Log — ${todayDate()}\n\n`);
       }
-      appendLog(dailyLogPath, `[${timestamp()}] ${decision.action}: ${decision.thought}`);
+      const reflectLogPrefix = reflectionThisTick ? '[REFLECT] ' : '';
+      appendLog(dailyLogPath, `[${timestamp()}] ${reflectLogPrefix}${decision.action}: ${decision.thought}`);
 
     } catch (err) {
       if (isAuthSessionError(err)) {
@@ -4666,6 +5129,8 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
                   'Pick a blueprint and start building. The server computes all coordinates for you.',
                   '  BUILD_BLUEPRINT: {"name":"DATACENTER","anchorX":120,"anchorZ":120}',
                   '  (Check /v1/grid/blueprints for names if you are unsure)',
+                  '',
+                  '**NODE-TIER GATING:** Some large blueprints (SKYSCRAPER, MEGA_SKYSCRAPER, CATHEDRAL, COLOSSEUM, OBELISK_TOWER, TITAN_STATUE, MEGA_CITADEL, HIGH_RISE) require the nearest node to have reached a minimum tier. Build small structures first to grow nodes, then unlock bigger blueprints.',
                   '',
                 ]
             ),
