@@ -10,8 +10,7 @@ import {
 } from '../types.js';
 import * as db from '../db.js';
 import { getWorldManager } from '../world.js';
-import { verifyAgentOwnership, isChainInitialized, verifyEntryFeePayment, TREASURY_ADDRESS, ENTRY_FEE_MON, MONAD_CHAIN_ID } from '../chain.js';
-import { lookupAgent, getAgentReputation, isAgent0Ready } from '../agent0.js';
+import { verifyAgentOwnership, isChainInitialized, verifyEntryFeePayment, TREASURY_ADDRESS, ENTRY_FEE_MON, MONAD_CHAIN_ID, lookupAgentOnChain, getOnChainReputation } from '../chain.js';
 import { checkRateLimit } from '../throttle.js';
 
 const MAX_CHAT_MESSAGE_LENGTH = 280;
@@ -183,18 +182,20 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
       let onChainName: string | undefined;
       let onChainBio: string | undefined;
       let reputationScore = 0;
-      if (isAgent0Ready()) {
-        try {
-          const agentMeta = await lookupAgent(erc8004AgentId);
-          if (agentMeta) {
-            onChainName = agentMeta.name || undefined;
-            onChainBio = agentMeta.description || undefined;
-          }
-          const rep = await getAgentReputation(erc8004AgentId);
-          reputationScore = rep.averageValue;
-        } catch (err) {
-          console.warn('[Agent0] Metadata enrichment failed (non-blocking):', err);
+      try {
+        const agentMeta = await lookupAgentOnChain(erc8004AgentId);
+        if (agentMeta) {
+          onChainName = agentMeta.name || undefined;
+          onChainBio = agentMeta.description || undefined;
         }
+        const rep = await getOnChainReputation(erc8004AgentId);
+        if (rep) {
+          reputationScore = rep.summaryValueDecimals > 0
+            ? rep.summaryValue / (10 ** rep.summaryValueDecimals)
+            : rep.summaryValue;
+        }
+      } catch (err) {
+        console.warn('[Chain] Metadata enrichment failed (non-blocking):', err);
       }
 
       // --- Step 6: Create or update agent ---
@@ -487,12 +488,16 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
 
       const ext = agent as any;
 
-      // Enrich with live reputation from Agent0 SDK
+      // Enrich with live reputation from on-chain contract
       let liveReputation = ext.reputationScore || 0;
-      if (ext.erc8004AgentId && isAgent0Ready()) {
+      if (ext.erc8004AgentId) {
         try {
-          const rep = await getAgentReputation(ext.erc8004AgentId);
-          liveReputation = rep.averageValue;
+          const rep = await getOnChainReputation(ext.erc8004AgentId);
+          if (rep) {
+            liveReputation = rep.summaryValueDecimals > 0
+              ? rep.summaryValue / (10 ** rep.summaryValueDecimals)
+              : rep.summaryValue;
+          }
         } catch { /* non-blocking */ }
       }
 

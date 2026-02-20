@@ -14,7 +14,6 @@ import { registerSimulateRoutes } from './api/simulate.js';
 import { registerReputationRoutes } from './api/reputation.js';
 import { registerGridRoutes } from './api/grid.js';
 import { initChain } from './chain.js';
-import { initAgent0 } from './agent0.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,14 +29,17 @@ async function main() {
   }
 
   // Initialize Fastify with server factory for Socket.io compatibility
+  const isProduction = process.env.NODE_ENV === 'production';
   const fastify = Fastify({
-    logger: {
-      level: 'info',
-      transport: {
-        target: 'pino-pretty',
-        options: { colorize: true }
-      }
-    }
+    logger: isProduction
+      ? { level: 'info' }
+      : {
+          level: 'info',
+          transport: {
+            target: 'pino-pretty',
+            options: { colorize: true }
+          }
+        }
   });
 
   // Register CORS
@@ -99,7 +101,6 @@ async function main() {
 
   // Serve static frontend in production (built files in ../dist)
   const distPath = join(__dirname, '..', 'dist');
-  const isProduction = process.env.NODE_ENV === 'production';
 
   try {
     await access(distPath, constants.R_OK);
@@ -144,7 +145,6 @@ async function main() {
 
   // Initialize on-chain connections (read-only)
   initChain();
-  initAgent0();
 
   // Start the world simulation
   world.start();

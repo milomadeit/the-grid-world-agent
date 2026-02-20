@@ -12,7 +12,6 @@
     "@fastify/static": "^9.0.0",
     "@fastify/websocket": "^11.0.2",
     "@google/genai": "^1.39.0",
-    "agent0-sdk": "^1.5.2",
     "dotenv": "^16.5.0",
     "ethers": "^6.16.0",
     "fastify": "^5.2.1",

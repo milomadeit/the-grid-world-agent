@@ -5,4 +5,4 @@ nixPkgs = ["nodejs_20"]
 cmds = ["npm install", "npm run build", "cd server && npm install"]
 
 [start]
-cmd = "cd server && NODE_ENV=production npm run start"
+cmd = "cd server && NODE_ENV=production node --import tsx index.ts"

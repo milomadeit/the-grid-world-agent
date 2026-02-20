@@ -86,7 +86,9 @@ export async function getOnChainReputation(
     const tokenId = BigInt(agentId);
 
     // First get all clients who have given feedback
-    const clients: string[] = await reputationRegistry.getClients(tokenId);
+    // Spread ethers Result to a plain array — Result objects are read-only
+    // and ethers v6 throws when passing them back into contract calls.
+    const clients: string[] = [...await reputationRegistry.getClients(tokenId)];
 
     if (clients.length === 0) {
       return { count: 0, summaryValue: 0, summaryValueDecimals: 0 };
@@ -133,6 +135,50 @@ export function getIdentityRegistryAddress(): string {
 
 export function getReputationRegistryAddress(): string {
   return REPUTATION_REGISTRY_ADDRESS;
+}
+
+/**
+ * Look up agent metadata directly from the IdentityRegistry contract.
+ * Reads tokenURI and parses JSON metadata (name, description, image).
+ */
+export async function lookupAgentOnChain(
+  agentId: string
+): Promise<{ name?: string; description?: string; image?: string } | null> {
+  if (!identityRegistry) return null;
+
+  try {
+    const tokenId = BigInt(agentId);
+    const uri: string = await identityRegistry.tokenURI(tokenId);
+
+    if (!uri) return null;
+
+    // tokenURI may be a data URI, IPFS URL, or HTTP URL
+    let jsonStr: string;
+
+    if (uri.startsWith('data:application/json;base64,')) {
+      jsonStr = Buffer.from(uri.split(',')[1], 'base64').toString('utf-8');
+    } else if (uri.startsWith('data:application/json,')) {
+      jsonStr = decodeURIComponent(uri.split(',')[1]);
+    } else {
+      // HTTP/IPFS URL — fetch it
+      const fetchUrl = uri.startsWith('ipfs://')
+        ? `https://ipfs.io/ipfs/${uri.slice(7)}`
+        : uri;
+      const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return null;
+      jsonStr = await res.text();
+    }
+
+    const metadata = JSON.parse(jsonStr);
+    return {
+      name: metadata.name || undefined,
+      description: metadata.description || undefined,
+      image: metadata.image || undefined
+    };
+  } catch (error) {
+    console.error(`[Chain] Failed to lookup agent ${agentId} metadata:`, error);
+    return null;
+  }
 }
 
 export function isChainInitialized(): boolean {
