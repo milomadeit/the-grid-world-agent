@@ -1,7 +1,7 @@
 /// <reference types="@react-three/fiber" />
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useMemo } from 'react';
 import * as THREE from 'three';
-import { ThreeEvent } from '@react-three/fiber';
+import { ThreeEvent, useFrame } from '@react-three/fiber';
 import { useWorldStore } from '../../store';
 import { WorldPrimitive as PrimitiveType } from '../../types';
 
@@ -64,18 +64,40 @@ function ShapeInstances({
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const geometry = useMemo(() => getGeometry(shape), [shape]);
 
-  // Grow-only capacity: starts at 2x count (min 16), doubles when exceeded.
-  // This avoids recreating the InstancedMesh on every single primitive add.
-  const capacityRef = useRef(Math.max(primitives.length * 2, 16));
+  // Grow-only capacity: starts at 2x count (min 256), doubles when exceeded.
+  // High minimum avoids frequent InstancedMesh recreation during blueprint building.
+  const capacityRef = useRef(Math.max(primitives.length * 2, 256));
   if (primitives.length > capacityRef.current) {
     capacityRef.current = primitives.length * 2;
   }
   const capacity = capacityRef.current;
 
-  // Imperatively write transforms + colours (bypasses React child diffing)
-  useEffect(() => {
+  // Track last-written state to skip redundant GPU uploads in useFrame.
+  const lastWrittenRef = useRef<{
+    prims: PrimitiveType[];
+    selectedId: string | null;
+    mesh: THREE.InstancedMesh | null;
+  }>({ prims: [], selectedId: null, mesh: null });
+
+  // Write transforms + colours in the render loop so data is guaranteed to be
+  // set before Three.js draws — even when the InstancedMesh is recreated due
+  // to capacity growth (eliminates the blank-frame glitch from useEffect).
+  useFrame(() => {
     const mesh = meshRef.current;
-    if (!mesh || primitives.length === 0) return;
+    if (!mesh) return;
+
+    const last = lastWrittenRef.current;
+    const meshChanged = mesh !== last.mesh;
+    if (!meshChanged && last.prims === primitives && last.selectedId === selectedId) return;
+
+    last.prims = primitives;
+    last.selectedId = selectedId;
+    last.mesh = mesh;
+
+    if (primitives.length === 0) {
+      mesh.count = 0;
+      return;
+    }
 
     for (let i = 0; i < primitives.length; i++) {
       const p = primitives[i];
@@ -96,7 +118,7 @@ function ShapeInstances({
     mesh.count = primitives.length;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [primitives, selectedId, capacity]);
+  });
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
@@ -114,6 +136,7 @@ function ShapeInstances({
       onClick={handleClick}
       castShadow
       receiveShadow
+      dispose={null}
     />
   );
 }

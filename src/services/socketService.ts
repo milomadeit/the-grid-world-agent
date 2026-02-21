@@ -70,6 +70,39 @@ class SocketService {
   private authToken: string | null = null;
   private agentId: string | null = null;
 
+  // Batch primitive events and flush once per animation frame to avoid
+  // triggering N separate React re-renders during blueprint building.
+  private pendingPrimAdds: WorldPrimitive[] = [];
+  private pendingPrimDeletes: string[] = [];
+  private primFlushScheduled = false;
+
+  private schedulePrimitiveFlush(): void {
+    if (this.primFlushScheduled) return;
+    this.primFlushScheduled = true;
+    requestAnimationFrame(() => {
+      this.primFlushScheduled = false;
+      const adds = this.pendingPrimAdds;
+      const deletes = this.pendingPrimDeletes;
+      this.pendingPrimAdds = [];
+      this.pendingPrimDeletes = [];
+
+      if (adds.length === 0 && deletes.length === 0) return;
+
+      const store = useWorldStore.getState();
+      let prims = store.worldPrimitives;
+
+      if (deletes.length > 0) {
+        const deleteSet = new Set(deletes);
+        prims = prims.filter(p => !deleteSet.has(p.id));
+      }
+      if (adds.length > 0) {
+        prims = [...prims, ...adds];
+      }
+
+      store.setWorldPrimitives(prims);
+    });
+  }
+
   // Register agent via REST API, returns token for WebSocket auth
   async enterWorld(ownerId: string, visuals?: { name?: string; color?: string }, erc8004?: ERC8004Input, bio?: string, signature?: string, timestamp?: string): Promise<EnterWorldResponse> {
     const body: Record<string, unknown> = {
@@ -275,13 +308,16 @@ class SocketService {
       });
     });
 
-    // Handle Grid events
+    // Handle Grid events — batched to coalesce rapid blueprint builds
+    // into a single state update per animation frame.
     this.socket.on('primitive:created', (primitive: WorldPrimitive) => {
-      useWorldStore.getState().addWorldPrimitive(primitive);
+      this.pendingPrimAdds.push(primitive);
+      this.schedulePrimitiveFlush();
     });
 
     this.socket.on('primitive:deleted', (data: { id: string }) => {
-      useWorldStore.getState().removeWorldPrimitive(data.id);
+      this.pendingPrimDeletes.push(data.id);
+      this.schedulePrimitiveFlush();
     });
 
     this.socket.on('world:primitives_sync', (primitives: WorldPrimitive[]) => {
