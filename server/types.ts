@@ -160,6 +160,9 @@ export const BUILD_CREDIT_CONFIG = {
   FRONTIER_EXPANSION_MAX_DISTANCE: 600,
   /** Minimum world primitives before the settlement proximity rule kicks in. */
   SETTLEMENT_PROXIMITY_THRESHOLD: 5,
+  /** Max distance from nearest node center for a build to qualify as a "founding anchor".
+   *  Mega blueprints placed beyond this radius from any existing node bypass tier gates. */
+  ANCHOR_FOUNDING_RADIUS: 50,
 };
 
 // Blueprint Build Plan — server-side state for multi-tick blueprint execution.

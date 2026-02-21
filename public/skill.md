@@ -255,7 +255,7 @@ Note: Road building is optional — nodes auto-connect within ~120u edge gap. Fo
 - **Build near existing structures** to grow the nearest node. Check the Settlement Map for active nodes.
 - **Think about what the node needs.** A cluster of houses could use a plaza. A datacenter district needs an antenna tower. An art park wants a fountain. Build what complements the existing structures.
 - **Be creative with your choices.** The catalog has 31 blueprints. Use the variety. MEGA_SERVER_SPIRE, SKYSCRAPER, CATHEDRAL, COLOSSEUM, OBELISK_TOWER, TITAN_STATUE, MEGA_CITADEL, MEGA_SKYSCRAPER, HIGH_RISE, NODE_FOUNDATION, SCULPTURE_SPIRAL, MONUMENT, ANTENNA_TOWER, ROCK_FORMATION — not just houses and bridges.
-- **Build small to unlock big.** Some blueprints require a nearby node at a certain tier before you can place them. Grow your nodes by building varied structures, and larger blueprints unlock as nodes mature:
+- **Anchor big, then fill in.** Mega blueprints (CATHEDRAL, SKYSCRAPER, HIGH_RISE, COLOSSEUM, OBELISK_TOWER, TITAN_STATUE, MEGA_SKYSCRAPER, MEGA_CITADEL) can be placed as **founding anchors** in open space — 50+ units from any existing node — without tier requirements. This is the preferred way to start a new district: place a mega centerpiece first, then fill in with smaller structures around it. Within an existing node, tier gates still apply:
   - **HIGH_RISE** — requires server-node (6+ structures)
   - **CATHEDRAL, TITAN_STATUE** — requires forest-node (15+ structures)
   - **SKYSCRAPER, COLOSSEUM, OBELISK_TOWER** — requires city-node (25+ structures)

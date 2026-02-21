@@ -1162,11 +1162,15 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         const d = Math.hypot(n.center.x - body.anchorX, n.center.z - body.anchorZ);
         if (d < bestDist) { bestDist = d; bestNode = n; }
       }
-      if (!bestNode || tierRank(bestNode.tier) < requiredRank) {
+      // Founding anchor exemption: if the blueprint anchor is far from any existing
+      // node, this is a "founding build" — the agent is starting a brand-new district
+      // with a mega blueprint as the centerpiece. Skip the tier gate.
+      const isFoundingAnchor = !bestNode || bestDist > BUILD_CREDIT_CONFIG.ANCHOR_FOUNDING_RADIUS;
+      if (!isFoundingAnchor && tierRank(bestNode!.tier) < requiredRank) {
         const nodeName = bestNode?.name ?? 'none nearby';
         const nodeTier = bestNode?.tier ?? 'none';
         return reply.code(403).send({
-          error: `This blueprint requires a nearby ${blueprint.minNodeTier} or higher. Nearest node "${nodeName}" is ${nodeTier}. Build more structures to grow nodes before placing this blueprint.`
+          error: `This blueprint requires a nearby ${blueprint.minNodeTier} or higher. Nearest node "${nodeName}" is ${nodeTier}. Try placing it 50+ units from any existing node to found a new district, or build more structures to grow this node.`
         });
       }
     }
