@@ -1,6 +1,6 @@
 
 /// <reference types="@react-three/fiber" />
-import React, { Suspense, useRef } from 'react';
+import React, { Suspense, useRef, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import InfiniteGrid from './InfiniteGrid';
@@ -33,11 +33,54 @@ const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked, mapView }
   const controlsRef = useRef<any>(null);
   const followAgentId = useWorldStore((state) => state.followAgentId);
   const agents = useWorldStore((state) => state.agents);
+  const setFollowAgentId = useWorldStore((state) => state.setFollowAgentId);
 
   const targetAgent = agents.find(a => a.id === followAgentId);
   const targetPosition = targetAgent?.targetPosition;
 
-  useFrame(({ camera }) => {
+  // Track currently held arrow keys
+  const keysPressed = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        keysPressed.current.add(e.key);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      keysPressed.current.delete(e.key);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  // Locked mode: Left/Right arrows cycle through agents
+  useEffect(() => {
+    if (!cameraLocked) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const currentAgents = useWorldStore.getState().agents;
+      const currentFollow = useWorldStore.getState().followAgentId;
+      if (currentAgents.length === 0) return;
+      const idx = currentAgents.findIndex(a => a.id === currentFollow);
+      const dir = e.key === 'ArrowRight' ? 1 : -1;
+      const nextIdx = (idx + dir + currentAgents.length) % currentAgents.length;
+      setFollowAgentId(currentAgents[nextIdx].id);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [cameraLocked, setFollowAgentId]);
+
+  useFrame(({ camera }, delta) => {
     if (controlsRef.current && cameraLocked && targetPosition) {
       const targetVec = new THREE.Vector3(targetPosition.x, 0, targetPosition.z);
       controlsRef.current.target.lerp(targetVec, 0.25);
@@ -49,6 +92,31 @@ const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked, mapView }
       }
 
       controlsRef.current.update();
+    }
+
+    // Unlocked mode: arrow keys pan the camera
+    if (controlsRef.current && !cameraLocked && keysPressed.current.size > 0) {
+      const dist = camera.position.distanceTo(controlsRef.current.target);
+      const speed = dist * 0.8;
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      forward.normalize();
+      const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+      const move = new THREE.Vector3();
+      const fwdScale = 1.4; // boost forward/back to compensate for perspective foreshortening
+      if (keysPressed.current.has('ArrowUp')) move.addScaledVector(forward, fwdScale);
+      if (keysPressed.current.has('ArrowDown')) move.addScaledVector(forward, -fwdScale);
+      if (keysPressed.current.has('ArrowRight')) move.add(right);
+      if (keysPressed.current.has('ArrowLeft')) move.sub(right);
+
+      if (move.lengthSq() > 0) {
+        move.normalize().multiplyScalar(speed * delta);
+        camera.position.add(move);
+        controlsRef.current.target.add(move);
+        controlsRef.current.update();
+      }
     }
   });
 
