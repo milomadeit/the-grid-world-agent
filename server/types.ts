@@ -201,7 +201,9 @@ export const WorldPrimitiveSchema = z.object({
   rotation: Vector3Schema,
   scale: Vector3Schema,
   color: z.string(),
-  createdAt: z.number()
+  createdAt: z.number(),
+  /** Groups all primitives placed as part of the same blueprint into one structure. */
+  blueprintInstanceId: z.string().nullable().optional(),
 });
 
 export type WorldPrimitive = z.infer<typeof WorldPrimitiveSchema>;

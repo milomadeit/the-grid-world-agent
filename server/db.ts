@@ -97,7 +97,8 @@ export async function initDatabase(): Promise<void> {
         scale_y FLOAT NOT NULL,
         scale_z FLOAT NOT NULL,
         color VARCHAR(50) NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
+        created_at TIMESTAMP DEFAULT NOW(),
+        blueprint_instance_id VARCHAR(255) DEFAULT NULL
       );
 
       CREATE TABLE IF NOT EXISTS terminal_messages (
@@ -172,6 +173,7 @@ export async function initDatabase(): Promise<void> {
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS credits_last_reset TIMESTAMP DEFAULT NOW();
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS entry_fee_paid BOOLEAN DEFAULT FALSE;
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS entry_fee_tx VARCHAR(255) DEFAULT NULL;
+        ALTER TABLE world_primitives ADD COLUMN IF NOT EXISTS blueprint_instance_id VARCHAR(255) DEFAULT NULL;
       EXCEPTION WHEN others THEN NULL;
       END $$;
     `);
@@ -602,8 +604,8 @@ async function updateReputationScore(agentId: string): Promise<void> {
 export async function createWorldPrimitive(primitive: WorldPrimitive): Promise<WorldPrimitive> {
   if (!pool) return primitive;
   await pool.query(
-    `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0))`,
+    `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at, blueprint_instance_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0), $15)`,
     [
       primitive.id,
       primitive.shape,
@@ -612,7 +614,8 @@ export async function createWorldPrimitive(primitive: WorldPrimitive): Promise<W
       primitive.rotation.x, primitive.rotation.y, primitive.rotation.z,
       primitive.scale.x, primitive.scale.y, primitive.scale.z,
       primitive.color,
-      primitive.createdAt
+      primitive.createdAt,
+      primitive.blueprintInstanceId || null
     ]
   );
   return primitive;
@@ -661,8 +664,8 @@ export async function createWorldPrimitiveWithCreditDebit(
     }
 
     await client.query(
-      `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0))`,
+      `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at, blueprint_instance_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0), $15)`,
       [
         primitive.id,
         primitive.shape,
@@ -671,7 +674,8 @@ export async function createWorldPrimitiveWithCreditDebit(
         primitive.rotation.x, primitive.rotation.y, primitive.rotation.z,
         primitive.scale.x, primitive.scale.y, primitive.scale.z,
         primitive.color,
-        primitive.createdAt
+        primitive.createdAt,
+        primitive.blueprintInstanceId || null
       ]
     );
 
@@ -716,7 +720,8 @@ export async function getWorldPrimitive(id: string): Promise<WorldPrimitive | nu
     rotation: { x: row.rot_x, y: row.rot_y, z: row.rot_z },
     scale: { x: row.scale_x, y: row.scale_y, z: row.scale_z },
     color: row.color,
-    createdAt: new Date(row.created_at).getTime()
+    createdAt: new Date(row.created_at).getTime(),
+    blueprintInstanceId: row.blueprint_instance_id || null,
   };
 }
 
@@ -737,7 +742,8 @@ export async function getAllWorldPrimitives(): Promise<WorldPrimitive[]> {
     rotation: { x: row.rot_x, y: row.rot_y, z: row.rot_z },
     scale: { x: row.scale_x, y: row.scale_y, z: row.scale_z },
     color: row.color,
-    createdAt: new Date(row.created_at).getTime()
+    createdAt: new Date(row.created_at).getTime(),
+    blueprintInstanceId: row.blueprint_instance_id || null,
   }));
 }
 

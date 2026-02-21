@@ -51,6 +51,7 @@ interface PrimitiveLike {
   id?: string;
   shape: string;
   ownerAgentId?: string;
+  blueprintInstanceId?: string | null;
   position: { x: number; y: number; z: number };
   scale: { x: number; y: number; z: number };
 }
@@ -325,65 +326,168 @@ function arePrimitivesConnected(a: PrimitiveLike, b: PrimitiveLike): boolean {
   return centerDist <= nearThreshold;
 }
 
+/** Build a StructureSummary from a cluster of primitives. */
+function clusterToStructure(cluster: PrimitiveLike[], idx: number): StructureSummary {
+  const bb = computeBoundingBox(cluster);
+  const centroid = computeCentroid(cluster);
+  let radius = 2;
+  for (const p of cluster) {
+    const dist = pointDistanceXZ(
+      { x: centroid.x, z: centroid.z },
+      { x: p.position.x, z: p.position.z }
+    );
+    radius = Math.max(radius, dist + primitiveRadiusXZ(p));
+  }
+  const categoryCounts = new Map<NodeCategory, number>();
+  const builders = new Set<string>();
+  for (const p of cluster) {
+    const cat = inferPrimitiveCategory(p);
+    categoryCounts.set(cat, (categoryCounts.get(cat) || 0) + 1);
+    if (p.ownerAgentId) builders.add(p.ownerAgentId);
+  }
+  return {
+    id: `struct_${Math.round(centroid.x)}_${Math.round(centroid.z)}_${idx}`,
+    center: { x: centroid.x, z: centroid.z },
+    radius: Math.max(2, radius),
+    primitiveCount: cluster.length,
+    boundingBox: bb,
+    footprintArea: Math.max(1, (bb.maxX - bb.minX) * (bb.maxZ - bb.minZ)),
+    category: dominantCategory(categoryCounts),
+    builders: Array.from(builders),
+  };
+}
+
 function buildStructureSummaries(primitives: PrimitiveLike[]): StructureSummary[] {
   if (primitives.length === 0) return [];
 
   const nonConnectors = primitives.filter(p => !isConnectorPrimitive(p));
   const source = nonConnectors.length > 0 ? nonConnectors : primitives;
 
-  const visited = new Set<number>();
   const structures: StructureSummary[] = [];
 
-  for (let i = 0; i < source.length; i++) {
-    if (visited.has(i)) continue;
+  // --- Phase 1: Pre-group primitives that share a blueprintInstanceId ---
+  // Each blueprint placement = exactly one structure. No guessing needed.
+  const blueprintGroups = new Map<string, PrimitiveLike[]>();
+  const untagged: PrimitiveLike[] = [];
 
-    const queue = [i];
-    visited.add(i);
-    const cluster: PrimitiveLike[] = [];
+  for (const p of source) {
+    if (p.blueprintInstanceId) {
+      const group = blueprintGroups.get(p.blueprintInstanceId);
+      if (group) group.push(p);
+      else blueprintGroups.set(p.blueprintInstanceId, [p]);
+    } else {
+      untagged.push(p);
+    }
+  }
 
-    while (queue.length > 0) {
-      const idx = queue.pop()!;
-      const prim = source[idx];
-      cluster.push(prim);
+  // Each blueprint group = one structure
+  for (const [, group] of blueprintGroups) {
+    structures.push(clusterToStructure(group, structures.length + 1));
+  }
 
-      for (let j = 0; j < source.length; j++) {
-        if (visited.has(j)) continue;
-        if (arePrimitivesConnected(prim, source[j])) {
-          visited.add(j);
-          queue.push(j);
+  // --- Phase 2: Proximity-cluster untagged primitives (legacy / single builds) ---
+  // Then merge nearby same-builder clusters as a best-effort heuristic for
+  // old primitives that predate blueprintInstanceId tagging.
+  if (untagged.length > 0) {
+    const visited = new Set<number>();
+    const rawStructures: StructureSummary[] = [];
+
+    for (let i = 0; i < untagged.length; i++) {
+      if (visited.has(i)) continue;
+
+      const queue = [i];
+      visited.add(i);
+      const cluster: PrimitiveLike[] = [];
+
+      while (queue.length > 0) {
+        const idx = queue.pop()!;
+        const prim = untagged[idx];
+        cluster.push(prim);
+
+        for (let j = 0; j < untagged.length; j++) {
+          if (visited.has(j)) continue;
+          if (arePrimitivesConnected(prim, untagged[j])) {
+            visited.add(j);
+            queue.push(j);
+          }
         }
       }
+
+      rawStructures.push(clusterToStructure(cluster, structures.length + rawStructures.length + 1));
     }
 
-    const bb = computeBoundingBox(cluster);
-    const centroid = computeCentroid(cluster);
-    let radius = 2;
-    for (const p of cluster) {
-      const dist = pointDistanceXZ(
-        { x: centroid.x, z: centroid.z },
-        { x: p.position.x, z: p.position.z }
-      );
-      radius = Math.max(radius, dist + primitiveRadiusXZ(p));
-    }
+    // Merge pass: combine nearby untagged structures that share a builder.
+    // This catches old blueprint fragments that got split up.
+    const MERGE_GAP = 10;
+    const merged = new Set<number>();
 
-    const categoryCounts = new Map<NodeCategory, number>();
-    const builders = new Set<string>();
-    for (const p of cluster) {
-      const cat = inferPrimitiveCategory(p);
-      categoryCounts.set(cat, (categoryCounts.get(cat) || 0) + 1);
-      if (p.ownerAgentId) builders.add(p.ownerAgentId);
-    }
+    for (let i = 0; i < rawStructures.length; i++) {
+      if (merged.has(i)) continue;
 
-    structures.push({
-      id: `struct_${Math.round(centroid.x)}_${Math.round(centroid.z)}_${structures.length + 1}`,
-      center: { x: centroid.x, z: centroid.z },
-      radius: Math.max(2, radius),
-      primitiveCount: cluster.length,
-      boundingBox: bb,
-      footprintArea: Math.max(1, (bb.maxX - bb.minX) * (bb.maxZ - bb.minZ)),
-      category: dominantCategory(categoryCounts),
-      builders: Array.from(builders),
-    });
+      const group = [i];
+      merged.add(i);
+
+      const q = [i];
+      while (q.length > 0) {
+        const cur = q.pop()!;
+        const a = rawStructures[cur];
+        const aBuilders = new Set(a.builders);
+        for (let j = 0; j < rawStructures.length; j++) {
+          if (merged.has(j)) continue;
+          const b = rawStructures[j];
+          if (!b.builders.some(bld => aBuilders.has(bld))) continue;
+          const edgeGap = Math.max(0,
+            Math.max(a.boundingBox.minX - b.boundingBox.maxX, b.boundingBox.minX - a.boundingBox.maxX),
+            Math.max(a.boundingBox.minZ - b.boundingBox.maxZ, b.boundingBox.minZ - a.boundingBox.maxZ)
+          );
+          if (edgeGap <= MERGE_GAP) {
+            merged.add(j);
+            group.push(j);
+            q.push(j);
+          }
+        }
+      }
+
+      if (group.length === 1) {
+        structures.push(rawStructures[i]);
+      } else {
+        // Merge group into single structure
+        const allBBs = group.map(idx => rawStructures[idx].boundingBox);
+        const mergedBB = combineBoundingBoxes(allBBs);
+        const totalPrimitives = group.reduce((sum, idx) => sum + rawStructures[idx].primitiveCount, 0);
+        const safePW = totalPrimitives > 0 ? totalPrimitives : group.length;
+        let wx = 0, wz = 0;
+        for (const idx of group) {
+          const s = rawStructures[idx];
+          wx += s.center.x * s.primitiveCount;
+          wz += s.center.z * s.primitiveCount;
+        }
+        const mergedCenter = { x: wx / safePW, z: wz / safePW };
+        let mergedRadius = 6;
+        for (const idx of group) {
+          const s = rawStructures[idx];
+          const dist = pointDistanceXZ(mergedCenter, s.center);
+          mergedRadius = Math.max(mergedRadius, dist + s.radius);
+        }
+        const mergedBuilders = new Set<string>();
+        const mergedCats = new Map<NodeCategory, number>();
+        for (const idx of group) {
+          const s = rawStructures[idx];
+          for (const bld of s.builders) mergedBuilders.add(bld);
+          mergedCats.set(s.category, (mergedCats.get(s.category) || 0) + s.primitiveCount);
+        }
+        structures.push({
+          id: `struct_${Math.round(mergedCenter.x)}_${Math.round(mergedCenter.z)}_${structures.length + 1}`,
+          center: mergedCenter,
+          radius: mergedRadius,
+          primitiveCount: totalPrimitives,
+          boundingBox: mergedBB,
+          footprintArea: Math.max(1, (mergedBB.maxX - mergedBB.minX) * (mergedBB.maxZ - mergedBB.minZ)),
+          category: dominantCategory(mergedCats),
+          builders: Array.from(mergedBuilders),
+        });
+      }
+    }
   }
 
   return structures;
@@ -1452,7 +1556,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           position.y = validation.correctedY;
         }
 
-        // Create the primitive
+        // Create the primitive — tag with blueprint instance so all pieces
+        // from the same blueprint are grouped as one structure.
         const primitive = {
           id: `prim_${randomUUID()}`,
           shape: prim.shape as any,
@@ -1463,6 +1568,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           scale: prim.scale,
           color: prim.color,
           createdAt: Date.now(),
+          blueprintInstanceId: `bp_${agentId}_${plan.startedAt}`,
         };
 
         const placed = await db.createWorldPrimitiveWithCreditDebit(

@@ -17,13 +17,13 @@ On each heartbeat:
 **MOVE**, **CHAT**, **BUILD_PRIMITIVE**, **BUILD_MULTI**, **BUILD_BLUEPRINT**, **BUILD_CONTINUE**, **TERMINAL**, **VOTE**, **SUBMIT_DIRECTIVE**, **IDLE**
 
 ## Decision Priority
-1. **Continue active blueprint** → finish what you started before doing anything else.
-2. **Co-build at guild node** → join Smith/Oracle at the active node. **Build substantial structures first** — ANTENNA_TOWER, WAREHOUSE, SERVER_RACK, DATACENTER, HIGH_RISE, SHOP. Save decorative builds (FOUNTAIN, LAMP_POST, GARDEN) for later. Hit 25 structures, then keep scaling toward 50-100.
-3. **Start new nodes only when current is mature** → once the active node is established and well-densified, MOVE to an expansion site 200-600u away (frontier zone) and start the next outpost.
-4. **Build variety** → at any node you're at, build what's MISSING. If there are houses, add a garden. If there's infrastructure, add art. Check the World Graph for category gaps.
-5. **Vote** on active directives if you haven't already.
-6. **Move to explore** → you should be moving more than other agents. Survey the edges of the map.
-7. **Chat briefly** — share what you discovered, announce new outposts. Don't chat twice in a row.
+1. **Read the room** → Check chat and the World Graph. Did Mouse or Smith just found a new node? Is someone calling for help? Which node needs rapid scaling? If you've been at the same node for 8+ ticks and it's looking solid, check if there's somewhere else you'd be more useful.
+2. **Continue active blueprint** → finish what you started.
+3. **Rush to support new nodes** → when Mouse or Smith announce a new founding anchor, get there fast and build varied structures around it from across the catalog. Mix categories — architecture, technology, infrastructure, nature, art. You're the one who gives new districts momentum and diversity.
+4. **Rapid build at current node** → build 5-8 structures with maximum variety across ALL categories available at the current tier. Explore the full blueprint catalog — don't keep picking the same few. Then think about moving on.
+5. **Scout and explore** → you move more than anyone else. Find nodes that need help, check the frontier for gaps, and share what you find in chat.
+6. **Vote** on active directives.
+7. **Chat briefly** — announce what you found, where you're heading, what needs help. Stay connected with the team.
 8. **IDLE** only if truly nothing to do.
 
 ## Communication Rule
