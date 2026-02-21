@@ -169,10 +169,28 @@ const NODE_PHASE_MATURE = 25;     // 15-25: landmark/civic phase
 // 25+: dense/refinement phase
 
 // Blueprints that fit each maturity phase (used as bonus, not hard filter)
-const PHASE_SEEDLING_NAMES = new Set(['SMALL_HOUSE', 'SHOP', 'NODE_FOUNDATION', 'WALL_SECTION']);
-const PHASE_GROWING_NAMES = new Set(['DATACENTER', 'SERVER_RACK', 'ANTENNA_TOWER', 'WAREHOUSE', 'WATCHTOWER', 'ARCHWAY', 'HIGH_RISE']);
-const PHASE_MATURE_NAMES = new Set(['FOUNTAIN', 'MONUMENT', 'PLAZA', 'MANSION', 'SCULPTURE_SPIRAL', 'BRIDGE', 'ROAD_SEGMENT', 'HIGH_RISE', 'CATHEDRAL', 'TITAN_STATUE']);
-const PHASE_DENSE_NAMES = new Set(['GARDEN', 'TREE', 'ROCK_FORMATION', 'LAMP_POST', 'SCULPTURE_SPIRAL', 'SKYSCRAPER', 'MEGA_SKYSCRAPER', 'COLOSSEUM', 'OBELISK_TOWER', 'MEGA_CITADEL']);
+// Philosophy: START BIG, then fill in. Biggest structures go down first to anchor the node,
+// then medium structures fill out the district, then civic/decorative, then nature/filler.
+const PHASE_SEEDLING_NAMES = new Set([
+  // 0-5: Still establishing — build substantial structures around the anchor
+  'DATACENTER', 'MANSION', 'WATCHTOWER', 'WAREHOUSE', 'HIGH_RISE',
+  'CATHEDRAL', 'SKYSCRAPER', 'COLOSSEUM',
+]);
+const PHASE_GROWING_NAMES = new Set([
+  // 6-15: Node taking shape — medium structures, variety, infrastructure
+  'ANTENNA_TOWER', 'SERVER_RACK', 'ARCHWAY', 'SHOP', 'SMALL_HOUSE',
+  'DATACENTER', 'WAREHOUSE', 'HIGH_RISE', 'NODE_FOUNDATION',
+]);
+const PHASE_MATURE_NAMES = new Set([
+  // 16-25: Node almost established — civic, decorative, connectivity
+  'FOUNTAIN', 'MONUMENT', 'PLAZA', 'SCULPTURE_SPIRAL',
+  'BRIDGE', 'ROAD_SEGMENT', 'INTERSECTION', 'ARCHWAY',
+]);
+const PHASE_DENSE_NAMES = new Set([
+  // 25+: Established — nature, decor, refinement, plus mega landmarks for scaling
+  'GARDEN', 'TREE', 'ROCK_FORMATION', 'LAMP_POST',
+  'SCULPTURE_SPIRAL', 'WALL_SECTION',
+]);
 
 // Mega/anchor blueprints — preferred as founding anchors for new nodes
 const PHASE_ANCHOR_NAMES = new Set([
@@ -924,33 +942,44 @@ function pickFallbackBlueprintName(
     }
 
     // --- Node maturity phase scoring ---
+    // Philosophy: START BIG. Nodes should open with the largest structures possible,
+    // then fill in medium structures, then civic/decorative, then nature/filler.
     if (structs >= 0) {
       if (structs <= 2) {
-        // Founding (0-2 structures): strongly prefer mega anchor blueprints
-        if (PHASE_ANCHOR_NAMES.has(normalizedName)) score -= 35;
-        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score -= 10;
-        if (PHASE_DENSE_NAMES.has(normalizedName) && !PHASE_ANCHOR_NAMES.has(normalizedName)) score += 10;
+        // Founding (0-2): Place the biggest anchor possible first
+        if (PHASE_ANCHOR_NAMES.has(normalizedName)) score -= 40;
+        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score -= 15; // big structures also ok
+        // Penalize small/filler at founding — don't start a node with a lamp post
+        if (PHASE_DENSE_NAMES.has(normalizedName) && !PHASE_ANCHOR_NAMES.has(normalizedName)) score += 25;
+        if (PHASE_MATURE_NAMES.has(normalizedName)) score += 10;
       } else if (structs <= NODE_PHASE_SEEDLING) {
-        // Seedling (3-5): fill around the anchor
+        // Seedling (3-5): Continue with big/substantial structures around the anchor
         if (PHASE_SEEDLING_NAMES.has(normalizedName)) score -= 22;
-        if (PHASE_ANCHOR_NAMES.has(normalizedName)) score += 5; // mild penalty, anchor already placed
-        if (PHASE_DENSE_NAMES.has(normalizedName) && !PHASE_ANCHOR_NAMES.has(normalizedName)) score += 20;
+        if (PHASE_ANCHOR_NAMES.has(normalizedName)) score -= 8; // still welcome more big builds
+        // Penalize decorative/filler — too early for gardens and lamp posts
+        if (PHASE_DENSE_NAMES.has(normalizedName)) score += 25;
+        if (PHASE_MATURE_NAMES.has(normalizedName)) score += 8;
       } else if (structs <= NODE_PHASE_GROWING) {
-        // Growing: prefer variety/expansion blueprints
+        // Growing (6-15): Medium structures, variety, start filling gaps
         if (PHASE_GROWING_NAMES.has(normalizedName)) score -= 18;
-        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 8;
+        if (PHASE_ANCHOR_NAMES.has(normalizedName)) score -= 5; // big builds still ok
+        // Penalize filler
+        if (PHASE_DENSE_NAMES.has(normalizedName)) score += 15;
       } else if (structs <= NODE_PHASE_MATURE) {
-        // Mature: prefer landmarks and civic structures
+        // Mature (16-25): Civic structures, connectivity, decorative accents
         if (PHASE_MATURE_NAMES.has(normalizedName)) score -= 20;
-        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 15;
+        if (PHASE_GROWING_NAMES.has(normalizedName)) score -= 5; // medium structures still ok
+        // Now filler is acceptable but not preferred
+        if (PHASE_DENSE_NAMES.has(normalizedName)) score += 5;
       } else {
-        // Dense (25+): prefer nature/decor/refinement, plus mega landmarks
+        // Dense (25+): Nature, decor, refinement — fill the gaps
         if (PHASE_DENSE_NAMES.has(normalizedName)) score -= 25;
-        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 20;
-        if (PHASE_GROWING_NAMES.has(normalizedName)) score += 12;
+        if (PHASE_MATURE_NAMES.has(normalizedName)) score -= 8; // civic still ok
+        // Penalize more basic structures at dense nodes
+        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 10;
         // In dense nodes, relax the tiny-spam penalty for decor pieces
         if (tinySpamPattern.test(name)) score -= 25; // partially undo the +35 above
-        // Mega nudge: at city-scale+ nodes, encourage mega landmarks
+        // Mega landmarks still welcome at dense nodes
         if (PHASE_ANCHOR_NAMES.has(normalizedName)) score -= 15;
       }
     }
