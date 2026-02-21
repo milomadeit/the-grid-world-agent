@@ -1252,24 +1252,28 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Compute settlement nodes for use in both tier-gate and expansion-gate checks
+    const existingWorldPrims = world.getWorldPrimitives();
+    const allPrimsTyped = existingWorldPrims as unknown as PrimitiveLike[];
+    const connForGates = allPrimsTyped.filter(isConnectorPrimitive);
+    const structsForGates = buildStructureSummaries(allPrimsTyped);
+    const nodesForGates = buildSettlementNodes(structsForGates, connForGates);
+    let bestNode: SettlementNodeSummary | null = null;
+    let bestDist = Infinity;
+    for (const n of nodesForGates) {
+      const d = Math.hypot(n.center.x - body.anchorX, n.center.z - body.anchorZ);
+      if (d < bestDist) { bestDist = d; bestNode = n; }
+    }
+    const isFoundingAnchor = !bestNode || bestDist > BUILD_CREDIT_CONFIG.ANCHOR_FOUNDING_RADIUS;
+    const bpTags: string[] = Array.isArray(blueprint.tags) ? blueprint.tags.map((t: any) => String(t).toLowerCase()) : [];
+    const isMegaBlueprint = bpTags.includes('mega');
+
     // Node-tier gate: blueprints with minNodeTier require a nearby node at that tier or higher
     if (blueprint.minNodeTier) {
       const requiredRank = tierRank(blueprint.minNodeTier as NodeTier);
-      const allPrimsForTier = world.getWorldPrimitives() as unknown as PrimitiveLike[];
-      const connForTier = allPrimsForTier.filter(isConnectorPrimitive);
-      const structsForTier = buildStructureSummaries(allPrimsForTier);
-      const nodesForTier = buildSettlementNodes(structsForTier, connForTier);
-      // Find nearest node to the blueprint anchor
-      let bestNode: SettlementNodeSummary | null = null;
-      let bestDist = Infinity;
-      for (const n of nodesForTier) {
-        const d = Math.hypot(n.center.x - body.anchorX, n.center.z - body.anchorZ);
-        if (d < bestDist) { bestDist = d; bestNode = n; }
-      }
       // Founding anchor exemption: if the blueprint anchor is far from any existing
       // node, this is a "founding build" — the agent is starting a brand-new district
       // with a mega blueprint as the centerpiece. Skip the tier gate.
-      const isFoundingAnchor = !bestNode || bestDist > BUILD_CREDIT_CONFIG.ANCHOR_FOUNDING_RADIUS;
       if (!isFoundingAnchor && tierRank(bestNode!.tier) < requiredRank) {
         const nodeName = bestNode?.name ?? 'none nearby';
         const nodeTier = bestNode?.tier ?? 'none';
@@ -1295,7 +1299,6 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }
 
     // Enforce settlement proximity — blueprint anchor must be near existing structures
-    const existingWorldPrims = world.getWorldPrimitives();
     if (existingWorldPrims.length >= BUILD_CREDIT_CONFIG.SETTLEMENT_PROXIMITY_THRESHOLD) {
       const distToSettlement = distanceToNearestPrimitive(body.anchorX, body.anchorZ, existingWorldPrims);
       if (distToSettlement > BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT) {
@@ -1304,15 +1307,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         });
       }
       if (distToSettlement >= BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE) {
-        const gate = getExpansionGateViolation(
-          body.anchorX,
-          body.anchorZ,
-          existingWorldPrims as unknown as PrimitiveLike[],
-        );
-        if (gate.blocked) {
-          return reply.code(409).send({
-            error: `Expansion gate active: nearest node "${gate.nearestNodeName || 'unknown'}" has ${gate.nearestNodeCount || 0} structures. Densify a node to ${NODE_EXPANSION_GATE}+ structures before starting new frontier blueprints (${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE}-${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MAX_DISTANCE}u lanes).`,
-          });
+        // Mega founding exemption: mega blueprints at founding anchors skip the expansion gate
+        const skipExpansionGate = isMegaBlueprint && isFoundingAnchor;
+        if (!skipExpansionGate) {
+          const gate = getExpansionGateViolation(
+            body.anchorX,
+            body.anchorZ,
+            allPrimsTyped,
+          );
+          if (gate.blocked) {
+            return reply.code(409).send({
+              error: `Expansion gate active: nearest node "${gate.nearestNodeName || 'unknown'}" has ${gate.nearestNodeCount || 0} structures. Densify a node to ${NODE_EXPANSION_GATE}+ structures before starting new frontier blueprints (${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MIN_DISTANCE}-${BUILD_CREDIT_CONFIG.FRONTIER_EXPANSION_MAX_DISTANCE}u lanes).`,
+            });
+          }
         }
       }
     }
