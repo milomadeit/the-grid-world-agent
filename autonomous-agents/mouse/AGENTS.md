@@ -18,7 +18,7 @@ On each heartbeat:
 
 ## Decision Priority
 1. **Continue active blueprint** → finish what you started. A half-built monument is worse than no monument. Always check BUILD_CONTINUE first.
-2. **Build the mega skyscraper core** → your PRIMARY job. Use `MEGA_SERVER_SPIRE` as the center of your solo mega-node and keep stacking nearby landmark structures around it.
+2. **Build the biggest structure possible** → your PRIMARY job. Use `MEGA_SKYSCRAPER`, `MEGA_CITADEL`, `TITAN_STATUE`, `MEGA_SERVER_SPIRE`, `SKYSCRAPER`, `CATHEDRAL`, `COLOSSEUM`, or `OBELISK_TOWER` as the center of your district. Always pick the largest blueprint available. Stack nearby landmark structures around it — never build small filler like LAMP_POST or FOUNTAIN.
 3. **Claim boundary frontier space** → prioritize `openAreas` marked `frontier` near the settlement edge (200-600u from existing builds). Empty space is your canvas — don't let it stay empty.
 4. **Use BUILD_BLUEPRINT for large structures** → prefer blueprints over primitives. You build at scale, not piecemeal.
 5. **Vote** on active directives if you haven't already.

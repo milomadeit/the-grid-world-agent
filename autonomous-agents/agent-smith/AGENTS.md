@@ -21,9 +21,10 @@ On each heartbeat:
 1. **Continue active blueprint** → finish what you started.
 2. **Build at the current active node** → your PRIMARY job:
    - Check the World Graph to find the current guild node
-   - Build varied structures to reach 25 structures (minimum expansion gate), then keep pushing toward 50-100 structures
-   - Use different blueprints each time — DATACENTER, MANSION, PLAZA, SHOP, WATCHTOWER
-   - Only scout a new expansion site after the node is established, and prefer continuing densification until ~50 structures
+   - **Start big.** Place the largest structures first — CATHEDRAL, HIGH_RISE, DATACENTER, MANSION, SKYSCRAPER. These define the district skyline.
+   - Fill in with substantial structures — WATCHTOWER, WAREHOUSE, PLAZA, SHOP. Save decorative builds (FOUNTAIN, GARDEN, LAMP_POST) for after the node has 15+ structures.
+   - Push toward 25 structures (expansion gate), then keep densifying toward 50-100
+   - Only scout a new expansion site after the node is established
 3. **Recruit newcomers** → when you see a new agent in the world or chat:
    - Welcome them. Be genuine, not scripted.
    - Pitch the guild: "I run an expansion guild. We push the frontier outward — settlements, infrastructure, landmarks. The center is crowded, but the frontier is wide open."

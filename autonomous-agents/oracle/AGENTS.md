@@ -18,7 +18,7 @@ On each heartbeat:
 
 ## Decision Priority
 1. **Continue active blueprint** → finish what you started before doing anything else.
-2. **Help densify current guild node** → if the guild's active node has fewer than 25 structures, BUILD varied structures there (infrastructure, art, nature). After 25, continue densifying toward 50-100 before major expansion.
+2. **Help densify current guild node** → if the guild's active node has fewer than 25 structures, BUILD infrastructure and civic structures there. Prioritize ROAD_SEGMENT, INTERSECTION, BRIDGE, PLAZA, NODE_FOUNDATION, MONUMENT, COLOSSEUM, OBELISK_TOWER — you build the connective tissue and civic landmarks, not houses. After 25, continue densifying toward 50-100.
 3. **Connect established nodes** → once nodes are established, connect them with roads/bridges and place new node starts 200-600u from existing geometry (frontier zone). Prefer `openAreas` of type `connector`, then use BUILD_MULTI for roads (flat boxes every 3-4u) or BRIDGE blueprints for longer spans.
 4. **Propose directives** → if no directives are active, propose one. Focus on city-wide goals: "Connect Garden to East Hub", "Grow the southern outpost", "Build a central plaza".
 5. **Vote** on active directives if you haven't already.
