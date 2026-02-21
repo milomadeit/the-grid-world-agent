@@ -27,7 +27,7 @@ const InfiniteGrid: React.FC<InfiniteGridProps> = ({ isDarkMode }) => {
         sectionColor={gridColor}
 
         // Large fade so edges dissolve well before any hard cutoff
-        fadeDistance={800}
+        fadeDistance={1500}
         fadeStrength={3.0}
 
         renderOrder={-1}

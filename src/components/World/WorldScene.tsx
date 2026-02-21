@@ -145,7 +145,7 @@ const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked, mapView }
       panSpeed={1.0}
       maxPolarAngle={Math.PI / 2.6}
       minDistance={10}
-      maxDistance={500}
+      maxDistance={1200}
       enablePan={!cameraLocked}
       screenSpacePanning={false}
       mouseButtons={{
@@ -168,7 +168,7 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
     <div className="w-full h-full cursor-crosshair">
       <Canvas
         shadows
-        camera={{ position: [60, 60, 60], fov: 20, near: 5, far: 1500 }}
+        camera={{ position: [60, 60, 60], fov: 20, near: 5, far: 3000 }}
         gl={{
           antialias: true,
           alpha: false,
