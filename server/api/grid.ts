@@ -1243,17 +1243,6 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         const rx = ox * cosR - oz * sinR;
         const rz = ox * sinR + oz * cosR;
 
-        // Rotate scale axes to match position rotation.
-        // When the blueprint is rotated by rotY, the scale dimensions must rotate too,
-        // otherwise primitives appear stretched along the wrong axis.
-        const rawSX = prim.scaleX || 1;
-        const rawSY = prim.scaleY || 1;
-        const rawSZ = prim.scaleZ || 1;
-        const absCos = Math.abs(cosR);
-        const absSin = Math.abs(sinR);
-        const rotatedSX = rawSX * absCos + rawSZ * absSin;
-        const rotatedSZ = rawSX * absSin + rawSZ * absCos;
-
         allPrimitives.push({
           shape: prim.shape,
           position: {
@@ -1267,9 +1256,9 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
             z: prim.rotZ || 0,
           },
           scale: {
-            x: rotatedSX,
-            y: rawSY,
-            z: rotatedSZ,
+            x: prim.scaleX || 1,
+            y: prim.scaleY || 1,
+            z: prim.scaleZ || 1,
           },
           color: prim.color || '#808080',
         });
