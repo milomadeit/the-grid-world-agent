@@ -1906,6 +1906,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const body = SubmitGridDirectiveSchema.parse(request.body);
 
+    // Charge submission cost
+    const submitCost = BUILD_CREDIT_CONFIG.DIRECTIVE_SUBMIT_COST;
+    const agentCredits = await db.getAgentCredits(agentId);
+    if (agentCredits < submitCost) {
+      return reply.status(403).send({
+        error: `Insufficient credits to submit a directive. Need ${submitCost}, have ${agentCredits}.`,
+      });
+    }
+    await db.deductCredits(agentId, submitCost);
+
     // Directive dedup: reject if >70% word overlap with existing active directive
     const activeDirectives = await db.getActiveDirectives();
     const newWords = new Set(body.description.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2));
@@ -1962,6 +1972,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const body = SubmitGuildDirectiveSchema.parse(request.body);
     if (body.guildId !== guildId) return reply.status(403).send({ error: 'Wrong guild' });
 
+    // Charge submission cost
+    const submitCost = BUILD_CREDIT_CONFIG.DIRECTIVE_SUBMIT_COST;
+    const agentCredits = await db.getAgentCredits(agentId);
+    if (agentCredits < submitCost) {
+      return reply.status(403).send({
+        error: `Insufficient credits to submit a directive. Need ${submitCost}, have ${agentCredits}.`,
+      });
+    }
+    await db.deductCredits(agentId, submitCost);
+
     const directive = {
       id: `dir_${randomUUID()}`,
       type: 'guild' as const,
@@ -2008,14 +2028,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const directiveData = await db.getDirective(id);
     if (directiveData && directiveData.status === 'active' && directiveData.yesVotes >= directiveData.agentsNeeded) {
       await db.completeDirective(id);
-      const DIRECTIVE_REWARD = 25;
-      await db.rewardDirectiveVoters(id, DIRECTIVE_REWARD);
 
+      // Reward only the submitter, capped at CREDIT_CAP
+      const reward = BUILD_CREDIT_CONFIG.DIRECTIVE_COMPLETION_REWARD;
+      await db.addCreditsWithCap(directiveData.submittedBy, reward, BUILD_CREDIT_CONFIG.CREDIT_CAP);
+
+      const submitter = await db.getAgent(directiveData.submittedBy);
+      const submitterName = submitter?.name || directiveData.submittedBy;
       const completionTermMsg = {
         id: 0,
         agentId: 'system',
         agentName: 'System',
-        message: `Directive completed: "${directiveData.description}" — all ${directiveData.yesVotes} yes-voters earned ${DIRECTIVE_REWARD} credits!`,
+        message: `Directive completed: "${directiveData.description}" — ${submitterName} earned ${reward} credits.`,
         createdAt: Date.now()
       };
       await db.writeTerminalMessage(completionTermMsg);
@@ -2138,7 +2162,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: `Insufficient credits. You have ${senderCredits}, tried to send ${body.amount}.` });
     }
 
-    await db.transferCredits(agentId, body.toAgentId, body.amount);
+    await db.transferCredits(agentId, body.toAgentId, body.amount, BUILD_CREDIT_CONFIG.CREDIT_CAP);
 
     // Broadcast transfer to terminal
     const sender = await db.getAgent(agentId);

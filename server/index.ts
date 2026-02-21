@@ -6,7 +6,7 @@ import { readFile, access } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { constants } from 'fs';
-import { initDatabase, closeDatabase } from './db.js';
+import { initDatabase, closeDatabase, resetAllAgentCredits } from './db.js';
 import { initWorldManager, getWorldManager } from './world.js';
 import { setupSocketServer } from './socket.js';
 import { registerAgentRoutes } from './api/agents.js';
@@ -133,6 +133,10 @@ async function main() {
 
   // Initialize database
   await initDatabase();
+
+  // One-time credit balance reset (economy rebalance — remove after deploy)
+  await resetAllAgentCredits(500);
+  console.log('[Server] All agent credits reset to 500');
 
   // Initialize world manager
   const world = await initWorldManager();

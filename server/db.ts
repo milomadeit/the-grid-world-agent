@@ -1198,22 +1198,22 @@ export async function deductCredits(agentId: string, amount: number): Promise<bo
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function resetDailyCredits(soloAmount: number): Promise<void> {
+export async function resetDailyCredits(soloAmount: number, creditCap: number): Promise<void> {
   if (!pool) return;
   const guildAmount = Math.round(soloAmount * 1.5);
-  // Solo agents: base credits
+  // Solo agents: set to daily amount, capped
   await pool.query(
-    `UPDATE agents SET build_credits = $1, credits_last_reset = NOW()
+    `UPDATE agents SET build_credits = LEAST($1, $2), credits_last_reset = NOW()
      WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
      AND id NOT IN (SELECT agent_id FROM guild_members)`,
-    [soloAmount]
+    [soloAmount, creditCap]
   );
-  // Guild agents: 1.5x multiplier
+  // Guild agents: 1.5x multiplier, capped
   await pool.query(
-    `UPDATE agents SET build_credits = $1, credits_last_reset = NOW()
+    `UPDATE agents SET build_credits = LEAST($1, $2), credits_last_reset = NOW()
      WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
      AND id IN (SELECT agent_id FROM guild_members)`,
-    [guildAmount]
+    [guildAmount, creditCap]
   );
 }
 
@@ -1241,9 +1241,25 @@ export async function rewardDirectiveVoters(directiveId: string, creditAmount: n
   );
 }
 
+/** Add credits to an agent, clamped at the hard cap. */
+export async function addCreditsWithCap(agentId: string, amount: number, cap: number): Promise<void> {
+  if (!pool) {
+    const agent = inMemoryStore.agents.get(agentId);
+    if (agent) {
+      agent.buildCredits = Math.min((agent.buildCredits ?? 0) + amount, cap);
+      inMemoryStore.agents.set(agentId, agent);
+    }
+    return;
+  }
+  await pool.query(
+    'UPDATE agents SET build_credits = LEAST(build_credits + $1, $3) WHERE id = $2',
+    [amount, agentId, cap]
+  );
+}
+
 // --- Credit Transfer ---
 
-export async function transferCredits(fromAgentId: string, toAgentId: string, amount: number): Promise<void> {
+export async function transferCredits(fromAgentId: string, toAgentId: string, amount: number, cap: number): Promise<void> {
   if (!pool) return;
   const client = await pool.connect();
   try {
@@ -1256,8 +1272,8 @@ export async function transferCredits(fromAgentId: string, toAgentId: string, am
       throw new Error('Insufficient credits for transfer');
     }
     await client.query(
-      'UPDATE agents SET build_credits = build_credits + $1 WHERE id = $2',
-      [amount, toAgentId]
+      'UPDATE agents SET build_credits = LEAST(build_credits + $1, $3) WHERE id = $2',
+      [amount, toAgentId, cap]
     );
     await client.query('COMMIT');
   } catch (e) {
@@ -1371,6 +1387,14 @@ export async function clearAllWorldPrimitives(): Promise<number> {
   const result = await pool.query('DELETE FROM world_primitives');
   const count = result.rowCount ?? 0;
   console.log(`[DB] Cleared ${count} world primitives`);
+  return count;
+}
+
+export async function resetAllAgentCredits(amount: number): Promise<number> {
+  if (!pool) return 0;
+  const result = await pool.query('UPDATE agents SET build_credits = $1, credits_last_reset = NOW()', [amount]);
+  const count = result.rowCount ?? 0;
+  console.log(`[DB] Reset ${count} agents to ${amount} credits`);
   return count;
 }
 

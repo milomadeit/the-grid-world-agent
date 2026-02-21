@@ -150,7 +150,13 @@ export interface WorldStateRow {
 export const BUILD_CREDIT_CONFIG = {
   SOLO_DAILY_CREDITS: 500,
   GUILD_MULTIPLIER: 1.5,
-  PRIMITIVE_COST: 1,
+  PRIMITIVE_COST: 3,
+  /** Hard ceiling — credits can never exceed this value. */
+  CREDIT_CAP: 1000,
+  /** Cost to submit a directive. */
+  DIRECTIVE_SUBMIT_COST: 25,
+  /** Credits awarded to the directive submitter on completion. */
+  DIRECTIVE_COMPLETION_REWARD: 50,
   MIN_BUILD_DISTANCE_FROM_ORIGIN: 50,
   /** Max XZ distance a new build can be from the nearest existing primitive.
    *  Enforces organic graph/node settlement growth while still allowing frontier expansion. */
