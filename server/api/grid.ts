@@ -1243,6 +1243,14 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         const rx = ox * cosR - oz * sinR;
         const rz = ox * sinR + oz * cosR;
 
+        // Rotate primitive's local rotation axes to match blueprint orientation.
+        // When the blueprint is rotated by rotY, the local X and Z axes of each
+        // primitive also rotate in the XZ plane.
+        const primRotX = prim.rotX || 0;
+        const primRotZ = prim.rotZ || 0;
+        const newRotX = primRotX * cosR + primRotZ * sinR;
+        const newRotZ = -primRotX * sinR + primRotZ * cosR;
+
         allPrimitives.push({
           shape: prim.shape,
           position: {
@@ -1251,9 +1259,9 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
             z: rz + body.anchorZ,
           },
           rotation: {
-            x: prim.rotX || 0,
-            y: (prim.rotY || 0) + (body.rotY || 0),
-            z: prim.rotZ || 0,
+            x: newRotX,
+            y: (prim.rotY || 0) + rotYRad,
+            z: newRotZ,
           },
           scale: {
             x: prim.scaleX || 1,
