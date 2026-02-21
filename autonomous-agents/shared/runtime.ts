@@ -170,7 +170,7 @@ const NODE_PHASE_MATURE = 25;     // 15-25: landmark/civic phase
 
 // Blueprints that fit each maturity phase (used as bonus, not hard filter)
 const PHASE_SEEDLING_NAMES = new Set(['SMALL_HOUSE', 'SHOP', 'NODE_FOUNDATION', 'WALL_SECTION']);
-const PHASE_GROWING_NAMES = new Set(['DATACENTER', 'SERVER_RACK', 'ANTENNA_TOWER', 'WAREHOUSE', 'WATCHTOWER', 'ARCHWAY']);
+const PHASE_GROWING_NAMES = new Set(['DATACENTER', 'SERVER_RACK', 'ANTENNA_TOWER', 'WAREHOUSE', 'WATCHTOWER', 'ARCHWAY', 'HIGH_RISE']);
 const PHASE_MATURE_NAMES = new Set(['FOUNTAIN', 'MONUMENT', 'PLAZA', 'MANSION', 'SCULPTURE_SPIRAL', 'BRIDGE', 'ROAD_SEGMENT', 'HIGH_RISE', 'CATHEDRAL', 'TITAN_STATUE']);
 const PHASE_DENSE_NAMES = new Set(['GARDEN', 'TREE', 'ROCK_FORMATION', 'LAMP_POST', 'SCULPTURE_SPIRAL', 'SKYSCRAPER', 'MEGA_SKYSCRAPER', 'COLOSSEUM', 'OBELISK_TOWER', 'MEGA_CITADEL']);
 
@@ -880,7 +880,7 @@ function pickFallbackBlueprintName(
     .filter(([name]) => !exclude.has(String(name).trim().toUpperCase()));
   if (entries.length === 0) return null;
 
-  const preferredNamePattern = /(DATACENTER|SERVER|ANTENNA|WATCHTOWER|TOWER|HOUSE|SHOP|FOUNTAIN)/i;
+  const preferredNamePattern = /(DATACENTER|SERVER|ANTENNA|WATCHTOWER|TOWER|HOUSE|SHOP|FOUNTAIN|HIGH_RISE|SKYSCRAPER|CATHEDRAL|COLOSSEUM|OBELISK|TITAN|CITADEL|MONUMENT|SCULPTURE)/i;
   const megaPattern = /(MEGA_SERVER_SPIRE|MEGA_SKYSCRAPER|MEGA_CITADEL|MEGA|SKYSCRAPER|DATACENTER|MONUMENT|WATCHTOWER|SERVER_STACK|HIGH_RISE|CATHEDRAL|COLOSSEUM|OBELISK_TOWER|TITAN_STATUE)/i;
   const noveltyPattern = /(PLAZA|MONUMENT|SCULPTURE|PARK|GARDEN|AMPHITHEATER|OBSERVATORY|FOUNTAIN|MARKET|PAVILION|MANSION)/i;
   const tinySpamPattern = /(LAMP_POST|TREE)/i;
@@ -956,9 +956,11 @@ function pickFallbackBlueprintName(
     }
 
     // --- Node-tier gating penalty ---
-    // If blueprint requires a node tier the nearest node hasn't reached, heavily penalize.
+    // If blueprint requires a node tier the nearest node hasn't reached, penalize.
     // Exception: in founding context (0-2 structures nearby), skip the penalty because
     // the server allows mega blueprints as founding anchors far from existing nodes.
+    // Mouse gets a softer penalty — mega structures are its primary purpose and the
+    // server will allow them as founding anchors in empty areas.
     const minTier = bp?.minNodeTier;
     const founding = options.isFounding === true;
     if (minTier && structs >= 0 && !founding) {
@@ -967,7 +969,11 @@ function pickFallbackBlueprintName(
         'metropolis-node': 50, 'megaopolis-node': 100,
       };
       const needed = tierThresholds[minTier] || 0;
-      if (structs < needed) score += 200; // effectively exclude — server would reject anyway
+      if (structs < needed) {
+        // Mouse: soft penalty so mega blueprints stay competitive — server handles hard gating
+        // Other agents: strong penalty since they shouldn't attempt tier-gated builds at small nodes
+        score += agentRole === 'mouse' ? 30 : 200;
+      }
     }
 
     // --- Agent-specific role scoring ---

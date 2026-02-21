@@ -1091,7 +1091,6 @@
 	},
 	"SCULPTURE_SPIRAL": {
 		"description": "Spiral art sculpture using torusKnots and geometric shapes",
-		"advanced": true,
 		"category": "art",
 		"tags": [
 			"creative",
@@ -1257,7 +1256,6 @@
 	},
 	"MONUMENT": {
 		"description": "Tall obelisk monument with decorative base and capstone",
-		"advanced": true,
 		"category": "art",
 		"tags": [
 			"memorial",
