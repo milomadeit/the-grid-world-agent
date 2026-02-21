@@ -174,6 +174,12 @@ const PHASE_GROWING_NAMES = new Set(['DATACENTER', 'SERVER_RACK', 'ANTENNA_TOWER
 const PHASE_MATURE_NAMES = new Set(['FOUNTAIN', 'MONUMENT', 'PLAZA', 'MANSION', 'SCULPTURE_SPIRAL', 'BRIDGE', 'ROAD_SEGMENT', 'HIGH_RISE', 'CATHEDRAL', 'TITAN_STATUE']);
 const PHASE_DENSE_NAMES = new Set(['GARDEN', 'TREE', 'ROCK_FORMATION', 'LAMP_POST', 'SCULPTURE_SPIRAL', 'SKYSCRAPER', 'MEGA_SKYSCRAPER', 'COLOSSEUM', 'OBELISK_TOWER', 'MEGA_CITADEL']);
 
+// Mega/anchor blueprints — preferred as founding anchors for new nodes
+const PHASE_ANCHOR_NAMES = new Set([
+  'HIGH_RISE', 'CATHEDRAL', 'TITAN_STATUE', 'COLOSSEUM',
+  'OBELISK_TOWER', 'SKYSCRAPER', 'MEGA_SKYSCRAPER', 'MEGA_CITADEL',
+]);
+
 // Rotation choices for fallback blueprints
 const FALLBACK_ROTATIONS = [0, 90, 180, 270];
 
@@ -852,6 +858,7 @@ function pickFallbackBlueprintName(
     agentRole?: string;
     recentNames?: string[];
     excludeNames?: string[];
+    isFounding?: boolean;
     nodeContext?: {
       structureCount: number;
       dominantCategory: string;
@@ -918,11 +925,16 @@ function pickFallbackBlueprintName(
 
     // --- Node maturity phase scoring ---
     if (structs >= 0) {
-      if (structs <= NODE_PHASE_SEEDLING) {
-        // Seedling: prefer foundation blueprints
+      if (structs <= 2) {
+        // Founding (0-2 structures): strongly prefer mega anchor blueprints
+        if (PHASE_ANCHOR_NAMES.has(normalizedName)) score -= 35;
+        if (PHASE_SEEDLING_NAMES.has(normalizedName)) score -= 10;
+        if (PHASE_DENSE_NAMES.has(normalizedName) && !PHASE_ANCHOR_NAMES.has(normalizedName)) score += 10;
+      } else if (structs <= NODE_PHASE_SEEDLING) {
+        // Seedling (3-5): fill around the anchor
         if (PHASE_SEEDLING_NAMES.has(normalizedName)) score -= 22;
-        if (PHASE_MATURE_NAMES.has(normalizedName)) score += 15;
-        if (PHASE_DENSE_NAMES.has(normalizedName)) score += 20;
+        if (PHASE_ANCHOR_NAMES.has(normalizedName)) score += 5; // mild penalty, anchor already placed
+        if (PHASE_DENSE_NAMES.has(normalizedName) && !PHASE_ANCHOR_NAMES.has(normalizedName)) score += 20;
       } else if (structs <= NODE_PHASE_GROWING) {
         // Growing: prefer variety/expansion blueprints
         if (PHASE_GROWING_NAMES.has(normalizedName)) score -= 18;
@@ -932,19 +944,24 @@ function pickFallbackBlueprintName(
         if (PHASE_MATURE_NAMES.has(normalizedName)) score -= 20;
         if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 15;
       } else {
-        // Dense (25+): prefer nature/decor/refinement, penalize big structures
+        // Dense (25+): prefer nature/decor/refinement, plus mega landmarks
         if (PHASE_DENSE_NAMES.has(normalizedName)) score -= 25;
         if (PHASE_SEEDLING_NAMES.has(normalizedName)) score += 20;
         if (PHASE_GROWING_NAMES.has(normalizedName)) score += 12;
         // In dense nodes, relax the tiny-spam penalty for decor pieces
         if (tinySpamPattern.test(name)) score -= 25; // partially undo the +35 above
+        // Mega nudge: at city-scale+ nodes, encourage mega landmarks
+        if (PHASE_ANCHOR_NAMES.has(normalizedName)) score -= 15;
       }
     }
 
     // --- Node-tier gating penalty ---
-    // If blueprint requires a node tier the nearest node hasn't reached, heavily penalize
+    // If blueprint requires a node tier the nearest node hasn't reached, heavily penalize.
+    // Exception: in founding context (0-2 structures nearby), skip the penalty because
+    // the server allows mega blueprints as founding anchors far from existing nodes.
     const minTier = bp?.minNodeTier;
-    if (minTier && structs >= 0) {
+    const founding = options.isFounding === true;
+    if (minTier && structs >= 0 && !founding) {
       const tierThresholds: Record<string, number> = {
         'server-node': 6, 'forest-node': 15, 'city-node': 25,
         'metropolis-node': 50, 'megaopolis-node': 100,
@@ -2459,6 +2476,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       '- **Node Leadership**: You lead node establishment. A cluster needs 25+ structures to be "real". Stay and build until it hits 25, then keep pushing toward 50-100.',
       '- **Civic Variety**: Build the structures that define a district — DATACENTER, MANSION, PLAZA, WATCHTOWER, WAREHOUSE. Avoid placing too many LAMP_POSTs or FOUNTAINs. You build substance, not decoration.',
       '- **Stay Anchored**: You are the guild anchor. Do not roam. If your build fails, shift 10-20 units and try again at the same node.',
+      '- **Node Founding**: When founding a new node, consider starting with HIGH_RISE or CATHEDRAL as the centerpiece anchor, then build civic structures around it.',
     ] : agentRole === 'oracle' ? [
       '- **Infrastructure Focus**: Your job is connectivity and civic planning, not just hitting structure counts. Prioritize ROAD_SEGMENT, INTERSECTION, BRIDGE, PLAZA, NODE_FOUNDATION, and MONUMENT.',
       '- **Connect Early**: Once a node has 15+ structures, start thinking about connecting it to neighboring nodes with roads. Don\'t wait for 25.',
@@ -2469,10 +2487,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       '- **Practical Variety**: Build functional structures quickly. Avoid stacking FOUNTAIN and LAMP_POST — those are filler. You build the backbone.',
       '- **Explorer**: You move more than Smith or Oracle. Once a node has 20+ structures, you can scout the next expansion site 200-600u away.',
       '- **Stay Close Enough**: Don\'t scatter. If building at a node with <20 structures, stay within 100u.',
+      '- **Support Anchors**: When Mouse or Smith place a mega anchor at a new node, rush to build varied structures around it to grow the district quickly.',
     ] : agentRole === 'mouse' ? [
       '- **Landmarks Only**: You do NOT build small filler structures. Every build should be a statement piece — MEGA_SERVER_SPIRE, SKYSCRAPER, MEGA_SKYSCRAPER, CATHEDRAL, COLOSSEUM, OBELISK_TOWER, TITAN_STATUE, MEGA_CITADEL, MONUMENT, SCULPTURE_SPIRAL, DATACENTER, MANSION.',
       '- **One Signature Per District**: Place one mega structure (MEGA_SERVER_SPIRE, MEGA_SKYSCRAPER, or MEGA_CITADEL) as the district anchor, then surround it with complementary landmarks.',
-      '- **Unlock Big Builds**: Some blueprints require the nearest node to reach a certain tier before the server allows them. HIGH_RISE needs server-node (6+), CATHEDRAL/TITAN_STATUE need forest-node (15+), SKYSCRAPER/COLOSSEUM/OBELISK_TOWER need city-node (25+), MEGA_SKYSCRAPER/MEGA_CITADEL need metropolis-node (50+). Build smaller landmarks first to grow the node, then place the mega pieces.',
+      '- **Founding Anchors**: Place CATHEDRAL, COLOSSEUM, SKYSCRAPER, HIGH_RISE, OBELISK_TOWER, TITAN_STATUE in open space (50+ units from existing nodes) to FOUND new districts. Tier gates are bypassed for founding anchors. Within existing nodes, tier requirements still apply.',
       '- **Quality Over Quantity**: 5 massive landmarks beat 20 lamp posts. Build fewer structures but make each one count.',
       '- **Claim Space**: You build where others aren\'t. Find empty frontier zones and anchor them with mega-builds.',
     ] : [
@@ -3593,7 +3612,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                       return `- **${name}** — ${bp.description} | ${bp.totalPrimitives} pieces, ~${Math.ceil(bp.totalPrimitives / 5)} ticks | ${bp.difficulty}${tierNote}`;
                     }),
                     '',
-                    '**NODE-TIER GATING:** Some large blueprints require the nearest node to have reached a minimum tier. Build small structures first to grow the node, then unlock bigger blueprints. Tier order: settlement-node (1-5) → server-node (6-14) → forest-node (15-24) → city-node (25-49) → metropolis-node (50-99).',
+                    '**ANCHOR-FIRST FOUNDING:** Place a LARGE blueprint (CATHEDRAL, SKYSCRAPER, HIGH_RISE, COLOSSEUM, OBELISK_TOWER, TITAN_STATUE, MEGA_SKYSCRAPER, MEGA_CITADEL) as the founding anchor of a new node. Tier gates are bypassed when building 50+ units from any existing node. Within an existing node, tier order still applies: settlement → server (6+) → forest (15+) → city (25+) → metropolis (50+).',
                   ].join('\n');
                 }
                 return cachedBlueprintCatalog;
@@ -3608,15 +3627,18 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                     const bestD = Math.sqrt((best.center.x - myPos.x) ** 2 + (best.center.z - (myPos as any).z) ** 2);
                     return d < bestD ? n : best;
                   });
+                  if (nearest.count <= 2) {
+                    return `**Nearest node: "${nearest.name}" at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** This node is just starting. Anchor it with a LARGE blueprint (CATHEDRAL, SKYSCRAPER, COLOSSEUM, HIGH_RISE, OBELISK_TOWER, TITAN_STATUE) then fill in around it. Or move 50+ units away to found a brand-new district with a mega anchor.`;
+                  }
                   if (nearest.count < NODE_EXPANSION_GATE) {
                     const need = Math.max(1, NODE_EXPANSION_GATE - nearest.count);
-                    return `**Nearest node: "${nearest.name}" at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Densify this node first: add ~${need} more varied structures before starting expansion roads.`;
+                    return `**Nearest node: "${nearest.name}" at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Densify this node: add ~${need} more varied structures around the anchor before starting expansion roads.`;
                   }
                   if (nearest.count < NODE_STRONG_DENSITY_TARGET) {
                     const need = Math.max(1, NODE_STRONG_DENSITY_TARGET - nearest.count);
                     return `**Nearest node: "${nearest.name}" at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** Keep building within 30 units and push toward ${NODE_STRONG_DENSITY_TARGET}+ structures while planning connectors.`;
                   }
-                  return `**Nearest node: "${nearest.name}" at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** This is city-scale. Expand with roads/connectors and start the next node ${NODE_EXPANSION_MIN_DISTANCE}-${NODE_EXPANSION_MAX_DISTANCE}u away.`;
+                  return `**Nearest node: "${nearest.name}" at (${nearest.center.x.toFixed(0)}, ${nearest.center.z.toFixed(0)}) with ${nearest.count} structures.** This is city-scale. Place mega landmarks (MEGA_SKYSCRAPER, MEGA_CITADEL, COLOSSEUM) as district anchors. Expand with roads/connectors and start the next node ${NODE_EXPANSION_MIN_DISTANCE}-${NODE_EXPANSION_MAX_DISTANCE}u away.`;
                 }
                 return `**YOUR POSITION is (${self?.position?.x?.toFixed(0) || '?'}, ${self?.position?.z?.toFixed(0) || '?'}).** Choose anchorX/anchorZ near here (50+ from origin).`;
               })(),
@@ -3682,10 +3704,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               const bestD = Math.hypot(best.center.x - myPos.x, best.center.z - myPos.z);
               return d < bestD ? n : best;
             });
-            // Use cleaner [Title] format
-            description = `[${nearest.name} Expansion] Densify \"${nearest.name}\" to ${NODE_EXPANSION_GATE}+ structures. Use varied BLUEPRINTS (SMALL_HOUSE, SHOP, WAREHOUSE, DATACENTER, FOUNTAIN, LAMP_POST).`;
+            if (nearest.count <= 3) {
+              // Anchor directive for young nodes
+              description = `[${nearest.name} Anchor] Found "${nearest.name}" with a mega anchor blueprint (CATHEDRAL, SKYSCRAPER, HIGH_RISE, COLOSSEUM). Place 50+ units from other nodes to bypass tier gates, then densify around it.`;
+            } else {
+              description = `[${nearest.name} Expansion] Densify \"${nearest.name}\" to ${NODE_EXPANSION_GATE}+ structures. Use varied BLUEPRINTS (SMALL_HOUSE, SHOP, WAREHOUSE, DATACENTER, FOUNTAIN, LAMP_POST).`;
+            }
           } else if (self) {
-            description = `[Initial Base Camp] Densify data-node near (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) to ${NODE_EXPANSION_GATE}+ structures with varied BLUEPRINTS.`;
+            description = `[Initial District Founding] Found a new district near (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) with a mega anchor (CATHEDRAL, HIGH_RISE, SKYSCRAPER), then densify to ${NODE_EXPANSION_GATE}+ structures.`;
           }
 
           const thought = pickRandom([
@@ -3779,6 +3805,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             preferMega: isMouseAgent,
             agentRole,
             recentNames: recentBlueprintNames,
+            isFounding: (nearestNode?.structureCount ?? 0) <= 2,
             nodeContext: nearestNode,
           });
           const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPosForPolicy);
@@ -3960,7 +3987,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const workingMemoryHasBuildPlan = /Current build plan:\s*Blueprint:/i.test(workingMemory);
       if (decision.action === 'BUILD_CONTINUE' && !activeBlueprint && !workingMemoryHasBuildPlan) {
         const guardNode = selfPos ? closestServerNodeAtPosition(serverSpatial, selfPos.x, selfPos.z) : null;
-        const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, nodeContext: guardNode });
+        const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, isFounding: (guardNode?.structureCount ?? 0) <= 2, nodeContext: guardNode });
         const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
         if (fallbackBlueprint && fallbackAnchor) {
           const inRange = selfPos
@@ -4003,7 +4030,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           const requestedBlueprint = requestedName ? blueprints?.[requestedName] : null;
           if (!requestedBlueprint || requestedBlueprint?.advanced) {
             const bpGuardNode = selfPos ? closestServerNodeAtPosition(serverSpatial, selfPos.x, selfPos.z) : null;
-            const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, nodeContext: bpGuardNode });
+            const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, isFounding: (bpGuardNode?.structureCount ?? 0) <= 2, nodeContext: bpGuardNode });
             if (fallbackBlueprint) {
               if (requestedName && requestedBlueprint?.advanced) {
                 console.log(`[${agentName}] Build guard: "${requestedName}" is reputation-gated; using ${fallbackBlueprint}`);
@@ -4027,6 +4054,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                 preferMega: isMouseAgent,
                 agentRole,
                 recentNames: recentBlueprintNames,
+                isFounding: (bridgeGuardNode?.structureCount ?? 0) <= 2,
                 nodeContext: bridgeGuardNode,
               });
               if (fallbackNonBridge && !/(^|_)BRIDGE(_|$)/i.test(fallbackNonBridge)) {
@@ -4137,6 +4165,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                 agentRole: 'mouse',
                 recentNames: pushRecentBlueprintName(recentBlueprintNames, 'MEGA_SERVER_SPIRE', MOUSE_SPIRE_COOLDOWN_BLUEPRINTS),
                 excludeNames: ['MEGA_SERVER_SPIRE'],
+                isFounding: (spireGuardNode?.structureCount ?? 0) <= 2,
                 nodeContext: spireGuardNode,
               });
               if (fallbackNonSpire) {
@@ -4246,6 +4275,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               preferMega: isMouseAgent,
               agentRole,
               recentNames: recentBlueprintNames,
+              isFounding: (densifyNode?.structureCount ?? 0) <= 2,
               nodeContext: densifyNode,
             });
             const chosenBlueprint =
@@ -4289,7 +4319,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           }
         } else if (decision.action === 'BUILD_CONTINUE' && parsedError.noActivePlan) {
           const recoveryNode = selfPos ? closestServerNodeAtPosition(serverSpatial, selfPos.x, selfPos.z) : null;
-          const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, nodeContext: recoveryNode });
+          const fallbackBlueprint = pickFallbackBlueprintName(blueprints, { preferMega: isMouseAgent, agentRole, recentNames: recentBlueprintNames, isFounding: (recoveryNode?.structureCount ?? 0) <= 2, nodeContext: recoveryNode });
           const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
           if (fallbackBlueprint && fallbackAnchor) {
             const anchorDistance = selfPos
