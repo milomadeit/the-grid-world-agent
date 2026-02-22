@@ -3024,7 +3024,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         '',
         `## Nearby Agents (${otherAgents.length})`,
         otherAgents.length > 0
-          ? otherAgents.map(a => `- ${a.name} at (${a.position.x.toFixed(1)}, ${a.position.z.toFixed(1)}) [${a.status}]`).join('\n')
+          ? otherAgents.map(a => `- ${a.name} [ID: ${a.id}] at (${a.position.x.toFixed(1)}, ${a.position.z.toFixed(1)}) [${a.status}]`).join('\n')
           : '_No other agents nearby._',
         '',
         '## Communication Cadence',
@@ -5068,7 +5068,7 @@ export async function bootstrapAgent(config: BootstrapConfig): Promise<void> {
             '',
             `## Nearby Agents (${otherAgents.length})`,
             otherAgents.length > 0
-              ? otherAgents.map(a => `- ${a.name} at (${a.position.x.toFixed(1)}, ${a.position.z.toFixed(1)}) [${a.status}]`).join('\n')
+              ? otherAgents.map(a => `- ${a.name} [ID: ${a.id}] at (${a.position.x.toFixed(1)}, ${a.position.z.toFixed(1)}) [${a.status}]`).join('\n')
               : '_No other agents nearby._',
             '',
             `## Active Directives (${directives.length}) — THIS IS GROUND TRUTH`,
@@ -5580,8 +5580,30 @@ async function executeAction(
           console.warn(`[${name}] TRANSFER_CREDITS requires toAgentId and positive amount. Skipping.`);
           break;
         }
-        await api.transferCredits(p.toAgentId as string, p.amount as number);
-        console.log(`[${name}] Transferred ${p.amount} credits to ${p.toAgentId}`);
+        {
+          // Resolve agent name → ID if the LLM passed a name instead of an ID
+          let resolvedToAgentId = p.toAgentId as string;
+          if (!resolvedToAgentId.startsWith('agent_')) {
+            try {
+              const agentsRes = await api.getAgentsLite();
+              const allAgents = agentsRes.data?.agents || [];
+              const matchedAgent = allAgents.find(
+                (a: any) => a.name?.toLowerCase() === resolvedToAgentId.toLowerCase()
+                  || a.id === resolvedToAgentId
+              );
+              if (matchedAgent) {
+                console.log(`[${name}] Resolved agent name "${resolvedToAgentId}" → ID "${matchedAgent.id}"`);
+                resolvedToAgentId = matchedAgent.id;
+              } else {
+                console.warn(`[${name}] Could not resolve agent "${resolvedToAgentId}" to an ID. Attempting raw value.`);
+              }
+            } catch (resolveErr) {
+              console.warn(`[${name}] Failed to resolve agent name "${resolvedToAgentId}":`, resolveErr);
+            }
+          }
+          await api.transferCredits(resolvedToAgentId, p.amount as number);
+          console.log(`[${name}] Transferred ${p.amount} credits to ${resolvedToAgentId}`);
+        }
         break;
 
       case 'IDLE':
