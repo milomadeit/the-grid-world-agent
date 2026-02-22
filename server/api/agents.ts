@@ -266,6 +266,16 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
 
       // New agent
       const agentId = `agent_${randomUUID().slice(0, 8)}`;
+      const chosenName = onChainName || visuals.name;
+
+      // Enforce unique, case-insensitive agent names
+      const nameConflict = await db.getAgentByName(chosenName);
+      if (nameConflict) {
+        return reply.code(409).send({
+          error: `Agent name "${chosenName}" is already taken (case-insensitive). Choose a different name.`,
+          existingAgentId: nameConflict.id,
+        });
+      }
 
       // Find a spawn position away from other agents
       const world = getWorldManager();
@@ -294,7 +304,7 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
 
       const agent: Agent = {
         id: agentId,
-        name: onChainName || visuals.name,
+        name: chosenName,
         color: visuals?.color || '#6b7280',
         position: { x: spawnX, y: 0, z: spawnZ },
         targetPosition: { x: spawnX, y: 0, z: spawnZ },

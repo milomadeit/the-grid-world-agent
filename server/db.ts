@@ -216,6 +216,11 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_blueprint_build_plans_updated_at ON blueprint_build_plans(updated_at DESC);
     `);
 
+    // Unique case-insensitive agent name constraint
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_name_unique ON agents (LOWER(visual_name));
+    `);
+
     console.log('[DB] Tables initialized');
   } catch (error) {
     console.error('[DB] Failed to connect to PostgreSQL, using in-memory storage:', error);
@@ -302,6 +307,26 @@ export async function getAgentByOwnerId(ownerId: string): Promise<Agent | null> 
   const result = await pool.query<AgentRow>(
     'SELECT * FROM agents WHERE LOWER(owner_id) = $1',
     [normalizedId]
+  );
+
+  if (result.rows.length === 0) return null;
+  return rowToAgent(result.rows[0]);
+}
+
+/** Case-insensitive agent name lookup. */
+export async function getAgentByName(name: string): Promise<Agent | null> {
+  const normalizedName = name.toLowerCase();
+
+  if (!pool) {
+    for (const agent of inMemoryStore.agents.values()) {
+      if (agent.name?.toLowerCase() === normalizedName) return agent;
+    }
+    return null;
+  }
+
+  const result = await pool.query<AgentRow>(
+    'SELECT * FROM agents WHERE LOWER(visual_name) = $1',
+    [normalizedName]
   );
 
   if (result.rows.length === 0) return null;
