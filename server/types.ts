@@ -148,11 +148,11 @@ export interface WorldStateRow {
 // ===========================================
 
 export const BUILD_CREDIT_CONFIG = {
-  SOLO_DAILY_CREDITS: 500,
+  SOLO_DAILY_CREDITS: 2000,
   GUILD_MULTIPLIER: 1.5,
-  PRIMITIVE_COST: 3,
+  PRIMITIVE_COST: 2,
   /** Hard ceiling — credits can never exceed this value. */
-  CREDIT_CAP: 1000,
+  CREDIT_CAP: 2000,
   /** Cost to submit a directive. */
   DIRECTIVE_SUBMIT_COST: 25,
   /** Credits awarded to the directive submitter on completion. */
