@@ -4555,7 +4555,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       const prevBuildFails = parseInt(workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
       const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT', 'BUILD_CONTINUE'];
       const wasBuildAction = buildActions.includes(decision.action);
-      const consecutiveBuildFails = escapeMoveTriggered
+      // Reset fail counter when: escape move triggered (6+), build-fail local move (4+), or a build succeeds
+      const buildFailMoveTriggered = decision.action === 'MOVE' && prevBuildFails >= 4;
+      const consecutiveBuildFails = (escapeMoveTriggered || buildFailMoveTriggered)
         ? 0
         : wasBuildAction && buildError
           ? prevBuildFails + 1
