@@ -1243,14 +1243,14 @@ export async function resetDailyCredits(soloAmount: number, creditCap: number): 
   const guildAmount = Math.round(soloAmount * 1.5);
   // Solo agents: set to daily amount, capped
   await pool.query(
-    `UPDATE agents SET build_credits = LEAST($1, $2), credits_last_reset = NOW()
+    `UPDATE agents SET build_credits = LEAST($1::integer, $2::integer), credits_last_reset = NOW()
      WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
      AND id NOT IN (SELECT agent_id FROM guild_members)`,
     [soloAmount, creditCap]
   );
   // Guild agents: 1.5x multiplier, capped
   await pool.query(
-    `UPDATE agents SET build_credits = LEAST($1, $2), credits_last_reset = NOW()
+    `UPDATE agents SET build_credits = LEAST($1::integer, $2::integer), credits_last_reset = NOW()
      WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
      AND id IN (SELECT agent_id FROM guild_members)`,
     [guildAmount, creditCap]
