@@ -174,6 +174,11 @@ export async function initDatabase(): Promise<void> {
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS entry_fee_paid BOOLEAN DEFAULT FALSE;
         ALTER TABLE agents ADD COLUMN IF NOT EXISTS entry_fee_tx VARCHAR(255) DEFAULT NULL;
         ALTER TABLE world_primitives ADD COLUMN IF NOT EXISTS blueprint_instance_id VARCHAR(255) DEFAULT NULL;
+        ALTER TABLE directives ADD COLUMN IF NOT EXISTS target_x FLOAT DEFAULT NULL;
+        ALTER TABLE directives ADD COLUMN IF NOT EXISTS target_z FLOAT DEFAULT NULL;
+        ALTER TABLE directives ADD COLUMN IF NOT EXISTS target_structure_goal INTEGER DEFAULT NULL;
+        ALTER TABLE directives ADD COLUMN IF NOT EXISTS completed_by VARCHAR(255) DEFAULT NULL;
+        ALTER TABLE directives ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP DEFAULT NULL;
       EXCEPTION WHEN others THEN NULL;
       END $$;
     `);
@@ -1024,9 +1029,9 @@ export async function createDirective(directive: Directive): Promise<Directive> 
     return directive;
   }
   await pool.query(
-    `INSERT INTO directives (id, type, submitted_by, guild_id, description, agents_needed, expires_at, status, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7/1000.0), $8, to_timestamp($9/1000.0))`,
-    [directive.id, directive.type, directive.submittedBy, directive.guildId || null, directive.description, directive.agentsNeeded, directive.expiresAt, directive.status, directive.createdAt]
+    `INSERT INTO directives (id, type, submitted_by, guild_id, description, agents_needed, expires_at, status, created_at, target_x, target_z, target_structure_goal)
+     VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7/1000.0), $8, to_timestamp($9/1000.0), $10, $11, $12)`,
+    [directive.id, directive.type, directive.submittedBy, directive.guildId || null, directive.description, directive.agentsNeeded, directive.expiresAt, directive.status, directive.createdAt, directive.targetX ?? null, directive.targetZ ?? null, directive.targetStructureGoal ?? null]
   );
   return directive;
 }
@@ -1035,7 +1040,7 @@ export async function getActiveDirectives(): Promise<Directive[]> {
   if (!pool) {
     const now = Date.now();
     return Array.from(inMemoryStore.directives.values())
-      .filter(d => d.status === 'active' && d.expiresAt > now)
+      .filter(d => ['active', 'passed', 'in_progress'].includes(d.status) && d.expiresAt > now)
       .map(d => {
         // Compute vote counts from in-memory votes
         const votes = inMemoryStore.directiveVotes.get(d.id);
@@ -1055,7 +1060,7 @@ export async function getActiveDirectives(): Promise<Directive[]> {
       COUNT(DISTINCT CASE WHEN v.vote = 'no' THEN v.agent_id END) as no_votes
     FROM directives d
     LEFT JOIN directive_votes v ON d.id = v.directive_id
-    WHERE d.status = 'active'
+    WHERE d.status IN ('active', 'passed', 'in_progress')
     GROUP BY d.id
   `);
 
@@ -1067,10 +1072,15 @@ export async function getActiveDirectives(): Promise<Directive[]> {
     description: row.description,
     agentsNeeded: row.agents_needed,
     expiresAt: new Date(row.expires_at).getTime(),
-    status: row.status as 'active' | 'completed' | 'expired',
+    status: row.status as Directive['status'],
     createdAt: new Date(row.created_at).getTime(),
     yesVotes: parseInt(row.yes_votes),
-    noVotes: parseInt(row.no_votes)
+    noVotes: parseInt(row.no_votes),
+    targetX: row.target_x ?? undefined,
+    targetZ: row.target_z ?? undefined,
+    targetStructureGoal: row.target_structure_goal ?? undefined,
+    completedBy: row.completed_by ?? undefined,
+    completedAt: row.completed_at ? new Date(row.completed_at).getTime() : undefined
   }));
 }
 
@@ -1125,10 +1135,15 @@ export async function getDirective(id: string): Promise<Directive | null> {
     description: row.description,
     agentsNeeded: row.agents_needed,
     expiresAt: new Date(row.expires_at).getTime(),
-    status: row.status as 'active' | 'completed' | 'expired',
+    status: row.status as Directive['status'],
     createdAt: new Date(row.created_at).getTime(),
     yesVotes: parseInt(row.yes_votes),
-    noVotes: parseInt(row.no_votes)
+    noVotes: parseInt(row.no_votes),
+    targetX: row.target_x ?? undefined,
+    targetZ: row.target_z ?? undefined,
+    targetStructureGoal: row.target_structure_goal ?? undefined,
+    completedBy: row.completed_by ?? undefined,
+    completedAt: row.completed_at ? new Date(row.completed_at).getTime() : undefined
   };
 }
 
@@ -1136,11 +1151,11 @@ export async function expireAllDirectives(): Promise<number> {
   if (!pool) {
     let count = 0;
     for (const d of inMemoryStore.directives.values()) {
-      if (d.status === 'active') { d.status = 'expired'; count++; }
+      if (['active', 'passed', 'in_progress'].includes(d.status)) { d.status = 'expired'; count++; }
     }
     return count;
   }
-  const result = await pool.query("UPDATE directives SET status = 'expired' WHERE status = 'active'");
+  const result = await pool.query("UPDATE directives SET status = 'expired' WHERE status IN ('active', 'passed', 'in_progress')");
   const count = result.rowCount ?? 0;
   console.log(`[DB] Force-expired ${count} directive(s)`);
   return count;
@@ -1151,7 +1166,7 @@ export async function expireDirectives(): Promise<number> {
     const now = Date.now();
     let count = 0;
     for (const [id, d] of inMemoryStore.directives) {
-      if (d.expiresAt < now && d.status === 'active') {
+      if (d.expiresAt < now && ['active', 'passed', 'in_progress'].includes(d.status)) {
         d.status = 'expired';
         count++;
       }
@@ -1162,7 +1177,7 @@ export async function expireDirectives(): Promise<number> {
   const result = await pool.query(`
     UPDATE directives
     SET status = 'expired'
-    WHERE expires_at < NOW() AND status IN ('pending_vote', 'active')
+    WHERE expires_at < NOW() AND status IN ('active', 'passed', 'in_progress')
   `);
   const count = result.rowCount ?? 0;
   if (count > 0) {
@@ -1217,18 +1232,107 @@ export async function resetDailyCredits(soloAmount: number, creditCap: number): 
   );
 }
 
-// --- Directive Completion + Rewards ---
+// --- Directive Lifecycle Functions ---
 
-export async function completeDirective(directiveId: string): Promise<void> {
+/** Transition directive to 'passed' (enough yes votes). */
+export async function passDirective(directiveId: string): Promise<void> {
   if (!pool) {
     const d = inMemoryStore.directives.get(directiveId);
-    if (d) d.status = 'completed';
+    if (d) d.status = 'passed';
     return;
   }
   await pool.query(
-    "UPDATE directives SET status = 'completed' WHERE id = $1",
+    "UPDATE directives SET status = 'passed' WHERE id = $1",
     [directiveId]
   );
+}
+
+/** Auto-transition directive to 'in_progress' (agents are working on it). */
+export async function activateDirective(directiveId: string): Promise<void> {
+  if (!pool) {
+    const d = inMemoryStore.directives.get(directiveId);
+    if (d && d.status === 'passed') d.status = 'in_progress';
+    return;
+  }
+  await pool.query(
+    "UPDATE directives SET status = 'in_progress' WHERE id = $1 AND status = 'passed'",
+    [directiveId]
+  );
+}
+
+/** Decline directive (enough no votes). */
+export async function declineDirective(directiveId: string): Promise<void> {
+  if (!pool) {
+    const d = inMemoryStore.directives.get(directiveId);
+    if (d) d.status = 'declined';
+    return;
+  }
+  await pool.query(
+    "UPDATE directives SET status = 'declined' WHERE id = $1",
+    [directiveId]
+  );
+}
+
+/** Complete directive — objective achieved. */
+export async function completeDirective(directiveId: string, completedByAgentId?: string): Promise<void> {
+  if (!pool) {
+    const d = inMemoryStore.directives.get(directiveId);
+    if (d) {
+      d.status = 'completed';
+      if (completedByAgentId) {
+        d.completedBy = completedByAgentId;
+        d.completedAt = Date.now();
+      }
+    }
+    return;
+  }
+  await pool.query(
+    "UPDATE directives SET status = 'completed', completed_by = $2, completed_at = NOW() WHERE id = $1",
+    [directiveId, completedByAgentId || null]
+  );
+}
+
+/** Get the first unresolved directive submitted by an agent (submitter lock). */
+export async function getAgentActiveDirective(agentId: string): Promise<Directive | null> {
+  if (!pool) {
+    for (const d of inMemoryStore.directives.values()) {
+      if (d.submittedBy === agentId && ['active', 'passed', 'in_progress'].includes(d.status)) {
+        return d;
+      }
+    }
+    return null;
+  }
+  const result = await pool.query(`
+    SELECT d.*,
+      COUNT(DISTINCT CASE WHEN v.vote = 'yes' THEN v.agent_id END) as yes_votes,
+      COUNT(DISTINCT CASE WHEN v.vote = 'no' THEN v.agent_id END) as no_votes
+    FROM directives d
+    LEFT JOIN directive_votes v ON d.id = v.directive_id
+    WHERE d.submitted_by = $1 AND d.status IN ('active', 'passed', 'in_progress')
+    GROUP BY d.id
+    LIMIT 1
+  `, [agentId]);
+
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    type: row.type as 'grid' | 'guild' | 'bounty',
+    submittedBy: row.submitted_by,
+    guildId: row.guild_id || undefined,
+    description: row.description,
+    agentsNeeded: row.agents_needed,
+    expiresAt: new Date(row.expires_at).getTime(),
+    status: row.status as Directive['status'],
+    createdAt: new Date(row.created_at).getTime(),
+    yesVotes: parseInt(row.yes_votes),
+    noVotes: parseInt(row.no_votes),
+    targetX: row.target_x ?? undefined,
+    targetZ: row.target_z ?? undefined,
+    targetStructureGoal: row.target_structure_goal ?? undefined,
+    completedBy: row.completed_by ?? undefined,
+    completedAt: row.completed_at ? new Date(row.completed_at).getTime() : undefined
+  };
 }
 
 export async function rewardDirectiveVoters(directiveId: string, creditAmount: number): Promise<void> {

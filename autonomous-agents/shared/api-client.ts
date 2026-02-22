@@ -165,6 +165,12 @@ interface Directive {
   status: string;
   yesVotes: number;
   noVotes: number;
+  targetX?: number;
+  targetZ?: number;
+  targetStructureGoal?: number;
+  completedBy?: string;
+  completedAt?: number;
+  submittedBy?: string;
 }
 
 interface GuildSummary {
@@ -541,12 +547,25 @@ export class GridAPIClient {
   }
 
   /** Submit a grid directive (proposal for other agents to vote on). */
-  async submitDirective(description: string, agentsNeeded: number, hoursDuration: number): Promise<Directive> {
+  async submitDirective(
+    description: string,
+    agentsNeeded: number,
+    hoursDuration: number,
+    options?: { targetX?: number; targetZ?: number; targetStructureGoal?: number }
+  ): Promise<Directive> {
     return this.request<Directive>('POST', '/v1/grid/directives/grid', {
       description,
       agentsNeeded,
       hoursDuration,
+      ...(options?.targetX != null ? { targetX: options.targetX } : {}),
+      ...(options?.targetZ != null ? { targetZ: options.targetZ } : {}),
+      ...(options?.targetStructureGoal != null ? { targetStructureGoal: options.targetStructureGoal } : {}),
     });
+  }
+
+  /** Complete a directive (mark objective as achieved). */
+  async completeDirective(directiveId: string): Promise<void> {
+    await this.request('POST', `/v1/grid/directives/${directiveId}/complete`, {});
   }
 
   /** Get agent credits from dedicated credits endpoint. */

@@ -17,6 +17,7 @@ import {
   SubmitGuildDirectiveSchema,
   CreateGuildSchema,
   VoteDirectiveSchema,
+  CompleteDirectiveSchema,
   BUILD_CREDIT_CONFIG
 } from '../types.js';
 import type { BlueprintBuildPlan } from '../types.js';
@@ -1913,6 +1914,15 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const body = SubmitGridDirectiveSchema.parse(request.body);
 
+    // Submitter lock: reject if agent already has an unresolved directive
+    const existingDirective = await db.getAgentActiveDirective(agentId);
+    if (existingDirective) {
+      return reply.status(409).send({
+        error: 'You have an unresolved directive. Complete or let it expire before submitting another.',
+        existingDirectiveId: existingDirective.id,
+      });
+    }
+
     // Charge submission cost
     const submitCost = BUILD_CREDIT_CONFIG.DIRECTIVE_SUBMIT_COST;
     const agentCredits = await db.getAgentCredits(agentId);
@@ -1949,7 +1959,10 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       status: 'active' as const,
       createdAt: Date.now(),
       yesVotes: 0,
-      noVotes: 0
+      noVotes: 0,
+      targetX: body.targetX,
+      targetZ: body.targetZ,
+      targetStructureGoal: body.targetStructureGoal,
     };
 
     await db.createDirective(directive);
@@ -1979,6 +1992,15 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const body = SubmitGuildDirectiveSchema.parse(request.body);
     if (body.guildId !== guildId) return reply.status(403).send({ error: 'Wrong guild' });
 
+    // Submitter lock: reject if agent already has an unresolved directive
+    const existingDirective = await db.getAgentActiveDirective(agentId);
+    if (existingDirective) {
+      return reply.status(409).send({
+        error: 'You have an unresolved directive. Complete or let it expire before submitting another.',
+        existingDirectiveId: existingDirective.id,
+      });
+    }
+
     // Charge submission cost
     const submitCost = BUILD_CREDIT_CONFIG.DIRECTIVE_SUBMIT_COST;
     const agentCredits = await db.getAgentCredits(agentId);
@@ -2000,7 +2022,10 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       status: 'active' as const,
       createdAt: Date.now(),
       yesVotes: 0,
-      noVotes: 0
+      noVotes: 0,
+      targetX: body.targetX,
+      targetZ: body.targetZ,
+      targetStructureGoal: body.targetStructureGoal,
     };
 
     await db.createDirective(directive);
@@ -2031,10 +2056,11 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     await db.writeTerminalMessage(termMsg);
     world.broadcastTerminalMessage(termMsg);
 
-    // Check if directive should auto-complete (yes_votes >= agentsNeeded)
+    // Check if directive should be passed (yes_votes >= agentsNeeded)
     const directiveData = await db.getDirective(id);
     if (directiveData && directiveData.status === 'active' && directiveData.yesVotes >= directiveData.agentsNeeded) {
-      await db.completeDirective(id);
+      await db.passDirective(id);
+      await db.activateDirective(id);
 
       // Reward only the submitter, capped at CREDIT_CAP
       const reward = BUILD_CREDIT_CONFIG.DIRECTIVE_COMPLETION_REWARD;
@@ -2042,18 +2068,70 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
       const submitter = await db.getAgent(directiveData.submittedBy);
       const submitterName = submitter?.name || directiveData.submittedBy;
-      const completionTermMsg = {
+      const passedTermMsg = {
         id: 0,
         agentId: 'system',
         agentName: 'System',
-        message: `Directive completed: "${directiveData.description}" — ${submitterName} earned ${reward} credits.`,
+        message: `Directive passed: "${directiveData.description}" — now in progress. ${submitterName} earned ${reward} credits.`,
         createdAt: Date.now()
       };
-      await db.writeTerminalMessage(completionTermMsg);
-      world.broadcastTerminalMessage(completionTermMsg);
+      await db.writeTerminalMessage(passedTermMsg);
+      world.broadcastTerminalMessage(passedTermMsg);
+    }
+
+    // Check if directive should be declined (no_votes >= agentsNeeded)
+    if (directiveData && directiveData.status === 'active' && directiveData.noVotes >= directiveData.agentsNeeded) {
+      await db.declineDirective(id);
+
+      const declinedTermMsg = {
+        id: 0,
+        agentId: 'system',
+        agentName: 'System',
+        message: `Directive declined: "${directiveData.description}" — agents voted it down.`,
+        createdAt: Date.now()
+      };
+      await db.writeTerminalMessage(declinedTermMsg);
+      world.broadcastTerminalMessage(declinedTermMsg);
     }
 
     return { success: true };
+  });
+
+  // --- Complete Directive (objective achieved) ---
+
+  fastify.post('/v1/grid/directives/:id/complete', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const { id } = request.params as { id: string };
+
+    const directiveData = await db.getDirective(id);
+    if (!directiveData) {
+      return reply.status(404).send({ error: 'Directive not found' });
+    }
+
+    if (directiveData.status !== 'passed' && directiveData.status !== 'in_progress') {
+      return reply.status(400).send({
+        error: `Directive cannot be completed — current status is "${directiveData.status}". Only passed or in_progress directives can be completed.`,
+      });
+    }
+
+    await db.completeDirective(id, agentId);
+
+    // No credit reward — building itself earns credits
+    const completer = await db.getAgent(agentId);
+    const completerName = completer?.name || agentId;
+    const completionTermMsg = {
+      id: 0,
+      agentId: 'system',
+      agentName: 'System',
+      message: `Directive completed by ${completerName}: "${directiveData.description}" — objective achieved!`,
+      createdAt: Date.now()
+    };
+    await db.writeTerminalMessage(completionTermMsg);
+    world.broadcastTerminalMessage(completionTermMsg);
+
+    return { success: true, completed: true };
   });
 
   // --- Guilds ---

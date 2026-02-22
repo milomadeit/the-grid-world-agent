@@ -79,7 +79,7 @@ interface BootstrapConfig {
 
 interface AgentDecision {
   thought: string;
-  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'TRANSFER_CREDITS' | 'IDLE';
+  action: 'MOVE' | 'CHAT' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'COMPLETE_DIRECTIVE' | 'TRANSFER_CREDITS' | 'IDLE';
   payload?: Record<string, unknown>;
 }
 
@@ -397,6 +397,9 @@ async function emitActionUpdateChat(
     return true;
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    if (/429|cadence too fast|suppressed/i.test(errMsg)) {
+      return false;  // silently swallow rate-limit on narration
+    }
     console.warn(`[${agentName}] Action update chat failed: ${errMsg.slice(0, 140)}`);
     return false;
   }
@@ -597,6 +600,53 @@ function chooseLocalMoveTarget(
   };
 }
 
+/**
+ * Escape to a completely different node when stuck in repeated build failures.
+ * Uses serverSpatial.nodes to find a node with lower density (more open space).
+ */
+function chooseEscapeNodeTarget(
+  self: { x: number; z: number } | undefined,
+  serverSpatial: { nodes?: Array<Record<string, any>> } | null,
+): { x: number; z: number } | null {
+  if (!self) return null;
+  const nodes = serverSpatial?.nodes;
+  if (!Array.isArray(nodes) || nodes.length < 2) return null;
+
+  // Find nearest node (the one we're stuck at)
+  let nearestIdx = 0;
+  let nearestDist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < nodes.length; i++) {
+    const nx = Number(nodes[i]?.center?.x);
+    const nz = Number(nodes[i]?.center?.z);
+    if (!Number.isFinite(nx) || !Number.isFinite(nz)) continue;
+    const d = Math.hypot(nx - self.x, nz - self.z);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearestIdx = i;
+    }
+  }
+
+  // Score all other nodes: prefer lower structure count + moderate distance
+  const candidates = nodes
+    .map((node, idx) => {
+      if (idx === nearestIdx) return null;
+      const cx = Number(node?.center?.x);
+      const cz = Number(node?.center?.z);
+      if (!Number.isFinite(cx) || !Number.isFinite(cz)) return null;
+      const dist = Math.hypot(cx - self.x, cz - self.z);
+      const structureCount = Number(node?.structureCount) || 0;
+      // Prefer less-dense nodes at moderate distance (100-500u is sweet spot)
+      const distScore = Math.abs(dist - 300) / 100;
+      const densityScore = structureCount / 10;
+      return { x: Math.round(cx), z: Math.round(cz), score: distScore + densityScore };
+    })
+    .filter((c): c is { x: number; z: number; score: number } => c !== null);
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.score - b.score);
+  return { x: candidates[0].x, z: candidates[0].z };
+}
+
 function roundTo(value: number, decimals = 2): number {
   const scale = 10 ** decimals;
   return Math.round(value * scale) / scale;
@@ -755,6 +805,10 @@ function pickFallbackBlueprintName(
     dominantCategory?: string;
     /** Categories missing at the current node (lowercase). */
     missingCategories?: string[];
+    /** Agent role for role-aware filtering. */
+    agentRole?: string;
+    /** Structure count at the nearest node (for biggest-first logic). */
+    nearestNodeStructures?: number;
   } = {},
 ): string | null {
   const allowBridge = options.allowBridge === true;
@@ -772,13 +826,37 @@ function pickFallbackBlueprintName(
       if (!allowBridge && /(^|_)BRIDGE(_|$)/i.test(name)) return false;
       return true;
     })
-    .map(([name, bp]) => ({ name, category: String(bp?.category || '').toLowerCase(), tags: Array.isArray(bp?.tags) ? bp.tags.map((t: any) => String(t).toLowerCase()) : [] }));
+    .map(([name, bp]) => ({ name, category: String(bp?.category || '').toLowerCase(), tags: Array.isArray(bp?.tags) ? bp.tags.map((t: any) => String(t).toLowerCase()) : [], totalPrimitives: Number(bp?.totalPrimitives) || 0 }));
 
   if (pool.length === 0) return null;
 
   // Prefer blueprints not recently used (avoid repetition)
   const fresh = pool.filter((b) => !recentSet.has(b.name.toUpperCase()));
-  const candidates = fresh.length > 0 ? fresh : pool;
+  let candidates = fresh.length > 0 ? fresh : pool;
+
+  // Role-aware filtering
+  const role = (options.agentRole || '').toLowerCase();
+  if (role === 'mouse') {
+    const megaCandidates = candidates.filter(b => b.tags.includes('mega') || b.totalPrimitives >= 25);
+    if (megaCandidates.length > 0) {
+      candidates = megaCandidates;
+    } else {
+      const largeCandidates = candidates.filter(b => b.totalPrimitives >= 15);
+      if (largeCandidates.length > 0) candidates = largeCandidates;
+    }
+  } else if (role === 'oracle') {
+    const infraCandidates = candidates.filter(b =>
+      b.category === 'infrastructure' || b.tags.some((t: string) => /road|bridge|connector|infrastructure/.test(t))
+    );
+    if (infraCandidates.length > 0) candidates = infraCandidates;
+  }
+
+  // Biggest-first at young nodes: prefer large anchoring blueprints
+  const nodeStructures = options.nearestNodeStructures ?? Infinity;
+  if (nodeStructures < 25 && role !== 'oracle') {
+    const bigCandidates = candidates.filter(b => b.totalPrimitives >= 12);
+    if (bigCandidates.length > 0) candidates = bigCandidates;
+  }
 
   // Category-aware selection: if the node has missing categories, strongly prefer
   // blueprints that fill those gaps. If we know the dominant category, deprioritize it.
@@ -788,7 +866,7 @@ function pickFallbackBlueprintName(
   if (missing.length > 0) {
     // Match by category field or tags containing the missing category name
     const gapFillers = candidates.filter(b =>
-      missing.some(m => b.category.includes(m) || b.tags.some(t => t.includes(m)))
+      missing.some(m => b.category.includes(m) || b.tags.some((t: string) => t.includes(m)))
     );
     if (gapFillers.length > 0) {
       return gapFillers[Math.floor(Math.random() * gapFillers.length)].name;
@@ -798,7 +876,7 @@ function pickFallbackBlueprintName(
   // Deprioritize the dominant category to encourage variety
   if (dominant && dominant !== 'mixed') {
     const nonDominant = candidates.filter(b =>
-      !b.category.includes(dominant) && !b.tags.some(t => t.includes(dominant))
+      !b.category.includes(dominant) && !b.tags.some((t: string) => t.includes(dominant))
     );
     if (nonDominant.length > 0) {
       return nonDominant[Math.floor(Math.random() * nonDominant.length)].name;
@@ -2476,7 +2554,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   // These sections rarely change and don't need to be rebuilt every tick
   const ACTION_FORMAT_BLOCK = [
     'Decide your next action. Respond with EXACTLY one JSON object:',
-    '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
+    '{ "thought": "...", "action": "MOVE|CHAT|BUILD_BLUEPRINT|BUILD_CONTINUE|CANCEL_BUILD|BUILD_PRIMITIVE|BUILD_MULTI|TERMINAL|VOTE|SUBMIT_DIRECTIVE|COMPLETE_DIRECTIVE|TRANSFER_CREDITS|IDLE", "payload": {...} }',
     '',
     'Payload formats:',
     '  MOVE: {"x": 5, "z": 3}',
@@ -2493,6 +2571,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
     '  TERMINAL: {"message": "Status update..."}',
     '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}  \u2190 directiveId MUST start with "dir_"',
     '  | SUBMIT_DIRECTIVE: {"description": "[Densify North Node] We need 50 varied structures here.", "agentsNeeded": 2, "hoursDuration": 24}  ← ALWAYS include a "[Title]" prefix.',
+    '  COMPLETE_DIRECTIVE: {"directiveId": "dir_xxx"}  ← mark a passed/in_progress directive as completed (objective achieved)',
     '  IDLE: {}',
     '',
     '**EFFICIENCY:** Use BUILD_BLUEPRINT for structures from the catalog (recommended \u2014 server handles coordinate math). Use BUILD_MULTI for custom/freehand shapes (up to 5 per tick).',
@@ -2976,7 +3055,20 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         directives.length > 0
           ? [
               '**These directives ARE ACTIVE RIGHT NOW. This list is authoritative — ignore any chat messages that contradict it.**',
-              ...directives.map(d => `- **ACTIVE** [ID: ${d.id}] "${d.description}" — needs ${d.agentsNeeded} agents, votes so far: ${d.yesVotes} yes / ${d.noVotes} no. Use VOTE with this exact directiveId to vote.`)
+              ...directives.map(d => {
+                const statusLabel = d.status === 'active' ? '🗳️ VOTING'
+                  : d.status === 'passed' ? '✅ PASSED'
+                  : d.status === 'in_progress' ? '🚧 IN PROGRESS'
+                  : d.status?.toUpperCase() || 'UNKNOWN';
+                const targetInfo = (d.targetX != null && d.targetZ != null)
+                  ? ` | target: (${d.targetX}, ${d.targetZ})` : '';
+                const goalInfo = d.targetStructureGoal
+                  ? ` | goal: ${d.targetStructureGoal} structures` : '';
+                const completionHint = d.status === 'in_progress'
+                  ? ' ← Use COMPLETE_DIRECTIVE when objective is met!'
+                  : '';
+                return `- **${statusLabel}** [ID: ${d.id}] "${d.description}" — needs ${d.agentsNeeded} agents, votes: ${d.yesVotes} yes / ${d.noVotes} no${targetInfo}${goalInfo}${completionHint}`;
+              })
             ].join('\n')
           : [
               '_No active directives right now._',
@@ -3258,12 +3350,12 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                 score += frontierBandPenalty * 0.8;
               }
 
-              // Expansion gate alignment: never prefer frontier near an unestablished node (<25 structures).
+              // Mouse is the founder — prefer frontier at unestablished nodes to pioneer new districts.
               if (!spotNodeEstablished) {
-                if (spot.type === 'frontier') score += 90;
-                if (spot.nearestBuild >= NODE_EXPANSION_MIN_DISTANCE) score += 70;
-                if (spot.type === 'growth') score -= 26;
-                if (spot.type === 'connector') score -= 10;
+                if (spot.type === 'frontier') score -= 15;
+                if (spot.nearestBuild >= NODE_EXPANSION_MIN_DISTANCE) score -= 10;
+                if (spot.type === 'growth') score -= 8;
+                if (spot.type === 'connector') score += 5;
               } else if (!spotNodeMega) {
                 if (spot.type === 'growth') score -= 14;
                 if (spot.type === 'frontier') score -= 18;
@@ -3376,6 +3468,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           if (lastBuildError) {
             warnings.push(`**⚠️ LAST BUILD FAILED:** ${lastBuildError}`);
             warnings.push('**FIX:** Use a coordinate from SAFE BUILD SPOTS above as your anchorX/anchorZ. Do NOT guess — use the exact coordinates listed.');
+          }
+          if (consecutiveBuildFails >= 6) {
+            warnings.push(`**🚨 CRITICAL: ${consecutiveBuildFails} CONSECUTIVE BUILD FAILURES. This area is saturated. You WILL be moved to a different node.**`);
           }
           if (consecutiveBuildFails >= 3) {
             // Show nearest 3 safe spots directly in the warning
@@ -3507,8 +3602,11 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           directives.length > 0 &&
           (lowerAgentName === 'clank' || lowerAgentName === 'oracle' || isMouseAgent)
         ) {
-          const dirId = String(directives[0]?.id || '');
-          if (dirId && !votedOnSet.has(dirId)) {
+          // Only vote on directives with status 'active' (still in voting phase)
+          const votable = directives.filter(d => d.status === 'active');
+          const target = votable.find(d => !votedOnSet.has(String(d.id)));
+          if (target) {
+            const dirId = String(target.id);
             const thought = pickRandom([
               `That directive looks solid. I'm voting yes to get things moving.`,
               `I'm on board with this directive. Voting yes.`,
@@ -3529,6 +3627,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           if (lastTick > 0 && tickNow - lastTick < DIRECTIVE_SUBMIT_MIN_TICKS) return null;
 
           let description = '[Base Camp Densification] Densify the nearest node to 25+ structures (varied BLUEPRINTS) before pushing frontier lanes.';
+          let targetX: number | undefined;
+          let targetZ: number | undefined;
+          let targetStructureGoal: number | undefined;
           if (self && cachedNodes.length > 0) {
             const myPos = { x: self.position.x, z: self.position.z };
             const nearest = cachedNodes.reduce((best, n) => {
@@ -3536,6 +3637,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               const bestD = Math.hypot(best.center.x - myPos.x, best.center.z - myPos.z);
               return d < bestD ? n : best;
             });
+            targetX = Math.round(nearest.center.x);
+            targetZ = Math.round(nearest.center.z);
+            targetStructureGoal = NODE_EXPANSION_GATE;
             if (nearest.count <= 3) {
               // Anchor directive for young nodes
               description = `[${nearest.name} Anchor] Found "${nearest.name}" — place a large founding anchor blueprint 50+ units from other nodes to bypass tier gates, then densify around it.`;
@@ -3544,6 +3648,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             }
           } else if (self) {
             description = `[Initial District Founding] Found a new district near (${Math.round(self.position.x)}, ${Math.round(self.position.z)}) with a large founding anchor, then densify to ${NODE_EXPANSION_GATE}+ structures.`;
+            targetX = Math.round(self.position.x);
+            targetZ = Math.round(self.position.z);
+            targetStructureGoal = NODE_EXPANSION_GATE;
           }
 
           const thought = pickRandom([
@@ -3560,8 +3667,31 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               description,
               agentsNeeded: 2,
               hoursDuration: 24,
+              ...(targetX != null ? { targetX } : {}),
+              ...(targetZ != null ? { targetZ } : {}),
+              ...(targetStructureGoal != null ? { targetStructureGoal } : {}),
             },
           };
+        }
+
+        // Auto-complete in_progress directives when structure goal is met
+        const inProgressDirectives = directives.filter(d => d.status === 'in_progress');
+        for (const d of inProgressDirectives) {
+          if (d.targetStructureGoal && d.targetX != null && d.targetZ != null && cachedNodes.length > 0) {
+            // Find the nearest node to the directive's target
+            const nearestToTarget = cachedNodes.reduce((best, n) => {
+              const dist = Math.hypot(n.center.x - (d.targetX!), n.center.z - (d.targetZ!));
+              const bestDist = Math.hypot(best.center.x - (d.targetX!), best.center.z - (d.targetZ!));
+              return dist < bestDist ? n : best;
+            });
+            if (nearestToTarget.count >= d.targetStructureGoal) {
+              return {
+                thought: `Directive "${d.description}" is complete! Target node "${nearestToTarget.name}" has ${nearestToTarget.count} structures (goal: ${d.targetStructureGoal}).`,
+                action: 'COMPLETE_DIRECTIVE',
+                payload: { directiveId: d.id },
+              };
+            }
+          }
         }
 
         return null;
@@ -3573,7 +3703,33 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       let decision: AgentDecision = { thought: 'Initializing tick.', action: 'IDLE' };
       let rateLimitWaitThisTick = false;
-      if (!blueprintStatus?.active && priorConsecutiveBuildFails >= 4) {
+      let escapeMoveTriggered = false;
+      if (!blueprintStatus?.active && priorConsecutiveBuildFails >= 6) {
+        // Tier 2: Escape to a completely different node
+        const escapeTarget = chooseEscapeNodeTarget(
+          self?.position ? { x: self.position.x, z: self.position.z } : undefined,
+          serverSpatial,
+        );
+        const moveTarget = escapeTarget || chooseLoopBreakMoveTarget(
+          self?.position ? { x: self.position.x, z: self.position.z } : undefined,
+          safeSpots,
+          otherAgents,
+        );
+        escapeMoveTriggered = Boolean(moveTarget);
+        if (moveTarget) {
+          decision = {
+            thought: `CRITICAL: ${priorConsecutiveBuildFails} consecutive build failures — this area is saturated. Escaping to a different node at (${moveTarget.x}, ${moveTarget.z}).`,
+            action: 'MOVE',
+            payload: moveTarget,
+          };
+        } else {
+          decision = {
+            thought: `${priorConsecutiveBuildFails} consecutive build failures. Area is saturated but no escape node found. Waiting for space to clear.`,
+            action: 'IDLE',
+          };
+        }
+      } else if (!blueprintStatus?.active && priorConsecutiveBuildFails >= 4) {
+        // Tier 1: Local move within current node
         const moveTarget = chooseLocalMoveTarget(
           self?.position ? { x: self.position.x, z: self.position.z } : undefined,
           safeSpots,
@@ -3632,7 +3788,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           let roleOverride = false;
 
           // Mouse at a truly dense node → prefer MOVE to find frontier
-          if (agentRole === 'mouse' && (nearestNodeStructuresAtSelf ?? 0) >= 40) {
+          if (agentRole === 'mouse' && (nearestNodeStructuresAtSelf ?? 0) >= NODE_STRONG_DENSITY_TARGET) {
             const moveTarget = chooseLoopBreakMoveTarget(selfPosForPolicy, safeSpots, otherAgents);
             if (moveTarget) {
               decision = {
@@ -3661,6 +3817,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               recentNames: recentBlueprintNames,
               dominantCategory: currentNearestNode?.dominantCategory,
               missingCategories: currentNearestNode?.missingCategories,
+              agentRole,
+              nearestNodeStructures: nearestNodeStructuresAtSelf,
             });
             const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPosForPolicy);
             const canStartFallbackNow = Boolean(
@@ -3828,6 +3986,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           recentNames: recentBlueprintNames,
           dominantCategory: currentNearestNode?.dominantCategory,
           missingCategories: currentNearestNode?.missingCategories,
+          agentRole,
+          nearestNodeStructures: nearestNodeStructuresAtSelf,
         });
         const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
         if (fallbackBlueprint && fallbackAnchor) {
@@ -3874,6 +4034,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               recentNames: recentBlueprintNames,
               dominantCategory: currentNearestNode?.dominantCategory,
               missingCategories: currentNearestNode?.missingCategories,
+              agentRole,
+              nearestNodeStructures: nearestNodeStructuresAtSelf,
             });
             if (fallbackBlueprint) {
               if (requestedName && requestedBlueprint?.advanced) {
@@ -3897,6 +4059,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                 recentNames: recentBlueprintNames,
                 dominantCategory: currentNearestNode?.dominantCategory,
                 missingCategories: currentNearestNode?.missingCategories,
+                agentRole,
+                nearestNodeStructures: nearestNodeStructuresAtSelf,
               });
               if (fallbackNonBridge && !/(^|_)BRIDGE(_|$)/i.test(fallbackNonBridge)) {
                 console.log(
@@ -4005,6 +4169,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
                 excludeNames: ['MEGA_SERVER_SPIRE'],
                 dominantCategory: currentNearestNode?.dominantCategory,
                 missingCategories: currentNearestNode?.missingCategories,
+                agentRole,
+                nearestNodeStructures: nearestNodeStructuresAtSelf,
               });
               if (fallbackNonSpire) {
                 console.log(`[${agentName}] Mouse spire policy: rejecting MEGA_SERVER_SPIRE (${spireReasons.join('; ')}); using ${fallbackNonSpire}`);
@@ -4113,6 +4279,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
               recentNames: recentBlueprintNames,
               dominantCategory: currentNearestNode?.dominantCategory,
               missingCategories: currentNearestNode?.missingCategories,
+              agentRole,
+              nearestNodeStructures: nearestNodeStructuresAtSelf,
             });
             const chosenBlueprint =
               requestedName && requestedBlueprint && !requestedBlueprint.advanced
@@ -4158,6 +4326,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
             recentNames: recentBlueprintNames,
             dominantCategory: currentNearestNode?.dominantCategory,
             missingCategories: currentNearestNode?.missingCategories,
+            agentRole,
+            nearestNodeStructures: nearestNodeStructuresAtSelf,
           });
           const fallbackAnchor = pickSafeBuildAnchor(safeSpots, selfPos);
           if (fallbackBlueprint && fallbackAnchor) {
@@ -4381,14 +4551,16 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           ? (Number(world.tick) || prevDirectiveVoteTick)
           : prevDirectiveVoteTick;
 
-      // Track consecutive build failures — only reset on successful build
+      // Track consecutive build failures — only reset on successful build or escape move
       const prevBuildFails = parseInt(workingMemory?.match(/Consecutive build failures: (\d+)/)?.[1] || '0');
       const buildActions = ['BUILD_PRIMITIVE', 'BUILD_MULTI', 'BUILD_BLUEPRINT', 'BUILD_CONTINUE'];
       const wasBuildAction = buildActions.includes(decision.action);
-      const consecutiveBuildFails = wasBuildAction && buildError
-        ? prevBuildFails + 1
-        : (wasBuildAction && !buildError) ? 0
-        : prevBuildFails;
+      const consecutiveBuildFails = escapeMoveTriggered
+        ? 0
+        : wasBuildAction && buildError
+          ? prevBuildFails + 1
+          : (wasBuildAction && !buildError) ? 0
+          : prevBuildFails;
 
       // Track build plan across ticks
       const prevBuildPlan = workingMemory?.match(/Current build plan: (.+)/)?.[1] || '';
@@ -5384,9 +5556,23 @@ async function executeAction(
         const directive = await api.submitDirective(
           p.description as string,
           (p.agentsNeeded as number) || 2,
-          (p.hoursDuration as number) || 24
+          (p.hoursDuration as number) || 24,
+          {
+            targetX: typeof p.targetX === 'number' ? p.targetX : undefined,
+            targetZ: typeof p.targetZ === 'number' ? p.targetZ : undefined,
+            targetStructureGoal: typeof p.targetStructureGoal === 'number' ? p.targetStructureGoal : undefined,
+          }
         );
         console.log(`[${name}] Submitted directive: ${directive.id} — "${(p.description as string).slice(0, 60)}"`);
+        break;
+
+      case 'COMPLETE_DIRECTIVE':
+        if (!p.directiveId || typeof p.directiveId !== 'string' || !p.directiveId.startsWith('dir_')) {
+          console.warn(`[${name}] COMPLETE_DIRECTIVE requires a valid directiveId (e.g. "dir_xxx"), got: "${p.directiveId}". Skipping.`);
+          break;
+        }
+        await api.completeDirective(p.directiveId as string);
+        console.log(`[${name}] Completed directive: ${p.directiveId}`);
         break;
 
       case 'TRANSFER_CREDITS':

@@ -248,10 +248,15 @@ export const DirectiveSchema = z.object({
   description: z.string(),
   agentsNeeded: z.number(),
   expiresAt: z.number(),
-  status: z.enum(['active', 'completed', 'expired']),
+  status: z.enum(['active', 'passed', 'in_progress', 'completed', 'declined', 'expired']),
   createdAt: z.number(),
   yesVotes: z.number().default(0),
-  noVotes: z.number().default(0)
+  noVotes: z.number().default(0),
+  targetX: z.number().optional(),
+  targetZ: z.number().optional(),
+  targetStructureGoal: z.number().optional(),
+  completedBy: z.string().optional(),
+  completedAt: z.number().optional()
 });
 
 export type Directive = z.infer<typeof DirectiveSchema>;
@@ -273,14 +278,20 @@ export const WriteTerminalSchema = z.object({
 export const SubmitGridDirectiveSchema = z.object({
   description: z.string(),
   agentsNeeded: z.number().min(1),
-  hoursDuration: z.number().min(1).max(168)
+  hoursDuration: z.number().min(1).max(168),
+  targetX: z.number().optional(),
+  targetZ: z.number().optional(),
+  targetStructureGoal: z.number().optional()
 });
 
 export const SubmitGuildDirectiveSchema = z.object({
   guildId: z.string(),
   description: z.string(),
   agentsNeeded: z.number().min(1),
-  hoursDuration: z.number().min(1).max(168)
+  hoursDuration: z.number().min(1).max(168),
+  targetX: z.number().optional(),
+  targetZ: z.number().optional(),
+  targetStructureGoal: z.number().optional()
 });
 
 export const CreateGuildSchema = z.object({
@@ -290,6 +301,10 @@ export const CreateGuildSchema = z.object({
 
 export const VoteDirectiveSchema = z.object({
   vote: z.enum(['yes', 'no'])
+});
+
+export const CompleteDirectiveSchema = z.object({
+  directiveId: z.string()
 });
 
 // Database Row Types for Grid
@@ -326,6 +341,11 @@ export interface DirectiveRow {
   expires_at: Date;
   status: string;
   created_at: Date;
+  target_x: number | null;
+  target_z: number | null;
+  target_structure_goal: number | null;
+  completed_by: string | null;
+  completed_at: Date | null;
 }
 
 export interface DirectiveVoteRow {
