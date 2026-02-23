@@ -9,29 +9,47 @@ import { WorldPrimitive as PrimitiveType } from '../../types';
 
 const geometryCache = new Map<string, THREE.BufferGeometry>();
 
+function normalizeShape(shape: string): string {
+  switch ((shape || '').toLowerCase()) {
+    case 'torus-knot':
+    case 'torus_knot':
+    case 'torusknot':
+      return 'torusKnot';
+    case 'dodeca':
+      return 'dodecahedron';
+    case 'icosa':
+      return 'icosahedron';
+    case 'octa':
+      return 'octahedron';
+    default:
+      return shape;
+  }
+}
+
 function getGeometry(shape: string): THREE.BufferGeometry {
-  let geo = geometryCache.get(shape);
+  const normalizedShape = normalizeShape(shape);
+  let geo = geometryCache.get(normalizedShape);
   if (geo) return geo;
 
-  switch (shape) {
+  switch (normalizedShape) {
     case 'box':          geo = new THREE.BoxGeometry(1, 1, 1); break;
-    case 'sphere':       geo = new THREE.SphereGeometry(0.5, 32, 32); break;
-    case 'cylinder':     geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); break;
-    case 'cone':         geo = new THREE.ConeGeometry(0.5, 1, 32); break;
+    case 'sphere':       geo = new THREE.SphereGeometry(0.5, 16, 12); break;
+    case 'cylinder':     geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16); break;
+    case 'cone':         geo = new THREE.ConeGeometry(0.5, 1, 16); break;
     case 'plane':        geo = new THREE.PlaneGeometry(1, 1); break;
-    case 'torus':        geo = new THREE.TorusGeometry(0.5, 0.2, 16, 32); break;
-    case 'circle':       geo = new THREE.CircleGeometry(0.5, 32); break;
+    case 'torus':        geo = new THREE.TorusGeometry(0.5, 0.2, 12, 18); break;
+    case 'circle':       geo = new THREE.CircleGeometry(0.5, 24); break;
     case 'dodecahedron': geo = new THREE.DodecahedronGeometry(0.5, 0); break;
     case 'icosahedron':  geo = new THREE.IcosahedronGeometry(0.5, 0); break;
     case 'octahedron':   geo = new THREE.OctahedronGeometry(0.5, 0); break;
-    case 'ring':         geo = new THREE.RingGeometry(0.25, 0.5, 32); break;
+    case 'ring':         geo = new THREE.RingGeometry(0.25, 0.5, 24); break;
     case 'tetrahedron':  geo = new THREE.TetrahedronGeometry(0.5, 0); break;
-    case 'torusKnot':    geo = new THREE.TorusKnotGeometry(0.4, 0.15, 64, 16); break;
-    case 'capsule':      geo = new THREE.CapsuleGeometry(0.3, 0.5, 16, 32); break;
+    case 'torusKnot':    geo = new THREE.TorusKnotGeometry(0.4, 0.15, 32, 8); break;
+    case 'capsule':      geo = new THREE.CapsuleGeometry(0.3, 0.5, 8, 12); break;
     default:             geo = new THREE.BoxGeometry(1, 1, 1); break;
   }
 
-  geometryCache.set(shape, geo);
+  geometryCache.set(normalizedShape, geo);
   return geo;
 }
 
@@ -133,6 +151,7 @@ function ShapeInstances({
     <instancedMesh
       ref={meshRef}
       args={[geometry, sharedMaterial, capacity]}
+      frustumCulled={false}
       onClick={handleClick}
       castShadow
       receiveShadow
@@ -157,10 +176,11 @@ function InstancedPrimitives() {
   const groups = useMemo(() => {
     const map = new Map<string, PrimitiveType[]>();
     for (const prim of worldPrimitives) {
-      let list = map.get(prim.shape);
+      const normalizedShape = normalizeShape(prim.shape);
+      let list = map.get(normalizedShape);
       if (!list) {
         list = [];
-        map.set(prim.shape, list);
+        map.set(normalizedShape, list);
       }
       list.push(prim);
     }
