@@ -64,6 +64,7 @@ const App: React.FC = () => {
   });
 
   const [cameraLocked, setCameraLocked] = useState(false);
+  const [sceneRendered, setSceneRendered] = useState(false);
 
   // Allow external control of camera follow via URL param (for autonomous agent vision)
   const [mapView, setMapView] = useState(false);
@@ -302,6 +303,12 @@ const App: React.FC = () => {
     setConnectionError(null);
   };
 
+  useEffect(() => {
+    if (!snapshotLoaded) {
+      setSceneRendered(false);
+    }
+  }, [snapshotLoaded]);
+
   // Immediate movement handling for responsiveness
   const handleMoveTo = useCallback((pos: Vector3) => {
     if (!playerId) return;
@@ -347,10 +354,10 @@ const App: React.FC = () => {
 
   return (
     <div className={`w-screen h-screen overflow-hidden relative transition-colors duration-1000 ${isDarkMode ? 'dark' : ''}`}>
-      {/* Loading overlay — visible until world:snapshot arrives */}
+      {/* Loading overlay — visible until snapshot is received and first frame has rendered */}
       <div className={`fixed inset-0 z-[100] flex flex-col items-center justify-center
         transition-opacity duration-700
-        ${snapshotLoaded ? 'opacity-0 pointer-events-none' : 'opacity-100'}
+        ${snapshotLoaded && sceneRendered ? 'opacity-0 pointer-events-none' : 'opacity-100'}
         ${isDarkMode ? 'bg-[#070B18]' : 'bg-white'}`}>
         <div className="flex flex-col items-center gap-6">
           <div className="w-1 h-6 bg-violet-500 rounded-full shadow-lg shadow-violet-500/50" />
@@ -359,7 +366,7 @@ const App: React.FC = () => {
           </h1>
           <div className={`w-5 h-5 border-2 rounded-full animate-spin ${isDarkMode ? 'border-slate-700 border-t-violet-500' : 'border-slate-200 border-t-violet-500'}`} />
           <p className={`text-[10px] font-mono uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-            Connecting to the grid...
+            Loading world geometry...
           </p>
         </div>
       </div>
@@ -372,6 +379,7 @@ const App: React.FC = () => {
         onAgentDoubleClick={handleAgentDoubleClick}
         cameraLocked={cameraLocked}
         mapView={mapView}
+        onFirstFrameRendered={() => setSceneRendered(true)}
       />
 
       

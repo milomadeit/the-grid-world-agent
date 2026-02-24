@@ -21,6 +21,7 @@ interface WorldSceneProps {
   onAgentDoubleClick?: (agent: Agent) => void;
   cameraLocked?: boolean;
   mapView?: boolean;
+  onFirstFrameRendered?: () => void;
 }
 
 interface CameraControlsProps {
@@ -157,7 +158,19 @@ const CameraControls: React.FC<CameraControlsProps> = ({ cameraLocked, mapView }
   );
 };
 
-const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGridClick, onAgentDoubleClick, cameraLocked, mapView }) => {
+function FirstFrameSignal({ onFirstFrameRendered }: { onFirstFrameRendered?: () => void }) {
+  const firedRef = useRef(false);
+
+  useFrame(() => {
+    if (!onFirstFrameRendered || firedRef.current) return;
+    firedRef.current = true;
+    onFirstFrameRendered();
+  });
+
+  return null;
+}
+
+const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGridClick, onAgentDoubleClick, cameraLocked, mapView, onFirstFrameRendered }) => {
   const bgColor = isDarkMode ? COLORS.GROUND_DARK : COLORS.GROUND;
 
   // Read agents directly from the store — avoids re-renders from App passing new array refs
@@ -178,6 +191,8 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
         }}
       >
         <color attach="background" args={[bgColor]} />
+
+        <FirstFrameSignal onFirstFrameRendered={onFirstFrameRendered} />
 
         {/* Even, flat lighting - no directional bias */}
         <ambientLight intensity={isDarkMode ? 0.8 : 1.0} color="#ffffff" />
