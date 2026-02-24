@@ -20,6 +20,11 @@ const __dirname = dirname(__filename);
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const HOST = process.env.HOST || '0.0.0.0';
+const API_MAINTENANCE_MODE = true;
+const API_MAINTENANCE_MESSAGE = 'opgrid is under maintainence.';
+
+const API_LOCKED_PREFIXES = ['/v1/', '/api/', '/socket.io/'];
+const API_LOCKED_PATHS = new Set(['/health', '/skill.md', '/skill-runtime.md']);
 
 async function main() {
   console.log('[Server] Starting OpGrid Backend...');
@@ -57,6 +62,22 @@ async function main() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   });
+
+  if (API_MAINTENANCE_MODE) {
+    fastify.addHook('onRequest', async (request, reply) => {
+      const path = request.url.split('?')[0];
+      const isApiPath =
+        API_LOCKED_PATHS.has(path) ||
+        API_LOCKED_PREFIXES.some((prefix) => path.startsWith(prefix));
+
+      if (!isApiPath) return;
+
+      return reply
+        .code(503)
+        .header('Retry-After', '3600')
+        .send({ error: API_MAINTENANCE_MESSAGE });
+    });
+  }
 
   // Health check endpoint
   fastify.get('/health', async () => {
