@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import WorldScene from './components/World/WorldScene';
 import Overlay from './components/UI/Overlay';
-import AgentDMPanel from './components/UI/AgentDMPanel';
 import SpectatorHUD from './components/UI/SpectatorHUD';
 import WalletModal, { type ERC8004FormData } from './components/UI/WalletModal';
 import { Agent, WorldState, Vector3 } from './types';
@@ -38,7 +37,6 @@ const App: React.FC = () => {
   const setHasEntered = useWorldStore((s) => s.setHasEntered);
   const setPlayerId = useWorldStore((s) => s.setPlayerId);
   const setWalletAddress = useWorldStore((s) => s.setWalletAddress);
-  const setOwnership = useWorldStore((s) => s.setOwnership);
   const setFollowAgentId = useWorldStore((s) => s.setFollowAgentId);
   const setLastFollowAgentId = useWorldStore((s) => s.setLastFollowAgentId);
   const reset = useWorldStore((s) => s.reset);
@@ -283,7 +281,6 @@ const App: React.FC = () => {
 
       // Step 3: Update local state
       setPlayerId(agentId);
-      setOwnership(true, agentId);
       setHasEntered(true);
       setShowAccessModal(false);
       setConnectionState('connected');
@@ -486,9 +483,6 @@ const App: React.FC = () => {
           followedAgentId={followAgentId}
         />
       )}
-
-      {hasEntered && <AgentDMPanel isDarkMode={isDarkMode} />}
-
       {/* Simulation Indicator */}
       {isSimulating && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-md px-4 py-2 rounded-full shadow-lg text-violet-600 text-xs font-bold border border-violet-100 flex items-center space-x-2 z-50 animate-pulse">
