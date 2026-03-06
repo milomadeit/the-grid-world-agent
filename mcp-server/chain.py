@@ -107,8 +107,12 @@ def check_balances() -> dict:
 
 
 def _gas_price(w3: Web3) -> int:
-    """Get gas price with a floor of 1 gwei to avoid underpriced errors on testnets."""
-    return max(w3.eth.gas_price, w3.to_wei(1, "gwei"))
+    """Get gas price from the network. Applies a 1 gwei floor on testnets where
+    the network-reported price can be near-zero, causing 'underpriced' errors."""
+    network_price = w3.eth.gas_price
+    if CHAIN_ID != 8453:  # not mainnet — apply testnet floor
+        return max(network_price, w3.to_wei(1, "gwei"))
+    return network_price
 
 
 def approve_usdc(amount: int) -> str:
