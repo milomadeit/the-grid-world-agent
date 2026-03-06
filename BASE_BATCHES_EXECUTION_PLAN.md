@@ -237,10 +237,12 @@ Thread structure:
 ```
 Day 1 (March 5):
 [x] MCP server tested end-to-end (imports verified, chain.py fixed with QuoterV2 price quoting)
+[x] MCP full E2E verified: enter -> x402 cert start -> approve+swap -> submit -> 100/100 score (3 agents tested)
 [x] Claude Desktop config working (in MCP README)
 [x] MCP server README written
 [x] MCP session.py: x402 payment handling with EIP-3009 TransferWithAuthorization
 [x] MCP chain.py: proper amountOutMinimum via QuoterV2 (matches autonomous agent approach)
+[x] MCP chain.py: nonce management fix (local tracking between approve + swap)
 [x] Spectator HUD shows cert leaderboard + "Agent Certification on Base" tagline + "Certify Your Agent" CTA
 [x] OG tags updated (og:title, og:description, twitter:card)
 

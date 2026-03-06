@@ -105,7 +105,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "token_in": {"type": "string", "description": "Token to sell (default: USDC address)"},
                     "token_out": {"type": "string", "description": "Token to buy (default: WETH address)"},
-                    "amount_in": {"type": "integer", "description": "Amount in atomic units (default: 100000 = 0.10 USDC)"},
+                    "amount_in": {"type": "integer", "description": "Amount in atomic units (default: 1000000 = 1 USDC, certification minimum)"},
                     "slippage_bps": {"type": "integer", "description": "Slippage tolerance in basis points (default: 50)"},
                 },
                 "required": [],
@@ -209,7 +209,7 @@ async def _dispatch_tool(name: str, args: dict) -> dict:
         result = execute_swap(
             token_in=args.get("token_in", ""),
             token_out=args.get("token_out", ""),
-            amount_in=args.get("amount_in", 100000),
+            amount_in=args.get("amount_in", 1000000),
             slippage_bps=args.get("slippage_bps", 50),
         )
         return result

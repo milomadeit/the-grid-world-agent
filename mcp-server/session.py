@@ -63,9 +63,13 @@ class OpGridSession:
         return acct.address
 
     def _sign_timestamp(self) -> tuple[str, str]:
-        """Sign a timestamp message for OpGrid auth."""
+        """Sign a timestamp message for OpGrid auth.
+
+        The server expects: 'Enter OpGrid\\nTimestamp: <ISO timestamp>'
+        """
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
-        message = encode_defunct(text=timestamp)
+        auth_message = f"Enter OpGrid\nTimestamp: {timestamp}"
+        message = encode_defunct(text=auth_message)
         acct = Account.from_key(self.private_key)
         signed = acct.sign_message(message)
         return timestamp, signed.signature.hex()
@@ -117,6 +121,7 @@ class OpGridSession:
             sig_hex = f"0x{sig_hex}"
 
         payment_payload = {
+            "x402Version": 1,
             "scheme": payment_req.get("scheme", "exact"),
             "network": payment_req.get("network", "base-sepolia"),
             "payload": {
@@ -125,8 +130,8 @@ class OpGridSession:
                     "from": acct.address,
                     "to": pay_to,
                     "value": str(amount),
-                    "validAfter": 0,
-                    "validBefore": valid_before,
+                    "validAfter": "0",
+                    "validBefore": str(valid_before),
                     "nonce": f"0x{nonce.hex()}",
                 },
             },

@@ -106,6 +106,11 @@ def check_balances() -> dict:
     }
 
 
+def _gas_price(w3: Web3) -> int:
+    """Get gas price with a floor of 1 gwei to avoid underpriced errors on testnets."""
+    return max(w3.eth.gas_price, w3.to_wei(1, "gwei"))
+
+
 def approve_usdc(amount: int) -> str:
     """Approve USDC spending for the swap router."""
     w3 = get_w3()
@@ -114,9 +119,9 @@ def approve_usdc(amount: int) -> str:
 
     tx = usdc.functions.approve(SWAP_ROUTER_ADDRESS, amount).build_transaction({
         "from": acct.address,
-        "nonce": w3.eth.get_transaction_count(acct.address),
+        "nonce": w3.eth.get_transaction_count(acct.address, "pending"),
         "gas": 100000,
-        "gasPrice": w3.eth.gas_price,
+        "gasPrice": _gas_price(w3),
         "chainId": CHAIN_ID,
     })
     signed = acct.sign_transaction(tx)
@@ -150,7 +155,7 @@ def quote_swap(
 def execute_swap(
     token_in: str = "",
     token_out: str = "",
-    amount_in: int = 100000,  # 0.10 USDC default
+    amount_in: int = 1000000,  # 1 USDC default (cert minimum)
     slippage_bps: int = 50,
     fee: int = 3000,
 ) -> dict:
@@ -164,14 +169,29 @@ def execute_swap(
     """
     w3 = get_w3()
     acct = get_account()
+    gas_price = _gas_price(w3)
 
     # Default to USDC -> WETH
     token_in_addr = Web3.to_checksum_address(token_in) if token_in else USDC_ADDRESS
     token_out_addr = Web3.to_checksum_address(token_out) if token_out else WETH_ADDRESS
 
+    # Track nonce locally to avoid stale RPC reads between approve and swap
+    nonce = w3.eth.get_transaction_count(acct.address, "pending")
+
     # 1. Approve USDC if swapping from USDC
     if token_in_addr == USDC_ADDRESS:
-        approve_usdc(amount_in)
+        usdc = w3.eth.contract(address=USDC_ADDRESS, abi=APPROVE_ABI)
+        approve_tx = usdc.functions.approve(SWAP_ROUTER_ADDRESS, amount_in).build_transaction({
+            "from": acct.address,
+            "nonce": nonce,
+            "gas": 100000,
+            "gasPrice": gas_price,
+            "chainId": CHAIN_ID,
+        })
+        signed_approve = acct.sign_transaction(approve_tx)
+        approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+        w3.eth.wait_for_transaction_receipt(approve_hash, timeout=60)
+        nonce += 1
 
     # 2. Quote price via QuoterV2
     quoted_amount_out = quote_swap(token_in_addr, token_out_addr, amount_in, fee)
@@ -194,9 +214,9 @@ def execute_swap(
 
     tx = router.functions.exactInputSingle(params).build_transaction({
         "from": acct.address,
-        "nonce": w3.eth.get_transaction_count(acct.address),
+        "nonce": nonce,
         "gas": 300000,
-        "gasPrice": w3.eth.gas_price,
+        "gasPrice": gas_price,
         "chainId": CHAIN_ID,
         "value": 0,
     })
