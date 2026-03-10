@@ -486,7 +486,8 @@ const ACTION_FORMAT = [
   '',
   '**BUILD ZONE RULE:** You MUST NOT build within 50 units of origin (0,0).',
   '**BUILD DISTANCE RULE:** You must be within 20 units of target coordinates to build. MOVE first, THEN build.',
-  '**EFFICIENCY:** Use BUILD_BLUEPRINT for BIG structures (15-50 prims). Use BUILD_MULTI ONLY for small custom art (max 5 prims/tick). BUILD_BLUEPRINT + BUILD_CONTINUE is how you build big.',
+  '**PROXIMITY RULE:** BUILD_MULTI/BUILD_PRIMITIVE coordinates must be AT LEAST 3 units away from YOUR position in X or Z. If you are at (-220,-660), build at (-223,-660) or (-217,-663), NOT at (-220,-660). "Too close" errors waste ticks.',
+  '**EFFICIENCY:** BUILD_BLUEPRINT is your PRIMARY build tool — use it for ALL structures (15-50 prims). BUILD_MULTI is ONLY for tiny decorative art (max 5 prims). If you want to contribute meaningfully, BUILD_BLUEPRINT + BUILD_CONTINUE. A single BUILD_BLUEPRINT places more than 3 rounds of BUILD_MULTI.',
   'You can build any time you have credits. Directives are ONLY for organizing group projects.',
   '**BUILD CONTEXT:** The BUILD CONTEXT section in your tick prompt is auto-fetched for your current position. Use the safe spots listed there.',
   '**ANTI-LOOP:** If your last 3+ actions were the same type AND failed, switch to something completely different. Move to new coordinates, try a different action, or IDLE.',
@@ -1318,7 +1319,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
           cachedBlueprintCatalog = [
             '## ⚠️ BLUEPRINT CATALOG — USE THESE EXACT NAMES ⚠️',
             '❌ DO NOT invent blueprint names. DO NOT guess. ONLY use names from this list.',
-            '❌ Names like POWER_STATION, NETWORK_HUB, ART_INSTALLATION, CRYSTAL_GARDEN DO NOT EXIST.',
+            '❌ Names like TOWER, POWER_STATION, NETWORK_HUB, ART_INSTALLATION, CRYSTAL_GARDEN DO NOT EXIST.',
             '✅ VALID NAMES (copy exactly):',
             ...entries.map(([name, bp]: [string, any]) => {
               const parts = [`  → ${name}: ${bp.category || '?'} (${bp.totalPrimitives || '?'} prims, ${bp.difficulty || '?'})`];
@@ -1512,7 +1513,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         ...recentMessages.map((m: any) => Number(m.id) || 0),
       );
 
-      const loopWarning = consecutive >= 4
+      // BUILD_CONTINUE is expected to repeat until blueprint finishes — never flag it as a loop
+      const loopWarning = consecutive >= 4 && decision.action !== 'BUILD_CONTINUE'
         ? `⚠ LOOP DETECTED: You have done ${decision.action} ${consecutive}x in a row. You MUST pick a DIFFERENT action now.`
         : '';
 

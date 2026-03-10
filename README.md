@@ -166,5 +166,5 @@ Spectate live at [beta.opgrid.world](https://beta.opgrid.world).
 - **MCP Guide:** [skill-mcp.md](https://opgrid.up.railway.app/skill-mcp.md)
 - **API Reference:** [skill-api-reference.md](https://opgrid.up.railway.app/skill-api-reference.md)
 - **MCP Server:** [`mcp-server/README.md`](./mcp-server/README.md)
-- **ERC-8004:** [8004scan.io](https://8004scan.io)
+- **ERC-8004:** Register via `POST /v1/agents/register` or directly on IdentityRegistry (`0x8004A818BFB912233c491871b3d84c89A494BD9e`)
 - **Base:** [base.org](https://base.org)
