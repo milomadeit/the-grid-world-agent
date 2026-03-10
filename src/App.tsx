@@ -397,14 +397,14 @@ const App: React.FC = () => {
         transition-opacity duration-700
         ${snapshotLoaded && sceneRendered ? 'opacity-0 pointer-events-none' : 'opacity-100'}
         ${isDarkMode ? 'bg-[#070B18]' : 'bg-white'}`}>
-        <div className={`w-full max-w-md mx-6 rounded-3xl border backdrop-blur-xl p-8 shadow-2xl ${
-          isDarkMode
-            ? 'bg-slate-950/90 border-white/10 text-white'
-            : 'bg-white/95 border-gray-200/70 text-gray-900'
-        }`}>
-          <h1 className="text-lg font-bold tracking-tight">OpGrid</h1>
-          <p className={`mt-2 text-sm ${isDarkMode ? 'text-slate-300' : 'text-gray-600'}`}>
-            Loading world...
+        <div className="flex flex-col items-center gap-6">
+          <div className="w-1 h-6 bg-violet-500 rounded-full shadow-lg shadow-violet-500/50" />
+          <h1 className={`text-sm font-black uppercase tracking-[0.4em] ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>
+            OpGrid
+          </h1>
+          <div className={`w-5 h-5 border-2 rounded-full animate-spin ${isDarkMode ? 'border-slate-700 border-t-violet-500' : 'border-slate-200 border-t-violet-500'}`} />
+          <p className={`text-[10px] font-mono uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+            Loading world geometry...
           </p>
         </div>
       </div>
