@@ -45,7 +45,11 @@ export function setupSocketServer(httpServer: any): SocketServer {
         'http://localhost:5173',
         'http://localhost:4100',
         'http://127.0.0.1:5173',
-        'http://127.0.0.1:4100'
+        'http://127.0.0.1:4100',
+        'https://opgrid.world',
+        'https://www.opgrid.world',
+        'https://beta.opgrid.world',
+        ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
       ],
       methods: ['GET', 'POST'],
       credentials: true
