@@ -586,9 +586,6 @@ export async function registerCertificationRoutes(fastify: FastifyInstance): Pro
     const amountIn = typeof body.amountIn === 'string' || typeof body.amountIn === 'number'
       ? BigInt(String(body.amountIn))
       : BigInt('1000000'); // 1 USDC
-    const amountOutMinimum = typeof body.amountOutMinimum === 'string' || typeof body.amountOutMinimum === 'number'
-      ? BigInt(String(body.amountOutMinimum))
-      : BigInt('1');
     const sqrtPriceLimitX96 = BigInt('0');
 
     // Resolve recipient wallet address from agent ID if needed
@@ -598,43 +595,117 @@ export async function registerCertificationRoutes(fastify: FastifyInstance): Pro
       walletAddress = (agent as any)?.ownerId || recipient;
     }
 
-    // ABI-encode exactInputSingle using ethers
+    const SWAP_ROUTER = '0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4';
+    const QUOTER_V2 = '0xC5290058841028F1614F3A6F0F5816cAd0df5E27';
+
     const iface = new ethers.Interface([
       'function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)',
       'function multicall(uint256 deadline, bytes[] data) payable returns (bytes[] results)',
     ]);
 
-    const swapCalldata = iface.encodeFunctionData('exactInputSingle', [{
-      tokenIn,
-      tokenOut,
-      fee,
-      recipient: walletAddress,
-      amountIn,
-      amountOutMinimum,
-      sqrtPriceLimitX96,
-    }]);
-
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 600); // 10 min
-    const multicallData = iface.encodeFunctionData('multicall', [deadline, [swapCalldata]]);
 
-    const SWAP_ROUTER = '0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4';
+    // If agent provided their own amountOutMinimum, encode directly (skip options)
+    if (body.amountOutMinimum != null) {
+      const amountOutMinimum = BigInt(String(body.amountOutMinimum));
+      const swapCalldata = iface.encodeFunctionData('exactInputSingle', [{
+        tokenIn, tokenOut, fee, recipient: walletAddress, amountIn, amountOutMinimum, sqrtPriceLimitX96,
+      }]);
+      const multicallData = iface.encodeFunctionData('multicall', [deadline, [swapCalldata]]);
+      return {
+        router: SWAP_ROUTER,
+        calldata: multicallData,
+        rawSwapCalldata: swapCalldata,
+        params: { tokenIn, tokenOut, fee, recipient: walletAddress, amountIn: amountIn.toString(), amountOutMinimum: amountOutMinimum.toString(), deadline: deadline.toString() },
+        usage: {
+          step1: `APPROVE_TOKEN: token=${tokenIn}, spender=${SWAP_ROUTER}, amount=${amountIn.toString()}`,
+          step2: `EXECUTE_ONCHAIN: to=${SWAP_ROUTER}, data=<calldata above>, value=0`,
+          step3: 'SUBMIT_CERTIFICATION_PROOF: submit the tx hash from step 2',
+        },
+      };
+    }
+
+    // --- Slippage challenge: quote real price, present 5 options ---
+    let quotedOutput = 0n;
+    try {
+      const quoterProvider = getChainProvider();
+      if (!quoterProvider) throw new Error('No chain provider');
+      const quoterIface = new ethers.Interface([
+        'function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)',
+      ]);
+      const quoterContract = new ethers.Contract(QUOTER_V2, quoterIface, quoterProvider);
+      const quoteResult = await quoterContract.quoteExactInputSingle.staticCall({
+        tokenIn, tokenOut, amountIn, fee, sqrtPriceLimitX96: 0n,
+      });
+      quotedOutput = quoteResult[0];
+    } catch (err: any) {
+      // If quote fails, fall back to single option with no protection
+      console.warn('[encode-swap] QuoterV2 failed, returning single option:', err?.message);
+      const swapCalldata = iface.encodeFunctionData('exactInputSingle', [{
+        tokenIn, tokenOut, fee, recipient: walletAddress, amountIn, amountOutMinimum: 1n, sqrtPriceLimitX96,
+      }]);
+      const multicallData = iface.encodeFunctionData('multicall', [deadline, [swapCalldata]]);
+      return {
+        router: SWAP_ROUTER,
+        calldata: multicallData,
+        rawSwapCalldata: swapCalldata,
+        params: { tokenIn, tokenOut, fee, recipient: walletAddress, amountIn: amountIn.toString(), amountOutMinimum: '1', deadline: deadline.toString() },
+        quoteFailed: true,
+        usage: {
+          step1: `APPROVE_TOKEN: token=${tokenIn}, spender=${SWAP_ROUTER}, amount=${amountIn.toString()}`,
+          step2: `EXECUTE_ONCHAIN: to=${SWAP_ROUTER}, data=<calldata above>, value=0`,
+          step3: 'SUBMIT_CERTIFICATION_PROOF: submit the tx hash from step 2',
+        },
+      };
+    }
+
+    // Build 5 slippage options — agent must choose wisely
+    // A: No protection (amountOutMinimum=0) — will score 0 on slippage
+    // B: Too tight (102% of quote) — will likely revert onchain
+    // C: Loose (5% slippage / 500 bps) — will pass but score low (~20)
+    // D: Moderate (1% slippage / 100 bps) — decent score (~80)
+    // E: Tight (0.5% slippage / 50 bps) — best score (~100)
+    const options: Record<string, { label: string; amountOutMinimum: string; calldata: string }> = {};
+    const slippagePresets = [
+      { key: 'A', label: 'No slippage protection', bps: -10000 },   // amountOutMin = 0
+      { key: 'B', label: 'Ultra-tight tolerance',   bps: -200 },     // 102% of quote — will revert
+      { key: 'C', label: 'Wide tolerance',           bps: 500 },      // 5% slippage
+      { key: 'D', label: 'Moderate tolerance',        bps: 100 },      // 1% slippage
+      { key: 'E', label: 'Tight tolerance',           bps: 50 },       // 0.5% slippage
+    ];
+
+    for (const preset of slippagePresets) {
+      let minOut: bigint;
+      if (preset.bps <= -10000) {
+        minOut = 0n;
+      } else if (preset.bps < 0) {
+        // Negative bps = above quote (will revert)
+        minOut = (quotedOutput * BigInt(10000 + Math.abs(preset.bps))) / 10000n;
+      } else {
+        minOut = (quotedOutput * BigInt(10000 - preset.bps)) / 10000n;
+      }
+
+      const swapCalldata = iface.encodeFunctionData('exactInputSingle', [{
+        tokenIn, tokenOut, fee, recipient: walletAddress, amountIn, amountOutMinimum: minOut, sqrtPriceLimitX96,
+      }]);
+      const multicallData = iface.encodeFunctionData('multicall', [deadline, [swapCalldata]]);
+
+      options[preset.key] = {
+        label: preset.label,
+        amountOutMinimum: minOut.toString(),
+        calldata: multicallData,
+      };
+    }
 
     return {
       router: SWAP_ROUTER,
-      calldata: multicallData,
-      rawSwapCalldata: swapCalldata,
-      params: {
-        tokenIn,
-        tokenOut,
-        fee,
-        recipient: walletAddress,
-        amountIn: amountIn.toString(),
-        amountOutMinimum: amountOutMinimum.toString(),
-        deadline: deadline.toString(),
-      },
+      challenge: 'Choose a slippage option (A-E). Use the calldata from your chosen option in EXECUTE_ONCHAIN. Your choice affects your certification score.',
+      quotedOutput: quotedOutput.toString(),
+      options,
+      params: { tokenIn, tokenOut, fee, recipient: walletAddress, amountIn: amountIn.toString(), deadline: deadline.toString() },
       usage: {
         step1: `APPROVE_TOKEN: token=${tokenIn}, spender=${SWAP_ROUTER}, amount=${amountIn.toString()}`,
-        step2: `EXECUTE_ONCHAIN: to=${SWAP_ROUTER}, data=${multicallData}, value=0`,
+        step2: 'EXECUTE_ONCHAIN: to=<router>, data=<calldata from your chosen option>, value=0',
         step3: 'SUBMIT_CERTIFICATION_PROOF: submit the tx hash from step 2',
       },
     };

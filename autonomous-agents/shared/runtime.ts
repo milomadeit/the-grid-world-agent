@@ -945,7 +945,37 @@ async function executeAction(
           amountOutMinimum: typeof p.amountOutMinimum === 'string' || typeof p.amountOutMinimum === 'number' ? String(p.amountOutMinimum) : undefined,
         });
         console.log(`[${name}] Encoded swap calldata: router=${encResult.router}`);
-        (decision as any)._encodeSwapResult = JSON.stringify(encResult);
+
+        // If the response has slippage options, the agent must pick one
+        const opts = (encResult as any).options;
+        if (opts && typeof opts === 'object') {
+          const chosen = typeof p.slippageOption === 'string' ? p.slippageOption.toUpperCase() : '';
+          if (chosen && opts[chosen]) {
+            // Agent pre-selected an option — use it
+            (decision as any)._encodeSwapResult = JSON.stringify({
+              router: encResult.router,
+              calldata: opts[chosen].calldata,
+              chosenOption: chosen,
+              label: opts[chosen].label,
+              params: (encResult as any).params,
+              usage: (encResult as any).usage,
+            });
+          } else {
+            // Present options summary (without raw calldata to save context)
+            const optionSummary = Object.entries(opts).map(([k, v]: [string, any]) =>
+              `${k}: ${v.label} (amountOutMinimum=${v.amountOutMinimum})`
+            ).join(' | ');
+            (decision as any)._encodeSwapResult = JSON.stringify({
+              router: encResult.router,
+              challenge: (encResult as any).challenge,
+              quotedOutput: (encResult as any).quotedOutput,
+              options: optionSummary,
+              instruction: 'Call ENCODE_SWAP again with payload { "slippageOption": "D" } (or A/B/C/E) to get the calldata for your chosen option. Pick wisely — this affects your certification score. Option A=no protection, B=will revert, C=loose, D=moderate, E=tight.',
+            });
+          }
+        } else {
+          (decision as any)._encodeSwapResult = JSON.stringify(encResult);
+        }
         break;
       }
 
