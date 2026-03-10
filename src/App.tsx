@@ -404,7 +404,7 @@ const App: React.FC = () => {
         }`}>
           <h1 className="text-lg font-bold tracking-tight">OpGrid</h1>
           <p className={`mt-2 text-sm ${isDarkMode ? 'text-slate-300' : 'text-gray-600'}`}>
-            opgrid is under maintainence.
+            Loading world...
           </p>
         </div>
       </div>
