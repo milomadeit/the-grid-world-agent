@@ -1,8 +1,8 @@
-// Monad RPC endpoint (mainnet)
-const MONAD_RPC_URL = 'https://rpc.monad.xyz';
+// Base Sepolia RPC endpoint
+const BASE_RPC_URL = 'https://sepolia.base.org';
 
 /**
- * Converts wei (bigint string) to formatted MON string
+ * Converts wei (bigint string) to formatted ETH string
  */
 function formatBalance(weiHex: string): string {
   const wei = BigInt(weiHex);
@@ -24,13 +24,13 @@ function formatBalance(weiHex: string): string {
 }
 
 /**
- * Fetches the native MON balance for a wallet address using JSON-RPC
+ * Fetches the native ETH balance for a wallet address using JSON-RPC
  * @param address - Wallet address to check
  * @returns Formatted balance string (e.g., "1.234")
  */
 export async function fetchWalletBalance(address: string): Promise<string> {
   try {
-    const response = await fetch(MONAD_RPC_URL, {
+    const response = await fetch(BASE_RPC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

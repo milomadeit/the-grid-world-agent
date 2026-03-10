@@ -177,7 +177,7 @@ async function voteYes(baseUrl, directiveId, token) {
 async function main() {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   dotenv.config({ path: join(__dirname, '..', '.env') });
-  const baseUrl = process.env.GRID_API_URL || 'http://localhost:3001';
+  const baseUrl = process.env.GRID_API_URL || 'http://localhost:4101';
 
   console.log(`[config] api=${baseUrl}`);
 

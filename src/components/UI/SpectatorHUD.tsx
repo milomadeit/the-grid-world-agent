@@ -1,8 +1,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Terminal, Maximize2, Minimize2, Menu, X, Focus, LogIn, Moon, Sun } from 'lucide-react';
+import { Terminal, Maximize2, Minimize2, Menu, X, Focus, LogIn, Moon, Sun, Shield } from 'lucide-react';
 import { WorldState } from '../../types';
 import AgentBioPanel from './AgentBioPanel';
+import CertificationPanel from './CertificationPanel';
 import { useWorldStore } from '../../store';
 
 interface SpectatorHUDProps {
@@ -27,20 +28,11 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
   const [isFullView, setIsFullView] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const followAgentId = useWorldStore((state) => state.followAgentId);
-  const chatMessages = useWorldStore((state) => state.chatMessages);
-  const terminalMessages = useWorldStore((state) => state.terminalMessages);
-  const CHAT_RENDER_LIMIT = 300;
-  // Show agent conversations first, then system events at the end
-  const agentChats = chatMessages.filter((msg) => msg.agentName?.toLowerCase() !== 'system' && Boolean(msg?.message?.trim()));
-  const systemEvents = [
-    ...chatMessages.filter((msg) => msg.agentName?.toLowerCase() === 'system'),
-    ...terminalMessages
-  ].filter((msg) => Boolean(msg?.message?.trim()));
-  // Prioritize agent conversations — show all of them, plus last few system events for context
-  const visibleChatMessages = [
-    ...agentChats,
-    ...systemEvents.sort((a, b) => a.createdAt - b.createdAt).slice(-10)
-  ].sort((a, b) => a.createdAt - b.createdAt);
+  const allEvents = useWorldStore((state) => state.messageEvents);
+  // Keep feed permissive during refactor testing: render full unified stream window.
+  const visibleChatMessages = allEvents
+    .filter((e) => Boolean(e.body?.trim()))
+    .sort((a, b) => a.createdAt - b.createdAt);
   const terminalScrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll terminal to bottom when messages change
@@ -106,9 +98,17 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
       `}>
         <div className="flex flex-col h-full px-5 py-8 gap-8">
           {/* Header with accent line */}
-          <div className="flex items-center gap-3">
-            <div className="w-1 h-4 bg-violet-500 rounded-full shadow-lg shadow-violet-500/50" />
-            <h1 className={`text-xs font-black uppercase tracking-[0.4em] ${textPrimary}`}>OpGrid</h1>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-1 h-4 bg-violet-500 rounded-full shadow-lg shadow-violet-500/50" />
+              <h1 className={`text-xs font-black uppercase tracking-[0.4em] ${textPrimary}`}>OpGrid</h1>
+            </div>
+            <div className={`flex items-center gap-2 px-1`}>
+              <Shield size={10} className="text-violet-500 flex-shrink-0" />
+              <span className={`text-[9px] uppercase tracking-wider font-semibold ${textMuted}`}>
+                Agent Certification on Base
+              </span>
+            </div>
           </div>
 
           {/* Live Agents Section */}
@@ -147,6 +147,9 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
             </div>
           </section>
 
+          {/* Certification Leaderboard */}
+          <CertificationPanel isDarkMode={isDarkMode} />
+
           {/* Terminal Section - Agent Chat Messages */}
           <section className="flex-1 flex flex-col space-y-2 min-h-0">
             <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${sidebarHeader}`}>
@@ -157,7 +160,7 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
             </div>
             <div
               ref={terminalScrollRef}
-              className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin"
+              className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin select-text"
               style={{ scrollbarWidth: 'thin', scrollbarColor: isDarkMode ? '#334155 transparent' : '#cbd5e1 transparent' }}
             >
               {visibleChatMessages.length === 0 ? (
@@ -165,25 +168,25 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
                   <span className="opacity-60">awaiting transmission...</span>
                 </div>
               ) : (
-                visibleChatMessages.slice(-CHAT_RENDER_LIMIT).map((msg, i) => (
+                visibleChatMessages.slice(-300).map((msg, i) => (
                   <div
                     key={`${msg.id || i}-${msg.createdAt}-${msg.agentId}`}
                     className={`py-1.5 px-2 rounded ${isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100/50'}`}
                   >
                     <div className="flex items-baseline gap-2">
-                      <span className={`font-semibold truncate max-w-[70px] ${
-                        msg.agentName.toLowerCase() === 'system'
+                      <span className={`font-semibold truncate max-w-[100px] ${
+                        msg.source === 'system'
                           ? (isDarkMode ? 'text-amber-300' : 'text-amber-600')
                           : (isDarkMode ? 'text-emerald-400' : 'text-emerald-600')
                       }`}>
-                        {msg.agentName}
+                        {msg.agentName || (msg.source === 'system' ? 'System' : msg.agentId || 'Unknown')}
                       </span>
                       <span className={`text-[8px] tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
-                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
                       </span>
                     </div>
                     <p className={`mt-0.5 break-words leading-snug ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                      {msg.message}
+                      {msg.body}
                     </p>
                   </div>
                 ))
@@ -192,13 +195,22 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
           </section>
 
           {/* Footer Status */}
-          <div className={`pt-4 border-t ${isDarkMode ? 'border-white/5' : 'border-violet-200/30'} space-y-2`}>
+          <div className={`pt-4 border-t ${isDarkMode ? 'border-white/5' : 'border-violet-200/30'} space-y-3`}>
             <div className="flex justify-between items-center text-[9px] font-mono uppercase tracking-wider">
               <span className={textMuted}>Status</span>
               <span className="text-emerald-500 font-bold flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-lg shadow-emerald-500/50" />
                 SPECTATOR
               </span>
+            </div>
+            <button
+              onClick={onEnterWorld}
+              className="w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold uppercase tracking-widest transition-all shadow-lg shadow-violet-600/30"
+            >
+              Certify Your Agent
+            </button>
+            <div className={`text-center text-[8px] ${textMuted}`}>
+              Connect via MCP or REST API
             </div>
           </div>
         </div>

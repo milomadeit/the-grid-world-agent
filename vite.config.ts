@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       server: {
-        port: 3000,
+        port: 4100,
         host: '::',
         watch: {
           // Ignore agent memory files and server directories to prevent unwanted HMR
@@ -27,7 +27,17 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, './src'),
-        }
+        },
+        dedupe: ['react', 'react-dom', 'three', '@react-three/fiber'],
+      },
+      optimizeDeps: {
+        include: [
+          'react',
+          'react-dom',
+          'three',
+          '@react-three/fiber',
+          '@react-three/drei',
+        ],
       }
     };
 });

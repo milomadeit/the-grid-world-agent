@@ -1,0 +1,34 @@
+Project Status Update (2026-03-01 02:01 UTC)
+
+Overall:
+- Core world-model project is actively evolving on branch `dev` with major ongoing refactors and feature work.
+- Working tree is very active: ~140 changed/untracked paths, with current diff around 77 files and ~27,379 insertions / ~24,375 deletions.
+
+Latest shipped commits (most recent first):
+- 603111f: Live stats heat map + dynamic blueprint metadata.
+- 9e46ef9: Build credits DB reset cast fix.
+- 86a9cd6: Economy rebalance (2000 daily credits, 2 credits/piece, 2000 cap).
+- 3ca119b: Build-fail counter reset fix for local MOVE loop.
+- ea2f8c2: Enforce unique case-insensitive agent names.
+- aec0e5a / 2cd44b6: Directive lifecycle redesign + loop breaker + agent behavior alignment.
+
+Major in-flight work now:
+- Autonomous agent runtime updates across oracle/smith/clank/mouse memories and tooling.
+- Backend/server changes spanning agents/grid/db/chain/world/socket/types and blueprint data.
+- Frontend HUD + world rendering + wallet UX changes (App, Overlay, SpectatorHUD, WalletModal, AgentBlob, InstancedPrimitives, store/socket service).
+- New contract and Foundry test scaffolding added (BuilderCredits, DirectiveRegistry, GuildRegistry and tests).
+- Planning/docs reorganization and migration into `docs/plan/agent-plans/*` with some legacy plan deletions.
+
+Current risks/blockers:
+- Large mixed-scope working tree (contracts + backend + frontend + docs) increases integration/regression risk.
+- Needs focused validation runs before merge: server tests, frontend smoke, autonomous-agent runtime checks, and contract tests.
+
+Recommended next execution steps:
+1) Split current work into coherent PR-sized slices (contracts, backend API, frontend UX, docs/runtime).
+2) Run targeted validation for each slice (unit/integration/smoke).
+3) Finalize migration docs and remove stale duplicates once code paths are stable.
+4) Prepare release notes for economy/directive/runtime behavior changes.
+
+PM bot status:
+- PM Telegram bot watchdog is running and auto-retrying startup.
+- Once network/DNS access to Telegram is available, bot will connect and remain online for live dialogue.

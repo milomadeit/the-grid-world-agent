@@ -1,7 +1,7 @@
 import { chromium, Browser } from 'playwright';
 
 const VISION_ENABLED = process.env.VISION_ENABLED === 'true';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4100';
 const VISION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between captures
 
 let browserPromise: Promise<Browser> | null = null;

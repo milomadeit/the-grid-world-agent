@@ -4,6 +4,57 @@ Two deployed bots with Telegram control:
 - **Oracle** - Simple Python bot, controllable via Telegram
 - **Agent Smith** - MCP server for LangSmith Agent Builder, with Telegram notifications
 
+## Project Manager Bot (MiniMax + Telegram + Claude Code)
+
+This is the recommended path for your use case:
+- Discuss project details/progress through Telegram
+- Run CLI commands remotely (`/run`)
+- Delegate tasks to Claude Code (`/claude`, `/delegate`)
+- Get automatic post-task review + next-step guidance
+
+Location:
+`legacy_agents/project-manager-bot/pm_bot.py`
+
+### Quick Start
+
+```bash
+cd legacy_agents/project-manager-bot
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# Fill in TG_HTTP_API, TELEGRAM_ALLOWED_CHAT_IDS, MINIMAX_API_KEY (or MINI_MAX_API_KEY)
+python pm_bot.py
+```
+
+The bot also loads `/Users/zacharymilo/Documents/world-model-agent/autonomous-agents/.env` automatically, so your existing `MINI_MAX_API_KEY` works without copying it.
+Default model is `MiniMax-M2.1` as a middle-ground option; override with `MINIMAX_MODEL` in `.env`.
+
+### Telegram Commands
+
+- `/status` - repo snapshot (branch, git status, diff stats, recent jobs)
+- `/run <command>` - run a safe, allowlisted CLI command
+- `/codex <task>` - run Codex CLI task (non-interactive) and auto-review results
+- `/claude <task>` - run Claude Code in non-interactive print mode
+- `/delegate <task>` - run Claude task then auto-review output and propose next steps
+- `/review [focus]` - PM review of current repo state
+- `/next [focus]` - numbered next-step plan
+- `/recentlogs [n]` - inspect recent inbound/router decisions for debugging
+- `approve` / `cancel` - confirm or reject router-proposed execution
+- any normal message - ask PM questions about current project status/planning
+- normal messages can be router-driven into tool actions (`run`, `claude`, `delegate`, `codex`) with approval flow
+
+### Security Defaults
+
+- Bot access is locked by `TELEGRAM_ALLOWED_CHAT_IDS`
+- Dangerous command patterns are blocked
+- Shell operators are blocked in `/run` for safer remote execution
+- Router-proposed execution actions require explicit `approve` by default
+
+### Why Older Scripts Failed
+
+Some legacy Python files currently contain invalid variable names (for example `The Grid_API` with spaces), which causes immediate `SyntaxError` before runtime. Use the project-manager bot above for a stable flow.
+
 ## Quick Start (Full Deployment)
 
 ### 1. Setup Environment Variables
@@ -21,7 +72,7 @@ TG_HTTP_API=your_telegram_bot_token
 TG_CHAT_ID=your_chat_id
 
 # The Grid API
-The Grid_API=http://localhost:3001
+The Grid_API=http://localhost:4101
 ```
 
 ### 2. Derive Wallet Addresses

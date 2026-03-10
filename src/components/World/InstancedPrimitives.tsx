@@ -53,12 +53,39 @@ function getGeometry(shape: string): THREE.BufferGeometry {
   return geo;
 }
 
-// Single material shared across all instanced meshes.
-// Per-instance colour via instanceColor (multiplied with material.color = white).
-const sharedMaterial = new THREE.MeshStandardMaterial({
-  roughness: 0.7,
-  metalness: 0.1,
-});
+type PrimitiveMaterialType = 'standard' | 'stone' | 'metal' | 'glass' | 'crystal' | 'organic';
+
+function normalizeMaterialType(materialType?: string | null): PrimitiveMaterialType {
+  switch (materialType) {
+    case 'stone':
+    case 'metal':
+    case 'glass':
+    case 'crystal':
+    case 'organic':
+      return materialType;
+    default:
+      return 'standard';
+  }
+}
+
+const MATERIAL_PRESETS: Record<PrimitiveMaterialType, THREE.MeshStandardMaterial> = {
+  standard: new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.1 }),
+  stone: new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.0 }),
+  metal: new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.85 }),
+  glass: new THREE.MeshStandardMaterial({
+    roughness: 0.05,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.6,
+  }),
+  crystal: new THREE.MeshStandardMaterial({
+    roughness: 0.1,
+    metalness: 0.2,
+    emissive: new THREE.Color('#3b82f6'),
+    emissiveIntensity: 0.35,
+  }),
+  organic: new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0.0 }),
+};
 
 // Scratch objects reused in imperative updates (avoids per-frame allocation)
 const _obj = new THREE.Object3D();
@@ -70,17 +97,20 @@ const _white = new THREE.Color(0xffffff);
 /** Renders every instance of one shape type as a single draw call. */
 function ShapeInstances({
   shape,
+  materialType,
   primitives,
   selectedId,
   onSelect,
 }: {
   shape: string;
+  materialType: PrimitiveMaterialType;
   primitives: PrimitiveType[];
   selectedId: string | null;
   onSelect: (prim: PrimitiveType) => void;
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const geometry = useMemo(() => getGeometry(shape), [shape]);
+  const material = useMemo(() => MATERIAL_PRESETS[materialType], [materialType]);
 
   // Grow-only capacity: starts at 2x count (min 256), doubles when exceeded.
   // High minimum avoids frequent InstancedMesh recreation during blueprint building.
@@ -150,8 +180,7 @@ function ShapeInstances({
   return (
     <instancedMesh
       ref={meshRef}
-      args={[geometry, sharedMaterial, capacity]}
-      frustumCulled={false}
+      args={[geometry, material, capacity]}
       onClick={handleClick}
       castShadow
       receiveShadow
@@ -174,26 +203,28 @@ function InstancedPrimitives() {
   const setSelectedPrimitive = useWorldStore((s) => s.setSelectedPrimitive);
 
   const groups = useMemo(() => {
-    const map = new Map<string, PrimitiveType[]>();
+    const map = new Map<string, { shape: string; materialType: PrimitiveMaterialType; primitives: PrimitiveType[] }>();
     for (const prim of worldPrimitives) {
-      const normalizedShape = normalizeShape(prim.shape);
-      let list = map.get(normalizedShape);
-      if (!list) {
-        list = [];
-        map.set(normalizedShape, list);
+      const materialType = normalizeMaterialType(prim.materialType);
+      const key = `${prim.shape}__${materialType}`;
+      let group = map.get(key);
+      if (!group) {
+        group = { shape: prim.shape, materialType, primitives: [] };
+        map.set(key, group);
       }
-      list.push(prim);
+      group.primitives.push(prim);
     }
     return map;
   }, [worldPrimitives]);
 
   return (
     <>
-      {Array.from(groups.entries()).map(([shape, prims]) => (
+      {Array.from(groups.entries()).map(([key, group]) => (
         <ShapeInstances
-          key={shape}
-          shape={shape}
-          primitives={prims}
+          key={key}
+          shape={group.shape}
+          materialType={group.materialType}
+          primitives={group.primitives}
           selectedId={selectedPrimitive?.id ?? null}
           onSelect={setSelectedPrimitive}
         />

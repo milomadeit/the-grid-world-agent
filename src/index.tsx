@@ -12,25 +12,25 @@ const root = ReactDOM.createRoot(rootElement);
 
 import { PrivyProvider } from '@privy-io/react-auth';
 
-const monadChain = {
-  id: 143, // Monad Mainnet
-  name: 'Monad',
-  network: 'monad',
+const baseSepoliaChain = {
+  id: 84532,
+  name: 'Base Sepolia',
+  network: 'base-sepolia',
   nativeCurrency: {
     decimals: 18,
-    name: 'Monad',
-    symbol: 'MON',
+    name: 'Ether',
+    symbol: 'ETH',
   },
   rpcUrls: {
     default: {
-      http: ['https://rpc.monad.xyz'],
+      http: ['https://sepolia.base.org'],
     },
     public: {
-      http: ['https://rpc.monad.xyz'],
+      http: ['https://sepolia.base.org'],
     },
   },
   blockExplorers: {
-    default: { name: 'MonadVision', url: 'https://monadvision.com' },
+    default: { name: 'BaseScan', url: 'https://sepolia.basescan.org' },
   },
 };
 
@@ -44,8 +44,8 @@ root.render(
           theme: 'light',
           accentColor: '#8B5CF6',
         },
-        supportedChains: [monadChain],
-        defaultChain: monadChain,
+        supportedChains: [baseSepoliaChain],
+        defaultChain: baseSepoliaChain,
         embeddedWallets: {
           ethereum: {
             createOnLogin: 'users-without-wallets',

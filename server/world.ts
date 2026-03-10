@@ -1,5 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
-import type { Agent, WorldUpdateEvent, WorldPrimitive, TerminalMessage, Guild, Directive, BlueprintBuildPlan } from './types.js';
+import type { Agent, WorldUpdateEvent, WorldPrimitive, MessageEvent, Guild, Directive, BlueprintBuildPlan } from './types.js';
 import { BUILD_CREDIT_CONFIG } from './types.js';
 import * as db from './db.js';
 
@@ -13,9 +13,19 @@ interface QueuedAction {
   };
 }
 
-// How long (ms) before an inactive agent is removed from the live map
-const AGENT_STALE_TIMEOUT = 60_000; // 60 seconds
+// How long (ms) before an inactive agent is removed from the live map.
+// Tunable via env to avoid false positives when first ticks are heavy.
+const DEFAULT_AGENT_STALE_TIMEOUT_MS = 3 * 60_000;
+const parsedAgentStaleTimeout = Number.parseInt(
+  process.env.AGENT_STALE_TIMEOUT_MS || String(DEFAULT_AGENT_STALE_TIMEOUT_MS),
+  10
+);
+const AGENT_STALE_TIMEOUT =
+  Number.isFinite(parsedAgentStaleTimeout) && parsedAgentStaleTimeout >= 30_000
+    ? parsedAgentStaleTimeout
+    : DEFAULT_AGENT_STALE_TIMEOUT_MS;
 const BLUEPRINT_BUILD_PLAN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const CERTIFICATION_RUN_SWEEP_INTERVAL_MS = 30_000;
 
 interface BlueprintReservation {
   minX: number; maxX: number;
@@ -53,6 +63,7 @@ class WorldManager {
   private tick: number = 0;
   private io: SocketServer | null = null;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
+  private certificationSweepInterval: ReturnType<typeof setInterval> | null = null;
   private chatHistoryByAgent: Map<string, RecentChatEntry[]> = new Map();
   private recentChat: RecentChatEntry[] = [];
 
@@ -122,13 +133,28 @@ class WorldManager {
   start(): void {
     // Run world tick at ~20 updates/second
     this.tickInterval = setInterval(() => this.runTick(), 50);
-    console.log('[World] Simulation started');
+    this.certificationSweepInterval = setInterval(() => {
+      db.expireActiveCertificationRuns()
+        .then((expiredCount) => {
+          if (expiredCount > 0) {
+            console.log(`[World] Expired ${expiredCount} certification run(s)`);
+          }
+        })
+        .catch((error) => {
+          console.warn('[World] Certification expiry sweep failed:', error);
+        });
+    }, CERTIFICATION_RUN_SWEEP_INTERVAL_MS);
+    console.log(`[World] Simulation started (agent stale timeout ${Math.round(AGENT_STALE_TIMEOUT / 1000)}s)`);
   }
 
   stop(): void {
     if (this.tickInterval) {
       clearInterval(this.tickInterval);
       this.tickInterval = null;
+    }
+    if (this.certificationSweepInterval) {
+      clearInterval(this.certificationSweepInterval);
+      this.certificationSweepInterval = null;
     }
     console.log('[World] Simulation stopped');
   }
@@ -152,6 +178,8 @@ class WorldManager {
   addAgent(agent: Agent): void {
     this.agents.set(agent.id, agent);
     this.agentLastSeen.set(agent.id, Date.now());
+    // Clear any stale build plan from a previous session
+    this.clearBuildPlan(agent.id);
     // Broadcast full agent data so clients can add them to their list
     this.io?.emit('agent:joined', {
       id: agent.id,
@@ -165,7 +193,14 @@ class WorldManager {
       bio: agent.bio,
       erc8004AgentId: (agent as any).erc8004AgentId,
       erc8004Registry: (agent as any).erc8004Registry,
-      reputationScore: (agent as any).reputationScore
+      reputationScore: (agent as any).reputationScore,
+      localReputation: (agent as any).localReputation,
+      combinedReputation: (agent as any).combinedReputation,
+      agentClass: (agent as any).agentClass,
+      materials: (agent as any).materials,
+      isExternal: (agent as any).isExternal,
+      sourceChainId: (agent as any).sourceChainId,
+      externalMetadata: (agent as any).externalMetadata,
     });
   }
 
@@ -338,7 +373,7 @@ class WorldManager {
     if (last && now - last.timestamp < CHAT_MIN_INTERVAL_MS) {
       return {
         allowed: false,
-        reason: 'Chat cadence too fast. Build or move before sending another chat.',
+        reason: 'Chat cadence too fast. Wait briefly before sending another chat.',
         retryAfterMs: CHAT_MIN_INTERVAL_MS - (now - last.timestamp),
       };
     }
@@ -379,12 +414,12 @@ class WorldManager {
 
   // --- Grid Messaging ---
 
-  broadcastTerminalMessage(msg: TerminalMessage): void {
+  broadcastEvent(event: MessageEvent): void {
     if (!this.io) {
-      console.warn('[World] broadcastTerminalMessage: no socket.io server attached');
+      console.warn('[World] broadcastEvent: no socket.io server attached');
       return;
     }
-    this.io.emit('terminal:message', msg);
+    this.io.emit('message:event', event);
   }
 
   broadcastDirective(directive: Directive): void {
@@ -409,11 +444,15 @@ class WorldManager {
     }
 
     console.log(`[World] Broadcasting chat from ${name}: "${message.slice(0, 60)}..."`);
-    this.io.emit('chat:message', {
+    this.io.emit('message:event', {
+      id: 0,
       agentId,
       agentName: name,
-      message,
-      timestamp: Date.now()
+      source: 'agent',
+      kind: 'chat',
+      body: message,
+      metadata: {},
+      createdAt: Date.now()
     });
   }
 
@@ -485,12 +524,26 @@ class WorldManager {
           this.removeAgent(agentId);
         }
       }
+
+      // Sweep stale build plans (no progress for 10+ minutes)
+      const BUILD_PLAN_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+      for (const [agentId, plan] of this.buildPlans) {
+        const lastProgress = (plan as any).lastProgressAt || plan.startedAt || 0;
+        if (now - lastProgress > BUILD_PLAN_IDLE_TIMEOUT_MS) {
+          console.log(`[World] Auto-cancelling stale build plan for ${this.agents.get(agentId)?.name || agentId} (${plan.blueprintName}, idle ${Math.round((now - lastProgress) / 1000)}s)`);
+          this.clearBuildPlan(agentId);
+        }
+      }
     }
 
     // Daily Credit Reset (every ~24 hours = 86400 seconds = 1728000 ticks at 20tps)
     // Checking every ~1 minute (1200 ticks) to see if DB reset is needed
     if (this.tick % 1200 === 0) {
-      db.resetDailyCredits(BUILD_CREDIT_CONFIG.SOLO_DAILY_CREDITS, BUILD_CREDIT_CONFIG.CREDIT_CAP).catch(console.error);
+      db.resetDailyCredits(
+        BUILD_CREDIT_CONFIG.SOLO_DAILY_CREDITS,
+        BUILD_CREDIT_CONFIG.CREDIT_CAP,
+        BUILD_CREDIT_CONFIG.EXTERNAL_DAILY_CREDITS
+      ).catch(console.error);
       db.expireDirectives().catch(console.error);
     }
   }

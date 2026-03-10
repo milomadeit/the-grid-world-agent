@@ -20,6 +20,8 @@ const AgentBlob: React.FC<AgentBlobProps> = ({ agent, isPlayer, isDarkMode, onDo
   const meshRef = useRef<THREE.Mesh>(null);
   const glowRef = useRef<THREE.Mesh>(null);
   const updateAgent = useWorldStore(state => state.updateAgent);
+  const isExternal = agent.isExternal === true;
+  const bodyColor = isExternal ? '#00D4AA' : agent.color;
 
   useEffect(() => {
     if (groupRef.current) {
@@ -92,18 +94,30 @@ const AgentBlob: React.FC<AgentBlobProps> = ({ agent, isPlayer, isDarkMode, onDo
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} renderOrder={1}>
         <torusGeometry args={[0.5, 0.04, 16, 48]} />
         <meshBasicMaterial
-          color={agent.color}
+          color={bodyColor}
           transparent
           opacity={0.7}
           depthWrite={false}
         />
       </mesh>
 
+      {isExternal && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]} renderOrder={2}>
+          <torusGeometry args={[0.72, 0.02, 16, 48]} />
+          <meshBasicMaterial
+            color="#00D4AA"
+            transparent
+            opacity={0.75}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
+
       {/* Soft glow spill under agent */}
       <mesh ref={glowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} renderOrder={0}>
         <circleGeometry args={[0.55, 32]} />
         <meshBasicMaterial
-          color={agent.color}
+          color={bodyColor}
           transparent
           opacity={0.15}
           depthWrite={false}
@@ -112,7 +126,7 @@ const AgentBlob: React.FC<AgentBlobProps> = ({ agent, isPlayer, isDarkMode, onDo
 
       <mesh ref={meshRef}>
         <sphereGeometry args={[0.4, 32, 32]} />
-        <meshBasicMaterial color={agent.color} />
+        <meshBasicMaterial color={bodyColor} />
 
         {/* Simple Face */}
         <group position={[0, 0.05, 0.35]}>
@@ -140,7 +154,7 @@ const AgentBlob: React.FC<AgentBlobProps> = ({ agent, isPlayer, isDarkMode, onDo
           renderOrder={100}
           font="https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfMZhrib2Bg-4.ttf"
         >
-          {truncateAddress(agent.name)} {isPlayer ? '•' : ''}
+          {truncateAddress(agent.name)} {isExternal ? '• Visitor' : ''} {isPlayer ? '•' : ''}
         </Text>
       </Billboard>
     </group>

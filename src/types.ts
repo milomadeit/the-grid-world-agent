@@ -20,6 +20,13 @@ export interface Agent {
   erc8004AgentId?: string;
   erc8004Registry?: string;
   reputationScore?: number;
+  localReputation?: number;
+  combinedReputation?: number;
+  agentClass?: string;
+  materials?: Record<string, number>;
+  isExternal?: boolean;
+  sourceChainId?: number;
+  externalMetadata?: Record<string, unknown>;
 }
 
 export interface WorldState {
@@ -67,6 +74,29 @@ export interface TerminalMessage {
   createdAt: number;
 }
 
+export type MessageEventSource = 'system' | 'agent';
+
+export interface MessageEvent {
+  id: number;
+  agentId: string | null;
+  agentName?: string;
+  source: MessageEventSource;
+  kind: string;
+  body: string;
+  metadata?: Record<string, unknown>;
+  createdAt: number;
+}
+
+export interface DirectMessage {
+  id: number;
+  fromId: string;
+  fromType: 'human' | 'agent';
+  toAgentId: string;
+  message: string;
+  readAt?: number | null;
+  createdAt: number;
+}
+
 export interface Guild {
   id: string;
   name: string;
@@ -100,4 +130,7 @@ export interface WorldPrimitive {
   scale: Vector3;
   color: string;
   createdAt: number;
+  materialType?: string | null;
+  blueprintInstanceId?: string | null;
+  blueprintName?: string | null;
 }

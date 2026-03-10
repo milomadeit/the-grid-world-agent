@@ -18,10 +18,16 @@ import {
   CreateGuildSchema,
   VoteDirectiveSchema,
   CompleteDirectiveSchema,
-  BUILD_CREDIT_CONFIG
+  TradeRequestSchema,
+  BUILD_CREDIT_CONFIG,
+  CLASS_BONUSES,
+  MATERIAL_CONFIG,
+  MATERIAL_TYPES
 } from '../types.js';
 import type { BlueprintBuildPlan } from '../types.js';
 import { EXEMPT_SHAPES, validateBuildPosition } from '../build-validation.js';
+import { getSkillsForClass, getSkillById } from '../data/skills.js';
+import { submitDirectiveOnChain, syncGuildOnChain } from '../chain.js';
 
 // --- Spatial Computation Helpers ---
 
@@ -112,6 +118,7 @@ const NODE_CATEGORY_BASE: Exclude<NodeCategory, 'mixed'>[] = [
   'nature',
 ];
 const NODE_EXPANSION_GATE = 25;
+const TIER3_NODE_TIERS = new Set<NodeTier>(['city-node', 'metropolis-node', 'megaopolis-node']);
 
 const DIRECTION_LABELS: Record<string, string> = {
   C: 'Central',
@@ -930,6 +937,68 @@ function roundBB(bb: BoundingBox): { minX: number; maxX: number; minY: number; m
   };
 }
 
+function emptyMaterialCounts(): Record<string, number> {
+  return MATERIAL_TYPES.reduce((acc, type) => {
+    acc[type] = 0;
+    return acc;
+  }, {} as Record<string, number>);
+}
+
+const ARCHITECT_EXCLUSIVE_NODE_TIERS = new Set<NodeTier>(['metropolis-node', 'megaopolis-node']);
+const ARCHITECT_EXCLUSIVE_MIN_PRIMITIVES = 40;
+const GRID_STATS_CELL_SIZE = 20;
+const GRID_STATS_TTL_MS = 30_000;
+
+function blueprintPrimitiveCount(blueprint: any): number {
+  if (typeof blueprint?.totalPrimitives === 'number' && Number.isFinite(blueprint.totalPrimitives)) {
+    return Math.max(0, Math.floor(blueprint.totalPrimitives));
+  }
+
+  if (!Array.isArray(blueprint?.phases)) return 0;
+  return blueprint.phases.reduce((sum: number, phase: any) => {
+    const count = Array.isArray(phase?.primitives) ? phase.primitives.length : 0;
+    return sum + count;
+  }, 0);
+}
+
+function isArchitectExclusiveBlueprint(blueprint: any): boolean {
+  if (!blueprint || typeof blueprint !== 'object') return false;
+
+  const tags = Array.isArray(blueprint.tags)
+    ? blueprint.tags.map((t: unknown) => String(t).toLowerCase())
+    : [];
+  if (tags.includes('architect-only') || tags.includes('mega') || tags.includes('large')) {
+    return true;
+  }
+
+  if (
+    typeof blueprint.minNodeTier === 'string' &&
+    ARCHITECT_EXCLUSIVE_NODE_TIERS.has(blueprint.minNodeTier as NodeTier)
+  ) {
+    return true;
+  }
+
+  return blueprintPrimitiveCount(blueprint) >= ARCHITECT_EXCLUSIVE_MIN_PRIMITIVES;
+}
+
+function annotateBlueprintClassGates(raw: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [name, blueprint] of Object.entries(raw || {})) {
+    if (isArchitectExclusiveBlueprint(blueprint)) {
+      out[name] = {
+        ...blueprint,
+        classGates: {
+          requiredClass: 'architect',
+          reason: 'Large-scale blueprint reserved for architect class',
+        },
+      };
+    } else {
+      out[name] = blueprint;
+    }
+  }
+  return out;
+}
+
 /** Find the XZ distance from a point to the nearest existing primitive in the world. */
 function distanceToNearestPrimitive(
   x: number, z: number, primitives: Array<{ position: { x: number; z: number } }>
@@ -992,6 +1061,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
   const PRIMITIVE_RATE_LIMIT = { limit: 12, windowMs: 10_000 };
   const BLUEPRINT_START_RATE_LIMIT = { limit: 2, windowMs: 20_000 };
   const BLUEPRINT_CONTINUE_RATE_LIMIT = { limit: 6, windowMs: 30_000 };
+  const DM_SEND_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
+  const DM_INBOX_RATE_LIMIT = { limit: 30, windowMs: 60_000 };
+  const DM_MARK_READ_RATE_LIMIT = { limit: 30, windowMs: 60_000 };
+
+  const SendDirectMessageSchema = z.object({
+    toAgentId: z.string().min(1),
+    message: z.string().min(1).max(500),
+  });
+
+  const MarkDirectMessagesReadSchema = z.object({
+    messageIds: z.array(z.number().int().positive()).max(50).default([]),
+  });
 
   // Helper: authenticate and verify agent exists in DB
   const requireAgent = async (request: FastifyRequest, reply: FastifyReply): Promise<string | null> => {
@@ -1135,7 +1216,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       rotation: body.rotation,
       scale: body.scale,
       color: body.color,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      materialType: body.materialType || null,
     };
 
     const placed = await db.createWorldPrimitiveWithCreditDebit(
@@ -1151,17 +1233,33 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     world.addWorldPrimitive(primitive);
 
-    // Write build confirmation to terminal feed (not chat — chat is for agent conversations)
+    if (placed.repReward && placed.totalBuilt) {
+      const repEvent = await db.insertMessageEvent({
+        source: 'system', kind: 'reputation',
+        body: `🏆 ${builderName} reached a milestone (${placed.totalBuilt} primitives built) and earned +${placed.repReward} reputation!`,
+        metadata: { agentId, totalBuilt: placed.totalBuilt, repReward: placed.repReward },
+      });
+      world.broadcastEvent(repEvent);
+    }
+
+    if (placed.materialEarned) {
+      const matEvent = await db.insertMessageEvent({
+        source: 'system', kind: 'material',
+        body: `⛏️ ${builderName} earned 1 ${placed.materialEarned} material for placing ${MATERIAL_CONFIG.EARN_EVERY_N_PRIMITIVES} primitives.`,
+        metadata: { agentId, material: placed.materialEarned },
+      });
+      world.broadcastEvent(matEvent);
+    }
+
+    // Write build confirmation to unified feed
     const pos = body.position;
-    const termMsg = {
-      id: 0,
-      agentId: 'system',
-      agentName: 'System',
-      message: `${builderName} built a ${body.shape} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`,
-      createdAt: Date.now()
-    };
-    await db.writeTerminalMessage(termMsg);
-    world.broadcastTerminalMessage(termMsg);
+    const buildEvent = await db.insertMessageEvent({
+      agentId, agentName: builderName,
+      source: 'system', kind: 'build',
+      body: `${builderName} built a ${body.shape} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`,
+      metadata: { shape: body.shape, position: { x: pos.x, y: pos.y, z: pos.z } },
+    });
+    world.broadcastEvent(buildEvent);
 
     // --- Build Quality Warnings (soft feedback, not rejections) ---
     const warnings: string[] = [];
@@ -1224,6 +1322,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       return reply.code(404).send({ error: `Blueprint '${body.name}' not found.` });
     }
 
+    const requester = await db.getAgent(agentId);
+    if (!requester) {
+      return reply.code(404).send({ error: 'Agent not found.' });
+    }
+    const requesterClass = ((requester as any)?.agentClass as string | undefined) || 'builder';
+    // Class gates disabled for demo — all agents can build any blueprint
+    // if (isArchitectExclusiveBlueprint(blueprint) && requesterClass !== 'architect') {
+    //   return reply.code(403).send({
+    //     error: `Blueprint '${body.name}' is architect-exclusive. Your class is '${requesterClass}'.`,
+    //   });
+    // }
+
     // Keep blueprint starts local so agents do not create remote plans they
     // cannot continue immediately.
     const activeAgent = world.getAgent(agentId);
@@ -1238,17 +1348,6 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           distance: Math.round(distance),
           anchorX: body.anchorX,
           anchorZ: body.anchorZ,
-        });
-      }
-    }
-
-    // Reputation gate: advanced blueprints require reputation >= 5
-    if (blueprint.advanced) {
-      const agentData = await db.getAgent(agentId) as any;
-      const reputation = agentData?.reputationScore ?? 0;
-      if (reputation < 5) {
-        return reply.code(403).send({
-          error: `This blueprint requires reputation >= 5. Current: ${reputation}. Get positive feedback from other agents.`
         });
       }
     }
@@ -1268,6 +1367,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const isFoundingAnchor = !bestNode || bestDist > BUILD_CREDIT_CONFIG.ANCHOR_FOUNDING_RADIUS;
     const bpTags: string[] = Array.isArray(blueprint.tags) ? blueprint.tags.map((t: any) => String(t).toLowerCase()) : [];
     const isMegaBlueprint = bpTags.includes('mega');
+    const isTier3Blueprint =
+      (typeof blueprint.minNodeTier === 'string' && TIER3_NODE_TIERS.has(blueprint.minNodeTier as NodeTier)) ||
+      String(blueprint.difficulty || '').toLowerCase() === 'hard' ||
+      bpTags.includes('mega') ||
+      bpTags.includes('tier-3');
+    if (isTier3Blueprint) {
+      const combinedReputation = await db.getCombinedReputation(agentId);
+      if (combinedReputation < 1) {
+        return reply.code(403).send({
+          error: `Tier-3 blueprints require at least 1 certification pass. Current reputation: ${combinedReputation}. Complete a SWAP_EXECUTION_V1 certification first.`
+        });
+      }
+    }
 
     // Node-tier gate: blueprints with minNodeTier require a nearby node at that tier or higher
     if (blueprint.minNodeTier) {
@@ -1325,15 +1437,51 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       }
     }
 
-    // Check agent has enough credits for total primitives
+    // Check resource costs for this blueprint
     const totalPrims = blueprint.totalPrimitives || blueprint.phases.reduce(
       (sum: number, phase: any) => sum + phase.primitives.length, 0
     );
-    const credits = await db.getAgentCredits(agentId);
-    if (credits < totalPrims * BUILD_CREDIT_CONFIG.PRIMITIVE_COST) {
-      return reply.code(403).send({
-        error: `Insufficient credits. Need ${totalPrims}, have ${credits}.`
-      });
+    const blueprintCreditCost = totalPrims * BUILD_CREDIT_CONFIG.PRIMITIVE_COST;
+    const blueprintMaterialCost: Record<string, number> | null =
+      blueprint.materialCost && typeof blueprint.materialCost === 'object'
+        ? blueprint.materialCost as Record<string, number>
+        : null;
+
+    let creditsPrepaid = false;
+    if (blueprintMaterialCost) {
+      const inventory = await db.getAgentMaterials(agentId);
+      const missing: string[] = [];
+      for (const [material, amount] of Object.entries(blueprintMaterialCost)) {
+        if (!amount || amount <= 0) continue;
+        if (!MATERIAL_TYPES.includes(material as any)) {
+          missing.push(`${material}: invalid material type`);
+          continue;
+        }
+        const matKey = material as keyof typeof inventory;
+        const current = inventory[matKey] ?? 0;
+        if (current < amount) {
+          missing.push(`${material}: need ${amount}, have ${current}`);
+        }
+      }
+      if (missing.length > 0) {
+        return reply.code(403).send({
+          error: `Insufficient materials for blueprint start: ${missing.join(', ')}`
+        });
+      }
+      const credits = await db.getAgentCredits(agentId);
+      if (credits < blueprintCreditCost) {
+        return reply.code(403).send({
+          error: `Insufficient credits. Need ${blueprintCreditCost}, have ${credits}.`
+        });
+      }
+      creditsPrepaid = true;
+    } else {
+      const credits = await db.getAgentCredits(agentId);
+      if (credits < blueprintCreditCost) {
+        return reply.code(403).send({
+          error: `Insufficient credits. Need ${blueprintCreditCost}, have ${credits}.`
+        });
+      }
     }
 
     // Compute absolute coordinates — the core value of the blueprint engine.
@@ -1381,6 +1529,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
             z: prim.scaleZ || 1,
           },
           color: prim.color || '#808080',
+          materialType: prim.materialType || null,
         });
       }
     }
@@ -1426,6 +1575,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Atomic debit for premium (material-cost) blueprints after all placement validations pass.
+    if (creditsPrepaid && blueprintMaterialCost) {
+      const started = await db.startBlueprintWithMaterialCost(agentId, blueprintCreditCost, blueprintMaterialCost);
+      if (!started) {
+        return reply.code(403).send({
+          error: 'Unable to start blueprint due to insufficient credits/materials.'
+        });
+      }
+    }
+
     // Store plan
     const plan: BlueprintBuildPlan = {
       agentId,
@@ -1438,6 +1597,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       placedCount: 0,
       nextIndex: 0,
       startedAt: Date.now(),
+      creditsPrepaid,
     };
     world.setBuildPlan(agentId, plan);
     world.setBlueprintReservation(agentId, { minX: footMinX, maxX: footMaxX, minZ: footMinZ, maxZ: footMaxZ });
@@ -1457,15 +1617,13 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     try {
       const builder = await db.getAgent(agentId);
       const builderName = builder?.name || agentId;
-      const termMsg = {
-        id: 0,
-        agentId: 'system',
-        agentName: 'System',
-        message: `${builderName} started ${body.name} at (${body.anchorX}, ${body.anchorZ}) [0/${allPrimitives.length}]`,
-        createdAt: Date.now(),
-      };
-      await db.writeTerminalMessage(termMsg);
-      world.broadcastTerminalMessage(termMsg);
+      const startEvent = await db.insertMessageEvent({
+        agentId, agentName: builderName,
+        source: 'system', kind: 'build',
+        body: `${builderName} started ${body.name} at (${body.anchorX}, ${body.anchorZ}) [0/${allPrimitives.length}]`,
+        metadata: { blueprint: body.name, anchorX: body.anchorX, anchorZ: body.anchorZ, total: allPrimitives.length },
+      });
+      world.broadcastEvent(startEvent);
     } catch (err) {
       console.warn('[Blueprint] Failed to broadcast start message:', err);
     }
@@ -1577,11 +1735,13 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           color: prim.color,
           createdAt: Date.now(),
           blueprintInstanceId: `bp_${agentId}_${plan.startedAt}`,
+          blueprintName: plan.blueprintName,
+          materialType: prim.materialType || null,
         };
 
         const placed = await db.createWorldPrimitiveWithCreditDebit(
           primitive,
-          BUILD_CREDIT_CONFIG.PRIMITIVE_COST
+          plan.creditsPrepaid ? 0 : BUILD_CREDIT_CONFIG.PRIMITIVE_COST
         );
         if (!placed.ok) {
           results.push({
@@ -1594,6 +1754,24 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
         world.addWorldPrimitive(primitive);
 
+        if (placed.repReward && placed.totalBuilt) {
+          const repEvent = await db.insertMessageEvent({
+            source: 'system', kind: 'reputation',
+            body: `🏆 ${builderName} reached a milestone (${placed.totalBuilt} primitives built) and earned +${placed.repReward} reputation!`,
+            metadata: { agentId, totalBuilt: placed.totalBuilt, repReward: placed.repReward },
+          });
+          world.broadcastEvent(repEvent);
+        }
+
+        if (placed.materialEarned) {
+          const matEvent = await db.insertMessageEvent({
+            source: 'system', kind: 'material',
+            body: `⛏️ ${builderName} earned 1 ${placed.materialEarned} material for placing ${MATERIAL_CONFIG.EARN_EVERY_N_PRIMITIVES} primitives.`,
+            metadata: { agentId, material: placed.materialEarned },
+          });
+          world.broadcastEvent(matEvent);
+        }
+
         plan.placedCount++;
         results.push({ index: idx, success: true });
       } catch (err: any) {
@@ -1604,15 +1782,13 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     // Broadcast a single build message for the batch (terminal, not chat)
     const successCount = results.filter(r => r.success).length;
     if (successCount > 0) {
-      const termMsg = {
-        id: 0,
-        agentId: 'system',
-        agentName: 'System',
-        message: `${builderName} placed ${successCount} pieces of ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) [${plan.placedCount}/${plan.totalPrimitives}]`,
-        createdAt: Date.now(),
-      };
-      await db.writeTerminalMessage(termMsg);
-      world.broadcastTerminalMessage(termMsg);
+      const batchEvent = await db.insertMessageEvent({
+        agentId, agentName: builderName,
+        source: 'system', kind: 'build',
+        body: `${builderName} placed ${successCount} pieces of ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) [${plan.placedCount}/${plan.totalPrimitives}]`,
+        metadata: { blueprint: plan.blueprintName, placed: plan.placedCount, total: plan.totalPrimitives },
+      });
+      world.broadcastEvent(batchEvent);
     }
 
     // Check completion
@@ -1624,15 +1800,13 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       const completionMsg = failedCount === 0
         ? `${builderName} completed ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) [${plan.placedCount}/${plan.totalPrimitives}]`
         : `${builderName} completed ${plan.blueprintName} at (${plan.anchorX}, ${plan.anchorZ}) with failures: placed ${plan.placedCount}/${plan.totalPrimitives}, failed ${failedCount}`;
-      const termMsg = {
-        id: 0,
-        agentId: 'system',
-        agentName: 'System',
-        message: completionMsg,
-        createdAt: Date.now(),
-      };
-      await db.writeTerminalMessage(termMsg);
-      world.broadcastTerminalMessage(termMsg);
+      const completionEvent = await db.insertMessageEvent({
+        agentId, agentName: builderName,
+        source: 'system', kind: 'build',
+        body: completionMsg,
+        metadata: { blueprint: plan.blueprintName, placed: plan.placedCount, total: plan.totalPrimitives },
+      });
+      world.broadcastEvent(completionEvent);
 
       try {
         await db.deleteBlueprintBuildPlan(agentId);
@@ -1879,22 +2053,108 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     if (!agent) return reply.status(404).send({ error: 'Agent not found' });
 
     const body = WriteTerminalSchema.parse(request.body);
-    const message = {
-      id: 0, // assigned by DB
-      agentId,
-      agentName: agent.name,
-      message: body.message,
-      createdAt: Date.now()
-    };
+    const event = await db.insertMessageEvent({
+      agentId, agentName: agent.name,
+      source: 'agent', kind: 'status',
+      body: body.message,
+    });
+    world.broadcastEvent(event);
 
-    const saved = await db.writeTerminalMessage(message);
-    world.broadcastTerminalMessage(saved);
-
-    return saved;
+    return event;
   });
 
   fastify.get('/v1/grid/terminal', async (request, reply) => {
-    return await db.getTerminalMessages(50);
+    return await db.getRecentMessageEvents(50);
+  });
+
+  // --- Human-Agent DMs (REST polling inbox) ---
+
+  fastify.post('/v1/grid/dm', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const dmThrottle = checkRateLimit(
+      'rest:grid:dm:send',
+      agentId,
+      DM_SEND_RATE_LIMIT.limit,
+      DM_SEND_RATE_LIMIT.windowMs
+    );
+    if (!dmThrottle.allowed) {
+      return reply.status(429).send({
+        error: 'DM rate limited. Slow down.',
+        retryAfterMs: dmThrottle.retryAfterMs,
+      });
+    }
+
+    const body = SendDirectMessageSchema.parse(request.body);
+    if (body.toAgentId === agentId) {
+      return reply.status(400).send({ error: 'Cannot DM yourself.' });
+    }
+
+    const sender = await db.getAgent(agentId);
+    const recipient = await db.getAgent(body.toAgentId);
+    if (!sender || !recipient) {
+      return reply.status(404).send({ error: 'Sender or recipient agent not found.' });
+    }
+
+    const fromType = (sender as any)?.isAutonomous ? 'agent' : 'human';
+    const fromId = fromType === 'human'
+      ? ((sender as any)?.ownerId || sender.id)
+      : sender.id;
+
+    const saved = await db.sendDirectMessage(fromId, fromType, body.toAgentId, body.message.trim());
+    return saved;
+  });
+
+  fastify.get('/v1/grid/dm/inbox', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const inboxThrottle = checkRateLimit(
+      'rest:grid:dm:inbox',
+      agentId,
+      DM_INBOX_RATE_LIMIT.limit,
+      DM_INBOX_RATE_LIMIT.windowMs
+    );
+    if (!inboxThrottle.allowed) {
+      return reply.status(429).send({
+        error: 'DM inbox polling is rate limited. Slow down.',
+        retryAfterMs: inboxThrottle.retryAfterMs,
+      });
+    }
+
+    const query = request.query as { unread?: string | boolean | number };
+    const unreadRaw = query?.unread;
+    const unreadOnly =
+      unreadRaw === true ||
+      unreadRaw === 1 ||
+      String(unreadRaw || '').toLowerCase() === 'true' ||
+      String(unreadRaw || '') === '1';
+
+    const messages = await db.getAgentInbox(agentId, unreadOnly);
+    return { messages };
+  });
+
+  fastify.post('/v1/grid/dm/mark-read', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const markReadThrottle = checkRateLimit(
+      'rest:grid:dm:mark-read',
+      agentId,
+      DM_MARK_READ_RATE_LIMIT.limit,
+      DM_MARK_READ_RATE_LIMIT.windowMs
+    );
+    if (!markReadThrottle.allowed) {
+      return reply.status(429).send({
+        error: 'DM mark-read is rate limited. Slow down.',
+        retryAfterMs: markReadThrottle.retryAfterMs,
+      });
+    }
+
+    const body = MarkDirectMessagesReadSchema.parse(request.body);
+    const updated = await db.markDMsRead(agentId, body.messageIds);
+    return { updated };
   });
 
   // --- Directives ---
@@ -1910,6 +2170,19 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     const agent = await db.getAgent(agentId);
     if (!agent) {
       return reply.status(404).send({ error: 'Agent not found' });
+    }
+
+    const combinedReputation = await db.getCombinedReputation(agentId);
+    const isExternal = (agent as any).isExternal === true;
+    if (isExternal && combinedReputation <= 5) {
+      return reply.status(403).send({
+        error: `External visitors cannot submit directives until combined reputation exceeds 5. Current: ${combinedReputation}.`
+      });
+    }
+    if (combinedReputation < 5) {
+      return reply.status(403).send({
+        error: `Combined reputation of 5 required to submit a directive. Current: ${combinedReputation}.`
+      });
     }
 
     const body = SubmitGridDirectiveSchema.parse(request.body);
@@ -1968,16 +2241,34 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     await db.createDirective(directive);
     world.broadcastDirective(directive);
 
-    // Write directive confirmation to terminal feed
-    const termMsg = {
-      id: 0,
-      agentId: 'system',
-      agentName: 'System',
-      message: `${agent.name} proposed directive: "${body.description}" (needs ${body.agentsNeeded} agents)`,
-      createdAt: Date.now()
-    };
-    await db.writeTerminalMessage(termMsg);
-    world.broadcastTerminalMessage(termMsg);
+    const proposerTokenId = Number((agent as any)?.erc8004AgentId || 0);
+    if (Number.isFinite(proposerTokenId) && proposerTokenId > 0) {
+      try {
+        const onchain = await submitDirectiveOnChain({
+          kind: 'solo',
+          proposerAgentTokenId: proposerTokenId,
+          objective: body.description,
+          agentsNeeded: body.agentsNeeded,
+          x: Math.round(body.targetX ?? 0),
+          z: Math.round(body.targetZ ?? 0),
+          hoursDuration: body.hoursDuration,
+        });
+        if (onchain?.txHash) {
+          console.log(`[Chain] Synced solo directive ${directive.id} -> tx ${onchain.txHash}`);
+        }
+      } catch (error) {
+        console.warn('[Chain] Failed to sync solo directive on-chain (non-blocking):', error);
+      }
+    }
+
+    // Write directive confirmation to unified feed
+    const directiveEvent = await db.insertMessageEvent({
+      agentId, agentName: agent.name,
+      source: 'system', kind: 'directive',
+      body: `${agent.name} proposed directive: "${body.description}" (needs ${body.agentsNeeded} agents)`,
+      metadata: { directiveId: directive.id, agentsNeeded: body.agentsNeeded },
+    });
+    world.broadcastEvent(directiveEvent);
 
     return directive;
   });
@@ -1988,6 +2279,20 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const guildId = await db.getAgentGuild(agentId);
     if (!guildId) return reply.status(403).send({ error: 'Not in a guild' });
+
+    const agent = await db.getAgent(agentId);
+    const combinedReputation = await db.getCombinedReputation(agentId);
+    const isExternal = (agent as any)?.isExternal === true;
+    if (isExternal && combinedReputation <= 5) {
+      return reply.status(403).send({
+        error: `External visitors cannot submit guild directives until combined reputation exceeds 5. Current: ${combinedReputation}.`
+      });
+    }
+    if (!agent || combinedReputation < 5) {
+      return reply.status(403).send({
+        error: `Combined reputation of 5 required to submit a guild directive. Current: ${combinedReputation}.`
+      });
+    }
 
     const body = SubmitGuildDirectiveSchema.parse(request.body);
     if (body.guildId !== guildId) return reply.status(403).send({ error: 'Wrong guild' });
@@ -2031,6 +2336,28 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     await db.createDirective(directive);
     world.broadcastDirective(directive);
 
+    const proposerTokenId = Number((agent as any)?.erc8004AgentId || 0);
+    const numericGuildId = Number(guildId);
+    if (Number.isFinite(proposerTokenId) && proposerTokenId > 0 && Number.isFinite(numericGuildId) && numericGuildId > 0) {
+      try {
+        const onchain = await submitDirectiveOnChain({
+          kind: 'guild',
+          guildId: numericGuildId,
+          proposerAgentTokenId: proposerTokenId,
+          objective: body.description,
+          agentsNeeded: body.agentsNeeded,
+          x: Math.round(body.targetX ?? 0),
+          z: Math.round(body.targetZ ?? 0),
+          hoursDuration: body.hoursDuration,
+        });
+        if (onchain?.txHash) {
+          console.log(`[Chain] Synced guild directive ${directive.id} -> tx ${onchain.txHash}`);
+        }
+      } catch (error) {
+        console.warn('[Chain] Failed to sync guild directive on-chain (non-blocking):', error);
+      }
+    }
+
     return directive;
   });
 
@@ -2043,18 +2370,24 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     await db.castVote(id, agentId, body.vote);
 
-    // Write vote confirmation to terminal feed
+    // Diplomat class gets 2x vote weight — cast an extra synthetic vote
     const voter = await db.getAgent(agentId);
+    const voterClass = (voter as any)?.agentClass as string | undefined;
+    if (voterClass === 'diplomat') {
+      // Cast a second vote under a synthetic ID to represent double weight
+      await db.castVote(id, `${agentId}_diplomat_weight`, body.vote);
+    }
+
+    // Write vote confirmation to terminal feed
     const voterName = voter?.name || agentId;
-    const termMsg = {
-      id: 0,
-      agentId: 'system',
-      agentName: 'System',
-      message: `${voterName} voted ${body.vote} on directive ${id}`,
-      createdAt: Date.now()
-    };
-    await db.writeTerminalMessage(termMsg);
-    world.broadcastTerminalMessage(termMsg);
+    const voteLabel = voterClass === 'diplomat' ? `${body.vote} (2x diplomat weight)` : body.vote;
+    const voteEvent = await db.insertMessageEvent({
+      agentId, agentName: voterName,
+      source: 'system', kind: 'directive',
+      body: `${voterName} voted ${voteLabel} on directive ${id}`,
+      metadata: { directiveId: id, vote: body.vote },
+    });
+    world.broadcastEvent(voteEvent);
 
     // Check if directive should be passed (yes_votes >= agentsNeeded)
     const directiveData = await db.getDirective(id);
@@ -2068,30 +2401,24 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
       const submitter = await db.getAgent(directiveData.submittedBy);
       const submitterName = submitter?.name || directiveData.submittedBy;
-      const passedTermMsg = {
-        id: 0,
-        agentId: 'system',
-        agentName: 'System',
-        message: `Directive passed: "${directiveData.description}" — now in progress. ${submitterName} earned ${reward} credits.`,
-        createdAt: Date.now()
-      };
-      await db.writeTerminalMessage(passedTermMsg);
-      world.broadcastTerminalMessage(passedTermMsg);
+      const passedEvent = await db.insertMessageEvent({
+        source: 'system', kind: 'directive',
+        body: `Directive passed: "${directiveData.description}" — now in progress. ${submitterName} earned ${reward} credits.`,
+        metadata: { directiveId: id, reward },
+      });
+      world.broadcastEvent(passedEvent);
     }
 
     // Check if directive should be declined (no_votes >= agentsNeeded)
     if (directiveData && directiveData.status === 'active' && directiveData.noVotes >= directiveData.agentsNeeded) {
       await db.declineDirective(id);
 
-      const declinedTermMsg = {
-        id: 0,
-        agentId: 'system',
-        agentName: 'System',
-        message: `Directive declined: "${directiveData.description}" — agents voted it down.`,
-        createdAt: Date.now()
-      };
-      await db.writeTerminalMessage(declinedTermMsg);
-      world.broadcastTerminalMessage(declinedTermMsg);
+      const declinedEvent = await db.insertMessageEvent({
+        source: 'system', kind: 'directive',
+        body: `Directive declined: "${directiveData.description}" — agents voted it down.`,
+        metadata: { directiveId: id },
+      });
+      world.broadcastEvent(declinedEvent);
     }
 
     return { success: true };
@@ -2117,19 +2444,18 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }
 
     await db.completeDirective(id, agentId);
+    await db.addLocalReputation(agentId, 5); // Feature 7b reward
 
     // No credit reward — building itself earns credits
     const completer = await db.getAgent(agentId);
     const completerName = completer?.name || agentId;
-    const completionTermMsg = {
-      id: 0,
-      agentId: 'system',
-      agentName: 'System',
-      message: `Directive completed by ${completerName}: "${directiveData.description}" — objective achieved!`,
-      createdAt: Date.now()
-    };
-    await db.writeTerminalMessage(completionTermMsg);
-    world.broadcastTerminalMessage(completionTermMsg);
+    const completionEvent = await db.insertMessageEvent({
+      agentId, agentName: completerName,
+      source: 'system', kind: 'directive',
+      body: `Directive completed by ${completerName}: "${directiveData.description}" — objective achieved!`,
+      metadata: { directiveId: id },
+    });
+    world.broadcastEvent(completionEvent);
 
     return { success: true, completed: true };
   });
@@ -2139,6 +2465,20 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
   fastify.post('/v1/grid/guilds', async (request, reply) => {
     const commanderId = await requireAgent(request, reply);
     if (!commanderId) return;
+
+    const commander = await db.getAgent(commanderId);
+    const combinedReputation = await db.getCombinedReputation(commanderId);
+    const isExternal = (commander as any)?.isExternal === true;
+    if (isExternal && combinedReputation <= 5) {
+      return reply.status(403).send({
+        error: `External visitors cannot create guilds until combined reputation exceeds 5. Current: ${combinedReputation}.`
+      });
+    }
+    if (!commander || combinedReputation < 10) {
+      return reply.status(403).send({
+        error: `Combined reputation of 10 required to create a guild. Current: ${combinedReputation}.`
+      });
+    }
 
     const body = CreateGuildSchema.parse(request.body);
     
@@ -2159,6 +2499,33 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     await db.createGuild(guild, [commanderId, body.viceCommanderId]);
     world.broadcastGuild(guild);
+
+    const commanderTokenId = Number((commander as any)?.erc8004AgentId || 0);
+    const vice = await db.getAgent(body.viceCommanderId);
+    const viceTokenId = Number((vice as any)?.erc8004AgentId || 0);
+    const viceWallet = (vice as any)?.ownerId as string | undefined;
+    if (
+      Number.isFinite(commanderTokenId) &&
+      commanderTokenId > 0 &&
+      Number.isFinite(viceTokenId) &&
+      viceTokenId > 0 &&
+      typeof viceWallet === 'string' &&
+      viceWallet.length > 0
+    ) {
+      try {
+        const onchain = await syncGuildOnChain({
+          name: guild.name,
+          lieutenant: viceWallet,
+          captainAgentTokenId: commanderTokenId,
+          lieutenantAgentTokenId: viceTokenId,
+        });
+        if (onchain?.txHash) {
+          console.log(`[Chain] Synced guild ${guild.id} -> tx ${onchain.txHash}`);
+        }
+      } catch (error) {
+        console.warn('[Chain] Failed to sync guild on-chain (non-blocking):', error);
+      }
+    }
 
     return guild;
   });
@@ -2194,15 +2561,13 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const joiner = await db.getAgent(agentId);
     const joinerName = joiner?.name || agentId;
-    const joinTermMsg = {
-      id: 0,
-      agentId: 'system',
-      agentName: 'System',
-      message: `${joinerName} joined guild "${guild.name}"`,
-      createdAt: Date.now()
-    };
-    await db.writeTerminalMessage(joinTermMsg);
-    world.broadcastTerminalMessage(joinTermMsg);
+    const joinEvent = await db.insertMessageEvent({
+      agentId, agentName: joinerName,
+      source: 'system', kind: 'guild',
+      body: `${joinerName} joined guild "${guild.name}"`,
+      metadata: { guildId: id, guildName: guild.name },
+    });
+    world.broadcastEvent(joinEvent);
 
     return { success: true, guildId: id, guildName: guild.name, alreadyMember: false };
   });
@@ -2215,6 +2580,127 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
 
     const credits = await db.getAgentCredits(agentId);
     return { credits };
+  });
+
+  // --- Materials ---
+
+  fastify.get('/v1/grid/materials', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+    const materials = await db.getAgentMaterials(agentId);
+    return { materials };
+  });
+
+  fastify.post('/v1/grid/trade', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const body = TradeRequestSchema.parse(request.body);
+    if (body.toAgentId === agentId) {
+      return reply.status(400).send({ error: 'Cannot trade materials to yourself.' });
+    }
+
+    const sender = await db.getAgent(agentId);
+    const recipient = await db.getAgent(body.toAgentId);
+    if (!sender || !recipient) {
+      return reply.status(404).send({ error: 'Sender or recipient agent not found.' });
+    }
+
+    const senderClass = (sender as any)?.agentClass as string | undefined;
+    const transferMultiplier = senderClass === 'merchant' ? CLASS_BONUSES.merchant.transferBonus : 1;
+    const receivedAmount = Math.round(body.amount * transferMultiplier);
+
+    const transferred = await db.transferMaterial(agentId, body.toAgentId, body.material, body.amount);
+    if (!transferred) {
+      return reply.status(403).send({ error: 'Insufficient material balance for trade.' });
+    }
+
+    if (receivedAmount > body.amount) {
+      await db.addMaterial(body.toAgentId, body.material, receivedAmount - body.amount);
+    }
+
+    await db.incrementSuccessfulTrades(agentId);
+    await db.incrementSuccessfulTrades(body.toAgentId);
+    await db.addLocalReputation(agentId, 1);
+    await db.addLocalReputation(body.toAgentId, 1);
+
+    const senderName = sender.name || agentId;
+    const bonusLabel = receivedAmount > body.amount ? ` (+${receivedAmount - body.amount} merchant bonus)` : '';
+    const tradeEvent = await db.insertMessageEvent({
+      agentId, agentName: senderName,
+      source: 'system', kind: 'trade',
+      body: `${senderName} traded ${body.amount} ${body.material} to ${recipient.name}${bonusLabel}`,
+      metadata: { material: body.material, amount: body.amount, toAgentId: body.toAgentId },
+    });
+    world.broadcastEvent(tradeEvent);
+
+    return {
+      success: true,
+      material: body.material,
+      transferred: body.amount,
+      received: receivedAmount,
+      to: body.toAgentId
+    };
+  });
+
+  fastify.post('/v1/grid/scavenge', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const scavengeThrottle = checkRateLimit('rest:grid:scavenge', agentId, 1, 60_000);
+    if (!scavengeThrottle.allowed) {
+      return reply.code(429).send({
+        error: 'Scavenge rate limited. Try again in a minute.',
+        retryAfterMs: scavengeThrottle.retryAfterMs,
+      });
+    }
+
+    const agent = await db.getAgent(agentId);
+    const agentClass = (agent as any)?.agentClass as string | undefined;
+    const isScavenger = agentClass === 'scavenger';
+
+    // Base yield for all classes, scavenger gets bonus
+    const baseYield = MATERIAL_CONFIG.SCAVENGE_YIELD;
+    const yieldMultiplier = isScavenger ? 1.25 : 1.0;
+
+    // All agents can scavenge from world activity (not just abandoned structures)
+    // This represents gathering materials from the environment
+    const abandonedStructures = await db.getAbandonedStructureCount(7);
+    const worldPrimitiveCount = world.getWorldPrimitives().length;
+    // Base scavenge opportunity: at least 1 if world has any structures, plus abandoned
+    const scavengeOpportunity = Math.max(worldPrimitiveCount > 0 ? 1 : 0, abandonedStructures);
+    if (scavengeOpportunity <= 0) {
+      return {
+        success: true,
+        scavengeOpportunity: 0,
+        harvested: emptyMaterialCounts(),
+        totalHarvested: 0
+      };
+    }
+
+    const totalHarvested = Math.min(5, Math.ceil(scavengeOpportunity * baseYield * yieldMultiplier));
+    const harvested = emptyMaterialCounts();
+    for (let i = 0; i < totalHarvested; i++) {
+      const found = await db.addRandomMaterial(agentId);
+      if (found) harvested[found] += 1;
+    }
+
+    const scavengerName = agent?.name || agentId;
+    const bonusNote = isScavenger ? ' (scavenger bonus!)' : '';
+    const scavengeEvent = await db.insertMessageEvent({
+      agentId, agentName: scavengerName,
+      source: 'system', kind: 'scavenge',
+      body: `🧲 ${scavengerName} scavenged ${totalHarvested} materials${bonusNote}`,
+      metadata: { totalHarvested, isScavenger },
+    });
+    world.broadcastEvent(scavengeEvent);
+
+    return {
+      success: true,
+      harvested,
+      totalHarvested,
+      scavengerBonus: isScavenger,
+    };
   });
 
   // --- Credit Transfer ---
@@ -2247,22 +2733,153 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: `Insufficient credits. You have ${senderCredits}, tried to send ${body.amount}.` });
     }
 
+    // Merchant class gets 1.5x transfer bonus — recipient receives more
+    const sender = await db.getAgent(agentId);
+    const senderClass = (sender as any)?.agentClass as string | undefined;
+    const transferMultiplier = senderClass === 'merchant' ? CLASS_BONUSES.merchant.transferBonus : 1;
+    const receivedAmount = Math.round(body.amount * transferMultiplier);
+
+    // Deduct the base amount from sender, credit the (possibly boosted) amount to recipient
     await db.transferCredits(agentId, body.toAgentId, body.amount, BUILD_CREDIT_CONFIG.CREDIT_CAP);
+    // If merchant bonus, add the extra credits to recipient
+    if (receivedAmount > body.amount) {
+      const bonus = receivedAmount - body.amount;
+      await db.addCreditsWithCap(body.toAgentId, bonus, BUILD_CREDIT_CONFIG.CREDIT_CAP);
+    }
+    await db.incrementSuccessfulTrades(agentId);
+    await db.incrementSuccessfulTrades(body.toAgentId);
+    await db.addLocalReputation(agentId, 1);
+    await db.addLocalReputation(body.toAgentId, 1);
 
     // Broadcast transfer to terminal
-    const sender = await db.getAgent(agentId);
     const senderName = sender?.name || agentId;
-    const transferTermMsg = {
-      id: 0,
-      agentId: 'system',
-      agentName: 'System',
-      message: `${senderName} transferred ${body.amount} credits to ${recipient.name}`,
-      createdAt: Date.now()
-    };
-    await db.writeTerminalMessage(transferTermMsg);
-    world.broadcastTerminalMessage(transferTermMsg);
+    const bonusLabel = receivedAmount > body.amount ? ` (+${receivedAmount - body.amount} merchant bonus)` : '';
+    const transferEvent = await db.insertMessageEvent({
+      agentId, agentName: senderName,
+      source: 'system', kind: 'transfer',
+      body: `${senderName} transferred ${body.amount} credits to ${recipient.name}${bonusLabel}`,
+      metadata: { amount: body.amount, toAgentId: body.toAgentId, received: receivedAmount },
+    });
+    world.broadcastEvent(transferEvent);
 
-    return { success: true, transferred: body.amount, to: body.toAgentId };
+    return { success: true, transferred: body.amount, received: receivedAmount, to: body.toAgentId };
+  });
+
+  // --- Referral ---
+
+  fastify.get('/v1/grid/referral', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const agent = await db.getAgent(agentId);
+    if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+
+    const referralCode = (agent as any).referralCode || null;
+    const stats = await db.getReferralStats(agentId);
+
+    return {
+      referralCode,
+      referralCount: stats.referralCount,
+      creditsEarned: stats.creditsEarned,
+    };
+  });
+
+  // --- Structure Details (Blueprint-aware click metadata) ---
+
+  fastify.get<{ Params: { instanceId: string } }>('/v1/grid/structures/:instanceId', async (request, reply) => {
+    const { instanceId } = request.params;
+    if (!instanceId || !instanceId.startsWith('bp_')) {
+      return reply.status(400).send({ error: 'Invalid blueprint instance ID.' });
+    }
+
+    const pieces = world.getWorldPrimitives().filter((primitive) => primitive.blueprintInstanceId === instanceId);
+    if (pieces.length === 0) {
+      return reply.status(404).send({ error: 'Structure not found.' });
+    }
+
+    const sortedPieces = [...pieces].sort((a, b) => a.createdAt - b.createdAt);
+    const firstPiece = sortedPieces[0];
+    const ownerAgentId = firstPiece.ownerAgentId;
+    const ownerAgent = await db.getAgent(ownerAgentId);
+
+    const summed = pieces.reduce(
+      (acc, piece) => ({
+        x: acc.x + piece.position.x,
+        z: acc.z + piece.position.z,
+      }),
+      { x: 0, z: 0 }
+    );
+    const center = {
+      x: summed.x / pieces.length,
+      z: summed.z / pieces.length,
+    };
+
+    let builtAt = Number.isFinite(firstPiece.createdAt) ? firstPiece.createdAt : null;
+    const parsedBlueprintStamp = /^bp_(.+)_(\d{10,})$/.exec(instanceId);
+    if (parsedBlueprintStamp) {
+      const parsed = Number(parsedBlueprintStamp[2]);
+      if (Number.isFinite(parsed)) {
+        builtAt = builtAt === null ? parsed : Math.min(builtAt, parsed);
+      }
+    }
+
+    let guild: { id: string; name: string } | null = null;
+    const guildId = await db.getAgentGuild(ownerAgentId);
+    if (guildId) {
+      const g = await db.getGuild(guildId);
+      if (g) {
+        guild = { id: g.id, name: g.name };
+      }
+    }
+
+    let directive: {
+      id: string;
+      type: 'grid' | 'guild' | 'bounty';
+      description: string;
+      status: string;
+      targetX?: number;
+      targetZ?: number;
+      targetStructureGoal?: number;
+      distanceFromTarget?: number;
+    } | null = null;
+
+    const directives = await db.getActiveDirectives();
+    let bestDirectiveDistance = Infinity;
+    for (const d of directives) {
+      if (typeof d.targetX !== 'number' || typeof d.targetZ !== 'number') continue;
+      const dist = Math.hypot(center.x - d.targetX, center.z - d.targetZ);
+      // Best-effort linkage: only attach directives that spatially target this structure area.
+      if (dist <= 160 && dist < bestDirectiveDistance) {
+        bestDirectiveDistance = dist;
+        directive = {
+          id: d.id,
+          type: d.type,
+          description: d.description,
+          status: d.status,
+          targetX: d.targetX,
+          targetZ: d.targetZ,
+          targetStructureGoal: d.targetStructureGoal,
+          distanceFromTarget: Math.round(dist),
+        };
+      }
+    }
+
+    return {
+      blueprintInstanceId: instanceId,
+      blueprintName: firstPiece.blueprintName || null,
+      builder: {
+        agentId: ownerAgentId,
+        name: ownerAgent?.name || firstPiece.ownerAgentName || ownerAgentId,
+      },
+      pieceCount: pieces.length,
+      builtAt,
+      center: {
+        x: Math.round(center.x),
+        z: Math.round(center.z),
+      },
+      guild,
+      directive,
+    };
   });
 
   // --- General ---
@@ -2299,27 +2916,58 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     primitiveRevision: number;
     agentsOnline: number;
     primitiveCount: number;
-    latestTerminalMessageId: number;
-    latestChatMessageId: number;
+    latestEventId: number;
+  }
+
+  interface GridHeatMapCell {
+    x: number;
+    z: number;
+    density: number;
+  }
+
+  interface GridStatsNode {
+    id: string;
+    name: string;
+    tier: NodeTier;
+    center: { x: number; z: number };
+    structureCount: number;
+    connections: Array<{ targetId: string }>;
+  }
+
+  interface GridStatsResponse {
+    agentsOnline: number;
+    totalStructures: number;
+    totalGuilds: number;
+    activeDirectives: number;
+    heatMap: {
+      cellSize: number;
+      cells: GridHeatMapCell[];
+    };
+    nodes: GridStatsNode[];
+    generatedAt: number;
   }
 
   const getStateLite = async (): Promise<StateLite> => {
-    const [latestTerminal] = await db.getTerminalMessages(1);
-    const [latestChat] = await db.getChatMessages(1);
+    const [latestEvent] = await db.getRecentMessageEvents(1);
 
     return {
       tick: world.getCurrentTick(),
       primitiveRevision: world.getPrimitiveRevision(),
       agentsOnline: world.getAgentCount(),
       primitiveCount: world.getWorldPrimitiveCount(),
-      latestTerminalMessageId: latestTerminal?.id || 0,
-      latestChatMessageId: latestChat?.id || 0,
+      latestEventId: latestEvent?.id || 0,
     };
   };
   const STATE_MESSAGE_HISTORY_LIMIT = 30;
 
+  let statsCache: {
+    computedAt: number;
+    primitiveRevision: number;
+    payload: GridStatsResponse;
+  } | null = null;
+
   const stateLiteEtag = (lite: StateLite): string =>
-    `W/"grid-lite-${lite.primitiveRevision}-${lite.agentsOnline}-${lite.latestTerminalMessageId}-${lite.latestChatMessageId}"`;
+    `W/"grid-lite-${lite.primitiveRevision}-${lite.agentsOnline}-${lite.latestEventId}"`;
 
   fastify.get('/v1/grid/state-lite', async (request, reply) => {
     await maybeTouchAuthenticatedAgent(request);
@@ -2332,6 +2980,74 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }
     reply.header('ETag', etag);
     return lite;
+  });
+
+  fastify.get('/v1/grid/stats', async (request, reply) => {
+    const primitiveRevision = world.getPrimitiveRevision();
+    const now = Date.now();
+
+    if (
+      statsCache &&
+      statsCache.primitiveRevision === primitiveRevision &&
+      now - statsCache.computedAt < GRID_STATS_TTL_MS
+    ) {
+      reply.header('Cache-Control', 'public, max-age=30');
+      return statsCache.payload;
+    }
+
+    const primitives = world.getWorldPrimitives() as unknown as PrimitiveLike[];
+    const connectorPrimitives = primitives.filter(isConnectorPrimitive);
+    const structures = buildStructureSummaries(primitives);
+    const nodes = buildSettlementNodes(structures, connectorPrimitives);
+    const [guilds, directives] = await Promise.all([
+      db.getAllGuilds(),
+      db.getActiveDirectives(),
+    ]);
+
+    const heatMapCells = new Map<string, GridHeatMapCell>();
+    for (const primitive of primitives) {
+      const cellX = Math.floor(primitive.position.x / GRID_STATS_CELL_SIZE) * GRID_STATS_CELL_SIZE;
+      const cellZ = Math.floor(primitive.position.z / GRID_STATS_CELL_SIZE) * GRID_STATS_CELL_SIZE;
+      const key = `${cellX},${cellZ}`;
+      const existing = heatMapCells.get(key);
+      if (existing) {
+        existing.density += 1;
+      } else {
+        heatMapCells.set(key, { x: cellX, z: cellZ, density: 1 });
+      }
+    }
+
+    const payload: GridStatsResponse = {
+      agentsOnline: world.getAgentCount(),
+      totalStructures: structures.length,
+      totalGuilds: guilds.length,
+      activeDirectives: directives.length,
+      heatMap: {
+        cellSize: GRID_STATS_CELL_SIZE,
+        cells: Array.from(heatMapCells.values()).sort((a, b) => b.density - a.density),
+      },
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        name: node.name,
+        tier: node.tier,
+        center: {
+          x: Math.round(node.center.x),
+          z: Math.round(node.center.z),
+        },
+        structureCount: node.structureCount,
+        connections: node.connections.map((connection) => ({ targetId: connection.targetId })),
+      })),
+      generatedAt: now,
+    };
+
+    statsCache = {
+      computedAt: now,
+      primitiveRevision,
+      payload,
+    };
+
+    reply.header('Cache-Control', 'public, max-age=30');
+    return payload;
   });
 
   // Lightweight agent position/status polling endpoint (avoids full primitive payload).
@@ -2365,7 +3081,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       .map(a => `${a.id}:${a.position.x.toFixed(1)},${a.position.z.toFixed(1)},${a.status}`)
       .sort()
       .join('|');
-    const etag = `W/"grid-state-${lite.primitiveRevision}-${lite.latestTerminalMessageId}-${lite.latestChatMessageId}-${positionHash}"`;
+    const etag = `W/"grid-state-${lite.primitiveRevision}-${lite.latestEventId}-${positionHash}"`;
     if (request.headers['if-none-match'] === etag) {
       reply.header('ETag', etag);
       return reply.code(304).send();
@@ -2375,17 +3091,212 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     // Return only ONLINE agents (from WorldManager, not DB)
     const agents = agentsForEtag;
     const primitives = world.getWorldPrimitives();
-    const messages = await db.getTerminalMessages(STATE_MESSAGE_HISTORY_LIMIT);
-    const chatMessages = await db.getChatMessages(STATE_MESSAGE_HISTORY_LIMIT);
+    const events = await db.getRecentMessageEvents(STATE_MESSAGE_HISTORY_LIMIT);
 
     return {
       tick: world.getCurrentTick(),
       primitiveRevision: lite.primitiveRevision,
       agents,
       primitives,
-      messages,
-      chatMessages
+      events,
     };
+  });
+
+  // --- Build Context (Actionable build intelligence for agents) ---
+
+  let buildContextCache: { data: unknown; computedAt: number; revision: number; etag: string } | null = null;
+
+  fastify.get('/v1/grid/build-context', async (request, reply) => {
+    const { x: qx, z: qz } = request.query as { x?: string; z?: string };
+    const queryX = Number(qx);
+    const queryZ = Number(qz);
+
+    // Default to world center if no position given
+    const hasPosition = Number.isFinite(queryX) && Number.isFinite(queryZ);
+    const reqX = hasPosition ? queryX : 0;
+    const reqZ = hasPosition ? queryZ : 0;
+
+    const primitiveRevision = world.getPrimitiveRevision();
+    const cacheKey = `${primitiveRevision}-${Math.round(reqX)}-${Math.round(reqZ)}`;
+    const cachedEtag = `W/"build-ctx-${cacheKey}"`;
+
+    if (request.headers['if-none-match'] === cachedEtag) {
+      reply.header('ETag', cachedEtag);
+      return reply.code(304).send();
+    }
+
+    const primitives = world.getWorldPrimitives();
+    const primitiveInput = primitives as unknown as PrimitiveLike[];
+    const connectorPrimitives = primitiveInput.filter(isConnectorPrimitive);
+    const structures = buildStructureSummaries(primitiveInput);
+    const nodes = buildSettlementNodes(structures, connectorPrimitives);
+    const openAreas = computeOpenAreas(nodes, primitiveInput);
+
+    // Find nearest node to queried position
+    let nearestNode: (typeof nodes)[number] | null = null;
+    let nearestNodeDist = Infinity;
+    for (const node of nodes) {
+      const d = pointDistanceXZ({ x: reqX, z: reqZ }, node.center);
+      if (d < nearestNodeDist) {
+        nearestNodeDist = d;
+        nearestNode = node;
+      }
+    }
+
+    // Origin zone check
+    const originDist = Math.sqrt(reqX * reqX + reqZ * reqZ);
+    const insideOriginZone = originDist < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN;
+
+    // Nearest structure distance from queried point
+    const nearestStructureDist = distanceToNearestPrimitive(reqX, reqZ, primitiveInput);
+
+    // Settlement proximity check
+    const withinSettlementProximity =
+      primitiveInput.length < BUILD_CREDIT_CONFIG.SETTLEMENT_PROXIMITY_THRESHOLD ||
+      nearestStructureDist <= BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT;
+
+    // Feasibility
+    const feasible = !insideOriginZone && withinSettlementProximity;
+
+    // Categories present and missing at nearest node
+    const ALL_CATEGORIES = ['architecture', 'infrastructure', 'technology', 'art', 'nature'];
+    let categoriesPresent: string[] = [];
+    let categoriesMissing: string[] = [...ALL_CATEGORIES];
+
+    if (nearestNode) {
+      const catSet = new Set<string>();
+      for (const s of structures) {
+        // Check if structure is within this node's radius
+        const d = pointDistanceXZ(s.center, nearestNode.center);
+        if (d <= nearestNode.radius + 20) {
+          catSet.add(s.category);
+        }
+      }
+      categoriesPresent = Array.from(catSet);
+      categoriesMissing = ALL_CATEGORIES.filter(c => !catSet.has(c));
+    }
+
+    // Filter safe build spots by proximity to queried position (within 200 units)
+    const MAX_SPOT_DISTANCE = 200;
+    const safeBuildSpots = openAreas
+      .map(area => ({
+        x: area.x,
+        z: area.z,
+        distToNearest: area.nearestBuild,
+        type: area.type,
+        distFromQuery: pointDistanceXZ({ x: area.x, z: area.z }, { x: reqX, z: reqZ }),
+      }))
+      .filter(s => s.distFromQuery <= MAX_SPOT_DISTANCE)
+      .sort((a, b) => a.distFromQuery - b.distFromQuery)
+      .slice(0, 8)
+      .map(({ distFromQuery, ...rest }) => rest);
+
+    // Generate recommendation (facts-only, not prescriptive)
+    let recommendation = '';
+    if (insideOriginZone) {
+      recommendation = `Too close to origin. Move at least ${BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN} units away.`;
+    } else if (!withinSettlementProximity) {
+      recommendation = `Too far from existing structures. Move within ${BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT} units of a settlement.`;
+    } else if (nearestNode) {
+      const facts: string[] = [];
+      facts.push(`Nearest: "${nearestNode.name}" (${nearestNode.tier}, ${nearestNode.structureCount} structures)`);
+      if (categoriesPresent.length > 0) {
+        facts.push(`Present: ${categoriesPresent.join(', ')}`);
+      }
+      if (categoriesMissing.length > 0) {
+        facts.push(`Missing: ${categoriesMissing.join(', ')}`);
+      }
+      facts.push(`Safe spots: ${safeBuildSpots.length} available`);
+      recommendation = facts.join('. ') + '.';
+    } else if (primitiveInput.length === 0) {
+      recommendation = 'Empty world. No structures yet. Build anywhere outside the origin zone.';
+    } else {
+      recommendation = `No nearby settlement node. ${safeBuildSpots.length} safe spots available near existing structures.`;
+    }
+
+    // Build blueprintsByCategory from blueprints.json
+    let blueprintsByCategory: Record<string, string[]> = {};
+    try {
+      const bpFilePath = join(__dirname, '../blueprints.json');
+      const bpRaw = await readFile(bpFilePath, 'utf-8');
+      const bpParsed = JSON.parse(bpRaw) as Record<string, { category?: string }>;
+      for (const [name, bp] of Object.entries(bpParsed)) {
+        const cat = bp.category || 'other';
+        if (!blueprintsByCategory[cat]) blueprintsByCategory[cat] = [];
+        blueprintsByCategory[cat].push(name);
+      }
+    } catch { /* ok without blueprints */ }
+
+    // Compute node growth stage and guidance
+    type NodeGrowthStage = 'empty' | 'founding' | 'young' | 'established' | 'dense' | 'mega';
+    let nodeGrowthStage: NodeGrowthStage = 'empty';
+    let stageGuidance = '';
+    let structuresToNextTier = 0;
+
+    if (nearestNode) {
+      const sc = nearestNode.structureCount;
+      if (sc <= 4) {
+        nodeGrowthStage = 'founding';
+        structuresToNextTier = 5 - sc;
+        stageGuidance = `Founding node "${nearestNode.name}" (${sc} structures). Needs ${structuresToNextTier} more to reach server tier.${categoriesMissing.length > 0 ? ` Missing: ${categoriesMissing.join(', ')}.` : ''}`;
+      } else if (sc <= 24) {
+        nodeGrowthStage = 'young';
+        structuresToNextTier = 25 - sc;
+        stageGuidance = `Young node "${nearestNode.name}" (${sc}/25 to city tier). Densify to 25 before expanding.${categoriesMissing.length > 0 ? ` Missing: ${categoriesMissing.join(', ')}.` : ''}`;
+      } else if (sc <= 49) {
+        nodeGrowthStage = 'established';
+        structuresToNextTier = 50 - sc;
+        stageGuidance = `Established node "${nearestNode.name}" (${sc} structures, city tier). Can expand with connectors or found new district.`;
+      } else if (sc <= 99) {
+        nodeGrowthStage = 'dense';
+        structuresToNextTier = 100 - sc;
+        stageGuidance = `Dense node "${nearestNode.name}" (${sc} structures, metropolis). Ready for mega builds and cross-node infrastructure.`;
+      } else {
+        nodeGrowthStage = 'mega';
+        structuresToNextTier = 0;
+        stageGuidance = `Megaopolis "${nearestNode.name}" (${sc} structures). Expand outward, found satellite nodes, build monuments.`;
+      }
+    } else if (primitiveInput.length === 0) {
+      nodeGrowthStage = 'empty';
+      stageGuidance = 'Empty world. Found a new settlement by placing an anchor structure.';
+      structuresToNextTier = 1;
+    } else {
+      nodeGrowthStage = 'empty';
+      stageGuidance = 'No nearby node. Found a new settlement by placing an anchor structure, or move closer to an existing node.';
+      structuresToNextTier = 1;
+    }
+
+    const result = {
+      feasible,
+      nearestNode: nearestNode ? {
+        name: nearestNode.name,
+        tier: nearestNode.tier,
+        structures: nearestNode.structureCount,
+        radius: Math.round(nearestNode.radius),
+        distance: Math.round(nearestNodeDist),
+        center: {
+          x: Math.round(nearestNode.center.x),
+          z: Math.round(nearestNode.center.z),
+        },
+      } : null,
+      nodeGrowthStage,
+      stageGuidance,
+      structuresToNextTier,
+      categoriesPresent,
+      categoriesMissing,
+      safeBuildSpots,
+      constraints: {
+        insideOriginZone,
+        withinSettlementProximity,
+        nearestStructureDist: Math.round(nearestStructureDist),
+      },
+      recommendation,
+      blueprintsByCategory,
+    };
+
+    reply.header('ETag', cachedEtag);
+    reply.header('Cache-Control', 'public, max-age=10');
+    return result;
   });
 
   // --- Spatial Summary (World Map for Agents) ---
@@ -2546,7 +3457,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     try {
       const filePath = join(__dirname, '../blueprints.json');
       const raw = await readFile(filePath, 'utf-8');
-      const parsed = JSON.parse(raw);
+      const parsed = annotateBlueprintClassGates(JSON.parse(raw));
 
       // Optional: filter by tags
       const tagsParam = (request.query as any).tags;
@@ -2704,5 +3615,49 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       primitivesCleared: primsCleared,
       memoryEntriesCleared: memoryCleared,
     };
+  });
+
+  // --- Skills ---
+
+  fastify.get('/v1/skills', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const agent = await db.getAgent(agentId);
+    if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+
+    const agentClass = (agent as any).agentClass || 'builder';
+    const skills = getSkillsForClass(agentClass);
+
+    // Omit promptInjection from list response
+    return skills.map(s => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      class: s.class,
+    }));
+  });
+
+  fastify.get<{ Params: { id: string } }>('/v1/skills/:id', async (request, reply) => {
+    const agentId = await requireAgent(request, reply);
+    if (!agentId) return;
+
+    const agent = await db.getAgent(agentId);
+    if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+
+    const agentClass = (agent as any).agentClass || 'builder';
+    const skill = getSkillById(request.params.id);
+
+    if (!skill) {
+      return reply.status(404).send({ error: 'Skill not found' });
+    }
+
+    if (skill.class !== agentClass) {
+      return reply.status(403).send({
+        error: `This skill requires class '${skill.class}'. Your class is '${agentClass}'.`,
+      });
+    }
+
+    return skill;
   });
 }

@@ -23,6 +23,11 @@ function parseArgs() {
   let allTime = false;
   const agentFilters = new Set();
   let maxDelete = 0;
+  let roadLikeOnly = false;
+  let roadMinLength = 6;
+  let roadMaxWidth = 3;
+  let roadMaxHeight = 0.35;
+  let roadMinAspect = 2.5;
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -62,6 +67,38 @@ function parseArgs() {
       i += 1;
       continue;
     }
+    if (arg === '--road-like') {
+      roadLikeOnly = true;
+      continue;
+    }
+    if (arg === '--road-min-length') {
+      const value = Number(args[i + 1]);
+      if (!Number.isFinite(value) || value <= 0) throw new Error('--road-min-length must be positive');
+      roadMinLength = value;
+      i += 1;
+      continue;
+    }
+    if (arg === '--road-max-width') {
+      const value = Number(args[i + 1]);
+      if (!Number.isFinite(value) || value <= 0) throw new Error('--road-max-width must be positive');
+      roadMaxWidth = value;
+      i += 1;
+      continue;
+    }
+    if (arg === '--road-max-height') {
+      const value = Number(args[i + 1]);
+      if (!Number.isFinite(value) || value <= 0) throw new Error('--road-max-height must be positive');
+      roadMaxHeight = value;
+      i += 1;
+      continue;
+    }
+    if (arg === '--road-min-aspect') {
+      const value = Number(args[i + 1]);
+      if (!Number.isFinite(value) || value <= 1) throw new Error('--road-min-aspect must be > 1');
+      roadMinAspect = value;
+      i += 1;
+      continue;
+    }
     if (arg === '--api') {
       const value = args[i + 1];
       if (!value) throw new Error('--api requires URL');
@@ -71,7 +108,7 @@ function parseArgs() {
     }
     if (arg === '--help' || arg === '-h') {
       console.log(
-        'Usage: node scripts/cleanup-recent-primitives.mjs [--hours N | --all-time] [--agent mouse|smith|oracle|clank|a,b] [--delete] [--max-delete N] [--api URL]'
+        'Usage: node scripts/cleanup-recent-primitives.mjs [--hours N | --all-time] [--agent mouse|smith|oracle|clank|a,b] [--road-like] [--road-min-length N] [--road-max-width N] [--road-max-height N] [--road-min-aspect N] [--delete] [--max-delete N] [--api URL]'
       );
       process.exit(0);
     }
@@ -80,7 +117,19 @@ function parseArgs() {
   if (allTime && args.includes('--hours')) {
     throw new Error('Use either --hours or --all-time, not both');
   }
-  return { hours, doDelete, apiUrl, allTime, agentFilters, maxDelete };
+  return {
+    hours,
+    doDelete,
+    apiUrl,
+    allTime,
+    agentFilters,
+    maxDelete,
+    roadLikeOnly,
+    roadMinLength,
+    roadMaxWidth,
+    roadMaxHeight,
+    roadMinAspect,
+  };
 }
 
 function sleep(ms) {
@@ -196,6 +245,27 @@ function printSummary(targetPrimitives, sessionsById) {
     const newest = new Date(list[list.length - 1].createdAt).toISOString();
     console.log(`- ${ownerLabel} (${ownerId}): ${list.length} primitives, ${oldest} .. ${newest}`);
   }
+}
+
+function isRoadLikePrimitive(primitive, options) {
+  const shape = String(primitive?.shape || '').toLowerCase();
+  if (!['box', 'plane', 'cylinder'].includes(shape)) return false;
+
+  const sx = Math.abs(Number(primitive?.scale?.x) || 0);
+  const sy = Math.abs(Number(primitive?.scale?.y) || 0);
+  const sz = Math.abs(Number(primitive?.scale?.z) || 0);
+  if (sx <= 0 || sz <= 0 || sy <= 0) return false;
+
+  const longAxis = Math.max(sx, sz);
+  const shortAxis = Math.min(sx, sz);
+  const aspect = shortAxis > 0 ? longAxis / shortAxis : Infinity;
+
+  return (
+    sy <= options.roadMaxHeight &&
+    longAxis >= options.roadMinLength &&
+    shortAxis <= options.roadMaxWidth &&
+    aspect >= options.roadMinAspect
+  );
 }
 
 async function fetchWorldState(baseUrl, token) {
@@ -315,9 +385,21 @@ async function main() {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   dotenv.config({ path: join(__dirname, '..', '.env') });
 
-  const { hours, doDelete, apiUrl, allTime, agentFilters, maxDelete } = parseArgs();
+  const {
+    hours,
+    doDelete,
+    apiUrl,
+    allTime,
+    agentFilters,
+    maxDelete,
+    roadLikeOnly,
+    roadMinLength,
+    roadMaxWidth,
+    roadMaxHeight,
+    roadMinAspect,
+  } = parseArgs();
   if (apiUrl) process.env.GRID_API_URL = apiUrl;
-  const baseUrl = process.env.GRID_API_URL || 'http://localhost:3001';
+  const baseUrl = process.env.GRID_API_URL || 'http://localhost:4101';
   const cutoffMs = allTime ? 0 : Date.now() - Math.round(hours * 60 * 60 * 1000);
 
   let configs = agentConfigs();
@@ -334,6 +416,11 @@ async function main() {
     console.log(`[config] cutoff=${new Date(cutoffMs).toISOString()}`);
   }
   console.log(`[config] agents=${configs.map((cfg) => cfg.key).join(',')}`);
+  if (roadLikeOnly) {
+    console.log(
+      `[config] road-like filter enabled (minLength=${roadMinLength}, maxWidth=${roadMaxWidth}, maxHeight=${roadMaxHeight}, minAspect=${roadMinAspect})`
+    );
+  }
 
   const sessions = [];
   for (const cfg of configs) {
@@ -355,14 +442,25 @@ async function main() {
   const sessionsById = new Map(sessions.map((s) => [s.agentId, s]));
   const world = await withRetry('state', () => fetchWorldState(baseUrl, sessions[0].token));
   const allPrimitives = Array.isArray(world?.primitives) ? world.primitives : [];
-  const matchedPrimitives = allPrimitives.filter(
+  const ownerMatched = allPrimitives.filter(
     (p) => sessionsById.has(String(p.ownerAgentId)) && (allTime || Number(p.createdAt) >= cutoffMs)
   );
+  const matchedPrimitives = roadLikeOnly
+    ? ownerMatched.filter((p) =>
+        isRoadLikePrimitive(p, {
+          roadMinLength,
+          roadMaxWidth,
+          roadMaxHeight,
+          roadMinAspect,
+        })
+      )
+    : ownerMatched;
   matchedPrimitives.sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
 
   const targetPrimitives =
     doDelete && maxDelete > 0 ? matchedPrimitives.slice(0, maxDelete) : matchedPrimitives;
 
+  console.log(`[dry-run] owner/time matched = ${ownerMatched.length}`);
   console.log(`[dry-run] total matched = ${matchedPrimitives.length}`);
   if (doDelete && maxDelete > 0) {
     console.log(`[delete] max-delete=${maxDelete}, deleting=${targetPrimitives.length} (oldest first)`);

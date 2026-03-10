@@ -1,5 +1,6 @@
 import { Server as SocketServer } from 'socket.io';
 import type { AgentInputEvent } from './types.js';
+import { CLASS_BONUSES } from './types.js';
 import { getWorldManager } from './world.js';
 import * as db from './db.js';
 import { verifyToken } from './auth.js';
@@ -9,8 +10,15 @@ const MAX_CHAT_MESSAGE_LENGTH = 280;
 const SOCKET_INPUT_RATE_LIMIT = { limit: 30, windowMs: 10_000 };
 const SOCKET_CHAT_RATE_LIMIT = { limit: 5, windowMs: 20_000 };
 const SOCKET_MOVE_RATE_LIMIT = { limit: 20, windowMs: 10_000 };
-const SNAPSHOT_TERMINAL_MESSAGE_LIMIT = 30;
 const SNAPSHOT_CHAT_MESSAGE_LIMIT = 150;
+const BASE_MOVE_RANGE = 300;
+
+function getMoveRangeLimit(agentClass?: string): number {
+  if (agentClass === 'explorer') {
+    return Math.round(BASE_MOVE_RANGE * CLASS_BONUSES.explorer.moveRangeMultiplier);
+  }
+  return BASE_MOVE_RANGE;
+}
 
 function extractSocketToken(socket: any): string | null {
   const authToken = typeof socket.handshake?.auth?.token === 'string'
@@ -35,8 +43,13 @@ export function setupSocketServer(httpServer: any): SocketServer {
     cors: {
       origin: [
         'http://localhost:5173',
-        'http://localhost:3000',
-        'http://127.0.0.1:5173'
+        'http://localhost:4100',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:4100',
+        'https://opgrid.world',
+        'https://www.opgrid.world',
+        'https://beta.opgrid.world',
+        ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
       ],
       methods: ['GET', 'POST'],
       credentials: true
@@ -66,10 +79,9 @@ export function setupSocketServer(httpServer: any): SocketServer {
     // Get messages async, then build + send snapshot atomically to avoid
     // race where an agent joins between snapshot build and send.
     Promise.all([
-      db.getTerminalMessages(SNAPSHOT_TERMINAL_MESSAGE_LIMIT),
-      db.getChatMessages(SNAPSHOT_CHAT_MESSAGE_LIMIT),
+      db.getRecentMessageEvents(SNAPSHOT_CHAT_MESSAGE_LIMIT),
       db.getAllWorldPrimitives()
-    ]).then(([terminalMessages, chatMessages, primitives]) => {
+    ]).then(([events, primitives]) => {
       const agents = world.getAgents();
 
       const mappedAgents = agents.map(a => {
@@ -86,7 +98,14 @@ export function setupSocketServer(httpServer: any): SocketServer {
           bio: a.bio,
           erc8004AgentId: ext.erc8004AgentId,
           erc8004Registry: ext.erc8004Registry,
-          reputationScore: ext.reputationScore
+          reputationScore: ext.reputationScore,
+          localReputation: ext.localReputation,
+          combinedReputation: ext.combinedReputation,
+          agentClass: ext.agentClass,
+          materials: ext.materials,
+          isExternal: ext.isExternal,
+          sourceChainId: ext.sourceChainId,
+          externalMetadata: ext.externalMetadata,
         };
       });
 
@@ -95,8 +114,7 @@ export function setupSocketServer(httpServer: any): SocketServer {
         primitiveRevision: world.getPrimitiveRevision(),
         agents: mappedAgents,
         primitives,
-        terminalMessages,
-        chatMessages
+        events,
       });
     });
 
@@ -162,6 +180,16 @@ export function setupSocketServer(httpServer: any): SocketServer {
           }
 
           if (to) {
+            const moverClass = (agent as any)?.agentClass as string | undefined;
+            const maxMoveRange = getMoveRangeLimit(moverClass);
+            const distance = Math.hypot(to.x - agent.position.x, to.z - agent.position.z);
+            if (distance > maxMoveRange) {
+              socket.emit('error', {
+                message: `Move target is too far (${distance.toFixed(1)} units). Max per move: ${maxMoveRange}.`,
+              });
+              return;
+            }
+
             world.queueAction(actingAgentId, {
               type: 'MOVE',
               targetPosition: { x: to.x, y: 0, z: to.z }
@@ -212,14 +240,14 @@ export function setupSocketServer(httpServer: any): SocketServer {
             }
 
             // Persist chat to DB then broadcast
-            db.writeChatMessage({
-              id: 0,
+            db.insertMessageEvent({
               agentId: actingAgentId,
               agentName: agent.name,
-              message: trimmed,
-              createdAt: Date.now()
-            }).then(() => {
-              world.broadcastChat(actingAgentId, trimmed, agent.name);
+              source: 'agent',
+              kind: 'chat',
+              body: trimmed,
+            }).then((event) => {
+              world.broadcastEvent(event);
             }).catch(err => {
               console.error('[Socket] Failed to persist chat:', err);
               world.broadcastChat(actingAgentId, trimmed, agent.name);

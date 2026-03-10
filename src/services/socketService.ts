@@ -1,12 +1,12 @@
 import { io, Socket } from 'socket.io-client';
 import { useWorldStore } from '../store';
-import type { Agent, WorldPrimitive, TerminalMessage } from '../types';
+import type { Agent, WorldPrimitive, MessageEvent } from '../types';
 
-// In production, use same origin (server serves frontend). In dev, use localhost:3001.
+// In production, use same origin (server serves frontend). In dev, use localhost:4101.
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ||
   (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
     ? window.location.origin
-    : 'http://localhost:3001');
+    : 'http://localhost:4101');
 
 interface WorldSnapshot {
   tick: number;
@@ -24,10 +24,16 @@ interface WorldSnapshot {
     erc8004AgentId?: string;
     erc8004Registry?: string;
     reputationScore?: number;
+    localReputation?: number;
+    combinedReputation?: number;
+    agentClass?: string;
+    materials?: Record<string, number>;
+    isExternal?: boolean;
+    sourceChainId?: number;
+    externalMetadata?: Record<string, unknown>;
   }>;
   primitives: WorldPrimitive[];
-  terminalMessages: TerminalMessage[];
-  chatMessages: TerminalMessage[];
+  events: MessageEvent[];
 }
 
 interface WorldUpdate {
@@ -39,13 +45,6 @@ interface WorldUpdate {
     z: number;
     status?: string;
   }>;
-}
-
-interface ChatMessage {
-  agentId: string;
-  agentName: string;
-  message: string;
-  timestamp: number;
 }
 
 interface WorldRevisionEvent {
@@ -104,7 +103,15 @@ class SocketService {
   }
 
   // Register agent via REST API, returns token for WebSocket auth
-  async enterWorld(ownerId: string, visuals?: { name?: string; color?: string }, erc8004?: ERC8004Input, bio?: string, signature?: string, timestamp?: string): Promise<EnterWorldResponse> {
+  async enterWorld(
+    ownerId: string,
+    visuals?: { name?: string; color?: string },
+    erc8004?: ERC8004Input,
+    bio?: string,
+    signature?: string,
+    timestamp?: string,
+    fetchImpl: typeof fetch = fetch
+  ): Promise<EnterWorldResponse> {
     const body: Record<string, unknown> = {
       walletAddress: ownerId,
       signature,
@@ -119,7 +126,7 @@ class SocketService {
       body.bio = bio;
     }
 
-    const response = await fetch(`${SERVER_URL}/v1/agents/enter`, {
+    const response = await fetchImpl(`${SERVER_URL}/v1/agents/enter`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -220,7 +227,14 @@ class SocketService {
         bio: a.bio,
         erc8004AgentId: a.erc8004AgentId,
         erc8004Registry: a.erc8004Registry,
-        reputationScore: a.reputationScore
+        reputationScore: a.reputationScore,
+        localReputation: a.localReputation,
+        combinedReputation: a.combinedReputation,
+        agentClass: a.agentClass,
+        materials: a.materials,
+        isExternal: a.isExternal,
+        sourceChainId: a.sourceChainId,
+        externalMetadata: a.externalMetadata,
       }));
 
       useWorldStore.getState().setAgents(agents);
@@ -228,8 +242,7 @@ class SocketService {
       if (typeof data.primitiveRevision === 'number') {
         useWorldStore.getState().setPrimitiveRevision(data.primitiveRevision);
       }
-      useWorldStore.getState().setTerminalMessages(data.terminalMessages);
-      useWorldStore.getState().setChatMessages(data.chatMessages || []);
+      useWorldStore.getState().setMessageEvents(data.events || []);
       useWorldStore.getState().setSnapshotLoaded(true);
     });
 
@@ -268,6 +281,13 @@ class SocketService {
       erc8004AgentId?: string;
       erc8004Registry?: string;
       reputationScore?: number;
+      localReputation?: number;
+      combinedReputation?: number;
+      agentClass?: string;
+      materials?: Record<string, number>;
+      isExternal?: boolean;
+      sourceChainId?: number;
+      externalMetadata?: Record<string, unknown>;
     }) => {
       console.log(`[Socket] Agent joined: ${data.name}`);
       useWorldStore.getState().addAgent({
@@ -281,7 +301,14 @@ class SocketService {
         bio: data.bio,
         erc8004AgentId: data.erc8004AgentId,
         erc8004Registry: data.erc8004Registry,
-        reputationScore: data.reputationScore
+        reputationScore: data.reputationScore,
+        localReputation: data.localReputation,
+        combinedReputation: data.combinedReputation,
+        agentClass: data.agentClass,
+        materials: data.materials,
+        isExternal: data.isExternal,
+        sourceChainId: data.sourceChainId,
+        externalMetadata: data.externalMetadata,
       });
     });
 
@@ -290,22 +317,17 @@ class SocketService {
       useWorldStore.getState().removeAgent(data.id);
     });
 
-    // Handle Chat events
-    this.socket.on('chat:message', (data: ChatMessage) => {
-      // Add to general messages
-      useWorldStore.getState().addMessage({
-        sender: data.agentName,
-        content: data.message,
-        timestamp: data.timestamp
-      });
-      // Add to chat messages
-      useWorldStore.getState().addChatMessage({
-        id: Date.now(),
-        agentId: data.agentId,
-        agentName: data.agentName,
-        message: data.message,
-        createdAt: data.timestamp
-      });
+    // Handle unified message events
+    this.socket.on('message:event', (event: MessageEvent) => {
+      useWorldStore.getState().addMessageEvent(event);
+      // Also add to general messages for backward compat
+      if (event.source === 'agent' && event.kind === 'chat') {
+        useWorldStore.getState().addMessage({
+          sender: event.agentName || event.agentId || 'Unknown',
+          content: event.body,
+          timestamp: event.createdAt,
+        });
+      }
     });
 
     // Handle Grid events — batched to coalesce rapid blueprint builds
@@ -328,10 +350,6 @@ class SocketService {
       if (typeof data?.primitiveRevision === 'number') {
         useWorldStore.getState().setPrimitiveRevision(data.primitiveRevision);
       }
-    });
-
-    this.socket.on('terminal:message', (message: TerminalMessage) => {
-      useWorldStore.getState().addTerminalMessage(message);
     });
 
     // Handle errors

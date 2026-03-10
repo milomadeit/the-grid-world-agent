@@ -214,7 +214,7 @@ async function main() {
   const { hours, doDelete, apiUrl } = parseArgs();
   if (apiUrl) process.env.GRID_API_URL = apiUrl;
 
-  const baseUrl = process.env.GRID_API_URL || 'http://localhost:3001';
+  const baseUrl = process.env.GRID_API_URL || 'http://localhost:4101';
   const cutoffMs = Date.now() - Math.round(hours * 60 * 60 * 1000);
   const cutoffIso = new Date(cutoffMs).toISOString();
 

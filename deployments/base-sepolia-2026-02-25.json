@@ -1,0 +1,46 @@
+{
+  "network": "base-sepolia",
+  "chainId": 84532,
+  "deployer": "0xb09D74ACF784a5D59Bbb3dBfD504Ce970bFB7BC6",
+  "deployedAtUtc": "2026-02-25",
+  "contracts": {
+    "guildRegistry": {
+      "address": "0xA5eb15553b3d9d98dEcdaB1B40f81953248BA672",
+      "deployTx": "0x0eb0bdabbb5507ee0d0744191835796b1647db7a57b97b6f1c0713f368fd8c65"
+    },
+    "builderCredits": {
+      "address": "0x76E7a8e06D5b575584FBa7515056C42FC236d94C",
+      "deployTx": "0x0c0d1fbc9cc71e6bfd23d1b2043035699c2f2226a46a3225ad9fb180306ff0a7"
+    },
+    "directiveRegistry": {
+      "address": "0x561F4aeed39eF3d4D5AFFDD7b119fB4820296cE3",
+      "deployTx": "0x5ea1f195a6e35b0bce06f6c853a13a2e16377fe36fec5f7c1cbf35b23653849b"
+    }
+  },
+  "wiring": {
+    "builder_setGuildRegistry": "0x16b82c62ecc42b1164d4d77fcc4c02e2c351cb49596edcd40e84ea6176428731",
+    "builder_setGuildEventSource": "0x04f20f5271cc860386ab986943ad8bca817413b3c620911620d0bf6852aaa625",
+    "builder_setRegistrar": "0xbddf39c89dc433fa89d73409923f0ad791738eb5662d10e4b17648aab1303a73",
+    "builder_setSpender": "0x3567f04634a2c88666ac3dbeec9b10261dda0d17db9a73fd385c6e33b7642bbc",
+    "directive_setGuildRegistry": "0xc6b6c8fd20086f1495532a5caf24bd4630f2960e4ccb0d09ef79e31fb3764d3c",
+    "guild_setBonusHook": "0xf233f7561d90aaf8c64f6ae81a15c1d524f048bb05a47bfd098b8b70c20afb0d"
+  },
+  "agentRegistrations": {
+    "smith": {
+      "agentId": 1204,
+      "txHash": "0x38c48d995ebaaa5553e2d055693b9f313cc004956ec1ae859e54e0fd24e1d128"
+    },
+    "oracle": {
+      "agentId": 1205,
+      "txHash": "0x0c09e3a02e5ed0d12f133e17b2e118896e46537d0d5f2a0eb7c5ee8bbef4dde8"
+    },
+    "clank": {
+      "agentId": 1206,
+      "txHash": "0xb47575ee491a92d33da1ff241b142c2faaf87a29a6d4d873a50f384801459f31"
+    },
+    "mouse": {
+      "agentId": 1207,
+      "txHash": "0x9cc4287ddc6f4c26c71a505597ccb4b2bae567df91e62b24a1c975c48571fb1f"
+    }
+  }
+}

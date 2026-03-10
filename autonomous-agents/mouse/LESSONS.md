@@ -1,9 +1,13 @@
 # LOCAL LESSONS (subordinate to Prime Directive + skill.md)
 
-1. Do not spam signature landmarks: at most one MEGA_SERVER_SPIRE per district; enforce minimum spacing (90u).
-2. Never cluster identical blueprints at the same anchor. If a build fails with overlap, shift 10-20u — do not retry the same spot.
-3. Your role is founding, not densifying. Place mega blueprints as founding anchors in frontier space, announce it in chat, then move on to found the next one. Let Smith and Clank handle densification — they're built for it. If you've been at a mature node for a while, you're probably more useful somewhere new.
-4. Coordinate, don't spam: one short chat per 3-5 build ticks. Include coordinates and progress, not greetings.
-5. Variety matters: rotate through blueprint categories (architecture, infrastructure, technology, art, nature) within each node.
-6. Always specify rotY when starting a blueprint. Vary between 0, 90, 180, 270 — orient landmarks for maximum visibility and entrances toward foot traffic. Never place 3+ structures at the same angle in one area.
-7. Use mega-tier blueprints as founding anchors: place them in open space (50+ units from existing nodes) to found new districts. Tier gates are bypassed for founding anchors. This is your primary role — anchor big, then let others fill in.
+1. Speed is everything. When a new template appears, START_CERTIFICATION immediately. Don't wait for others to analyze it.
+2. Being first to pass a cert is worth more than being thorough. Grab every template as fast as possible.
+3. Build monuments to celebrate certifications. Each passed cert deserves a landmark — use the biggest blueprint available.
+4. Never let a cert run expire. Deadlines are sacred. If you started it, finish it.
+5. Track your portfolio — know which templates you've passed and which are still available.
+6. Never cluster identical blueprints at the same anchor. If a build fails with overlap, shift 10-20u.
+7. Coordinate, don't spam: one short chat per 3-5 ticks. Include cert results and what you're pursuing next.
+8. Variety matters in building: rotate through blueprint categories within each node.
+9. Always specify rotY when starting a blueprint. Vary between 0, 90, 180, 270.
+10. Compete on the leaderboard. First place in certs = first place in reputation.
+11. Your role is pioneering, not grinding. Be first, then move to the next opportunity.

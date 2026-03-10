@@ -18,7 +18,7 @@ import { setDefaultResultOrder } from 'dns';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-import { startAgent, bootstrapAgent } from './shared/runtime.js';
+import { startAgent } from './shared/runtime.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '.env') });
@@ -46,14 +46,15 @@ function envSeconds(defaultValue: number, ...keys: string[]): number {
   return Math.floor(parsed);
 }
 
-// ERC-8004 registry on Monad Mainnet
-const AGENT_REGISTRY = envFirst('AGENT_REGISTRY') || 'eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+// ERC-8004 registry on Base Sepolia
+const AGENT_REGISTRY = envFirst('AGENT_REGISTRY') || 'eip155:84532:0x8004A818BFB912233c491871b3d84c89A494BD9e';
 
 // LLM keys from environment
 const GEMINI_KEY = envFirst('GEMINI_API_KEY');
 const ANTHROPIC_KEY = envFirst('ANTHROPIC_API_KEY');
 const OPENAI_KEY = envFirst('GPT_API_KEY', 'OPENAI_API_KEY');
 const MINIMAX_KEY = envFirst('MINI_MAX_API_KEY', 'MINIMAX_API_KEY');
+const OPENCODE_KEY = envFirst('OPENCODE_API');
 const DEFAULT_HEARTBEAT_SECONDS = envSeconds(60, 'AGENT_HEARTBEAT_SECONDS');
 
 // Which agent to start (default: all)
@@ -71,7 +72,7 @@ interface AgentDef {
   walletAddress: string;
   erc8004AgentId: string;
   heartbeatSeconds: number;
-  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax';
+  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode';
   llmModel: string;
   llmApiKey: string;
   visionBridge?: {
@@ -103,9 +104,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('ORACLE_WALLET'),
     erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'ORACLE_HEARTBEAT_SECONDS'),
-    llmProvider: 'minimax',
-    llmModel: 'MiniMax-M2.5-highspeed',
-    llmApiKey: MINIMAX_KEY,
+    llmProvider: 'opencode',
+    llmModel: 'glm-5',
+    llmApiKey: OPENCODE_KEY,
   },
   clank: {
     name: 'clank',
@@ -114,9 +115,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('CLANK_WALLET'),
     erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'CLANK_HEARTBEAT_SECONDS'),
-    llmProvider: 'minimax',
-    llmModel: 'MiniMax-M2.5-highspeed',
-    llmApiKey: MINIMAX_KEY,
+    llmProvider: 'opencode',
+    llmModel: 'kimi-k2.5',
+    llmApiKey: OPENCODE_KEY,
   },
   mouse: {
     name: 'mouse',
@@ -125,9 +126,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('MOUSE_WALLET'),
     erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'MOUSE_HEARTBEAT_SECONDS'),
-    llmProvider: 'minimax',
-    llmModel: 'MiniMax-M2.5-highspeed',
-    llmApiKey: MINIMAX_KEY,
+    llmProvider: 'opencode',
+    llmModel: 'kimi-k2.5',
+    llmApiKey: OPENCODE_KEY,
   },
 };
 
@@ -181,7 +182,7 @@ async function runSingleAgent(name: string) {
 
     console.log(`[${name}] Starting (${config.llmProvider} / ${config.llmModel})`);
     console.log(`[${name}] Wallet: ${config.walletAddress.slice(0, 10)}... | Agent ID: ${config.erc8004AgentId}`);
-    console.log(`[${name}] API: ${envFirst('GRID_API_URL') || 'http://localhost:3001'}`);
+    console.log(`[${name}] API: ${envFirst('GRID_API_URL') || 'http://localhost:4101'}`);
     console.log('');
 
     await startAgent({
@@ -197,28 +198,8 @@ async function runSingleAgent(name: string) {
       visionBridge: config.visionBridge,
     });
   } else {
-    // Bootstrap mode — no agent ID, agent figures it out via skill.md
-    console.log(`[${name}] Starting in BOOTSTRAP mode (no agent ID)`);
-    console.log(`[${name}] ${config.llmProvider} / ${config.llmModel}`);
-    if (config.privateKey) {
-      console.log(`[${name}] Has wallet + private key — can register on-chain`);
-    } else {
-      console.log(`[${name}] No wallet — will discover what it needs`);
-    }
-    console.log('');
-
-    await bootstrapAgent({
-      dir: config.dir,
-      privateKey: config.privateKey,
-      walletAddress: config.walletAddress,
-      heartbeatSeconds: config.heartbeatSeconds,
-      llmProvider: config.llmProvider,
-      llmModel: config.llmModel,
-      llmApiKey: config.llmApiKey,
-      visionBridge: config.visionBridge,
-      apiBaseUrl: envFirst('GRID_API_URL') || 'http://localhost:3001',
-      erc8004Registry: AGENT_REGISTRY,
-    });
+    console.error(`[Boot] ${name} missing wallet address or ERC-8004 agent ID. Set ${name.toUpperCase()}_WALLET and ${name.toUpperCase()}_ID in .env`);
+    process.exit(1);
   }
 }
 

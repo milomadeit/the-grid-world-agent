@@ -4,13 +4,17 @@
  */
 
 import { ethers } from 'ethers';
+import { createWalletClient, http } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { base, baseSepolia } from 'viem/chains';
+import { wrapFetchWithPayment } from 'x402-fetch';
 
 function getBaseUrl(): string {
-  return process.env.GRID_API_URL || 'http://localhost:3001';
+  return process.env.GRID_API_URL || 'http://localhost:4101';
 }
 
-function getMonadRpc(): string {
-  return process.env.MONAD_RPC || 'https://rpc.monad.xyz';
+function getChainRpc(): string {
+  return process.env.CHAIN_RPC || process.env.MONAD_RPC || 'https://sepolia.base.org';
 }
 
 interface EnterResponse {
@@ -36,6 +40,17 @@ interface EnterResponse {
   chainId?: number;
 }
 
+interface MessageEvent {
+  id: number;
+  agentId: string | null;
+  agentName?: string;
+  source: 'system' | 'agent';
+  kind: string;
+  body: string;
+  metadata?: Record<string, unknown>;
+  createdAt: number;
+}
+
 interface WorldState {
   tick: number;
   primitiveRevision?: number;
@@ -46,21 +61,11 @@ interface WorldState {
     position: { x: number; y: number; z: number };
     status: string;
     bio?: string;
+    agentClass?: string;
+    combinedReputation?: number;
+    localReputation?: number;
   }>;
-  messages: Array<{
-    id: number;
-    agentId: string;
-    agentName: string;
-    message: string;
-    createdAt: number;
-  }>;
-  chatMessages: Array<{
-    id: number;
-    agentId: string;
-    agentName: string;
-    message: string;
-    createdAt: number;
-  }>;
+  events: MessageEvent[];
   primitives: Array<{
     id: string;
     shape: 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule';
@@ -70,6 +75,7 @@ interface WorldState {
     scale: { x: number; y: number; z: number };
     color: string;
     createdAt: number;
+    materialType?: string | null;
   }>;
 }
 
@@ -87,6 +93,64 @@ interface WorldPrimitive {
   scale: { x: number; y: number; z: number };
   color: string;
   createdAt: number;
+  materialType?: string | null;
+}
+
+export interface DirectMessage {
+  id: number;
+  fromId: string;
+  fromType: 'human' | 'agent';
+  toAgentId: string;
+  message: string;
+  readAt?: number | null;
+  createdAt: number;
+}
+
+export interface CertificationTemplate {
+  id: string;
+  version: number;
+  displayName: string;
+  description: string;
+  feeUsdcAtomic: string;
+  rewardCredits: number;
+  rewardReputation: number;
+  deadlineSeconds: number;
+  config: Record<string, unknown>;
+  isActive: boolean;
+}
+
+export interface CertificationRun {
+  id: string;
+  agentId: string;
+  ownerWallet: string;
+  templateId: string;
+  status: 'created' | 'active' | 'submitted' | 'verifying' | 'passed' | 'failed' | 'expired';
+  feePaidUsdc: string;
+  x402PaymentRef?: string;
+  deadlineAt: number;
+  startedAt: number;
+  submittedAt?: number;
+  completedAt?: number;
+  verificationResult?: Record<string, unknown>;
+  attestationJson?: CertificationAttestation;
+  onchainTxHash?: string;
+}
+
+export interface CertificationAttestation {
+  version: number;
+  runId: string;
+  agentId: string;
+  templateId: string;
+  passed: boolean;
+  checksCount: number;
+  checksPassed: number;
+  verifiedAt: number;
+  signatureScheme: string;
+  opgridSigner: string;
+  opgridSignerAddress?: string;
+  opgridPublicKey: string;
+  onchainTxHash?: string | null;
+  opgridSignature: string;
 }
 
 
@@ -152,8 +216,7 @@ interface GridStateLite {
   primitiveRevision: number;
   agentsOnline: number;
   primitiveCount: number;
-  latestTerminalMessageId: number;
-  latestChatMessageId: number;
+  latestEventId: number;
 }
 
 interface Directive {
@@ -326,43 +389,47 @@ export class GridAPIClient {
 
     console.log(`[API] Entering with wallet ${walletAddress}, agent #${erc8004AgentId}`);
 
-    // First attempt
-    const firstResult = await this.requestRaw<EnterResponse & { needsPayment?: boolean; treasury?: string; amount?: string; chainId?: number }>(
-      'POST', '/v1/agents/enter',
-      {
-        walletAddress,
-        signature,
-        timestamp,
-        agentId: erc8004AgentId,
-        agentRegistry,
-        visuals: { name, color },
-        bio,
+    const enterPayload = {
+      walletAddress,
+      signature,
+      timestamp,
+      agentId: erc8004AgentId,
+      agentRegistry,
+      visuals: { name, color },
+      bio,
+    };
+
+    const commitSession = (result: EnterResponse): EnterResponse => {
+      this.token = result.token;
+      this.agentId = result.agentId;
+      this.stateLiteEtag = null;
+      this.agentsLiteEtag = null;
+      return result;
+    };
+
+    const legacyNativeFallback = async (
+      paymentResponse: EnterResponse & { needsPayment?: boolean; treasury?: string; amount?: string; chainId?: number }
+    ): Promise<EnterResponse> => {
+      if (!(paymentResponse.needsPayment && paymentResponse.treasury && paymentResponse.amount)) {
+        throw new Error('Entry failed and no supported x402 or legacy payment requirement was returned.');
       }
-    );
 
-    // If entry fee needed, handle payment automatically
-    if (firstResult.needsPayment && firstResult.treasury && firstResult.amount) {
-      console.log(`[API] Entry fee required: ${firstResult.amount} MON to ${firstResult.treasury}`);
-      console.log(`[API] Sending payment from ${walletAddress}...`);
-
-      const provider = new ethers.JsonRpcProvider(getMonadRpc());
+      console.log(`[API] Legacy entry payment required: ${paymentResponse.amount} ETH to ${paymentResponse.treasury}`);
+      const provider = new ethers.JsonRpcProvider(getChainRpc());
       const signer = wallet.connect(provider);
 
       const tx = await signer.sendTransaction({
-        to: firstResult.treasury,
-        value: ethers.parseEther(firstResult.amount),
+        to: paymentResponse.treasury,
+        value: ethers.parseEther(paymentResponse.amount),
       });
-      console.log(`[API] Payment tx sent: ${tx.hash}`);
-      console.log(`[API] Waiting for confirmation...`);
+      console.log(`[API] Legacy payment tx sent: ${tx.hash}`);
       await tx.wait();
-      console.log(`[API] Payment confirmed!`);
+      console.log('[API] Legacy payment confirmed');
 
-      // Re-sign with fresh timestamp
       const newTimestamp = new Date().toISOString();
       const newMessage = `Enter OpGrid\nTimestamp: ${newTimestamp}`;
       const newSignature = await wallet.signMessage(newMessage);
 
-      // Re-enter with tx hash
       const secondResult = await this.request<EnterResponse>('POST', '/v1/agents/enter', {
         walletAddress,
         signature: newSignature,
@@ -373,20 +440,52 @@ export class GridAPIClient {
         bio,
         entryFeeTxHash: tx.hash,
       });
-
-      this.token = secondResult.token;
-      this.agentId = secondResult.agentId;
-      this.stateLiteEtag = null;
-      this.agentsLiteEtag = null;
       return secondResult;
-    }
+    };
 
-    // Already paid or first-time with embedded tx hash
-    this.token = firstResult.token;
-    this.agentId = firstResult.agentId;
-    this.stateLiteEtag = null;
-    this.agentsLiteEtag = null;
-    return firstResult;
+    try {
+      const chainId = Number(process.env.CHAIN_ID || process.env.MONAD_CHAIN_ID || '84532');
+      const account = privateKeyToAccount((privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`) as `0x${string}`);
+      const walletClient = createWalletClient({
+        account,
+        chain: chainId === 8453 ? base : baseSepolia,
+        transport: http(getChainRpc()),
+      });
+
+      const maxUsdcAtomic = BigInt(Math.max(1, Math.round(Number(process.env.ENTRY_FEE_USDC || '0.10') * 1_000_000)));
+      const x402Fetch = wrapFetchWithPayment(fetch as any, walletClient as any, maxUsdcAtomic);
+      const response = await x402Fetch(`${getBaseUrl()}/v1/agents/enter`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(enterPayload),
+      } as any);
+
+      if (response.status === 402) {
+        const needsPayment = await response.json() as EnterResponse & { needsPayment?: boolean; treasury?: string; amount?: string; chainId?: number };
+        const result = await legacyNativeFallback(needsPayment);
+        return commitSession(result);
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`API POST /v1/agents/enter failed (${response.status}): ${text}`);
+      }
+
+      const result = await response.json() as EnterResponse;
+      return commitSession(result);
+    } catch (error) {
+      console.warn(`[API] x402 enter flow failed, falling back: ${error instanceof Error ? error.message : String(error)}`);
+      const firstResult = await this.requestRaw<EnterResponse & { needsPayment?: boolean; treasury?: string; amount?: string; chainId?: number }>(
+        'POST',
+        '/v1/agents/enter',
+        enterPayload
+      );
+      if (firstResult.token && firstResult.agentId) {
+        return commitSession(firstResult);
+      }
+      const result = await legacyNativeFallback(firstResult);
+      return commitSession(result);
+    }
   }
 
   /**
@@ -414,12 +513,46 @@ export class GridAPIClient {
     return json;
   }
 
+  private async requestWithX402Payment<T>(
+    method: 'POST',
+    path: string,
+    body: unknown,
+    maxUsdcAtomic: bigint,
+  ): Promise<T> {
+    if (!this.entryConfig) {
+      throw new Error('Cannot perform x402 payment request: agent is not authenticated');
+    }
+
+    const chainId = Number(process.env.CHAIN_ID || process.env.MONAD_CHAIN_ID || '84532');
+    const account = privateKeyToAccount(
+      (this.entryConfig.privateKey.startsWith('0x') ? this.entryConfig.privateKey : `0x${this.entryConfig.privateKey}`) as `0x${string}`
+    );
+    const walletClient = createWalletClient({
+      account,
+      chain: chainId === 8453 ? base : baseSepolia,
+      transport: http(getChainRpc()),
+    });
+
+    const x402Fetch = wrapFetchWithPayment(fetch as any, walletClient as any, maxUsdcAtomic);
+    const response = await x402Fetch(`${getBaseUrl()}${path}`, {
+      method,
+      headers: this.headers(),
+      body: JSON.stringify(body),
+    } as any);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`API ${method} ${path} failed (${response.status}): ${text}`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
   /** Get full world state snapshot. */
   async getWorldState(): Promise<WorldState> {
     const state = await this.request<WorldState>('GET', '/v1/grid/state');
-    // Defensive defaults — ensure message arrays are never undefined
-    state.chatMessages = state.chatMessages || [];
-    state.messages = state.messages || [];
+    // Defensive defaults — ensure arrays are never undefined
+    state.events = state.events || [];
     state.primitives = state.primitives || [];
     state.agents = state.agents || [];
     return state;
@@ -521,6 +654,55 @@ export class GridAPIClient {
     return this.request<Directive[]>('GET', '/v1/grid/directives');
   }
 
+  async getCertificationTemplates(): Promise<CertificationTemplate[]> {
+    const resp = await this.request<{ templates: CertificationTemplate[] }>('GET', '/v1/certify/templates');
+    return resp.templates || [];
+  }
+
+  async startCertification(templateId: string): Promise<{ run: CertificationRun; workOrder: { templateId: string; deadlineAt: number; config: Record<string, unknown> } }> {
+    const maxAtomic = BigInt(process.env.CERTIFICATION_MAX_USDC_ATOMIC || '1000000');
+    try {
+      return await this.requestWithX402Payment('POST', '/v1/certify/start', { templateId }, maxAtomic);
+    } catch (error) {
+      console.warn(`[API] x402 certification start flow failed, falling back: ${error instanceof Error ? error.message : String(error)}`);
+      return this.request('POST', '/v1/certify/start', { templateId });
+    }
+  }
+
+  async encodeSwapCalldata(params?: {
+    recipient?: string;
+    amountIn?: string;
+    amountOutMinimum?: string;
+  }): Promise<{ router: string; calldata: string; rawSwapCalldata: string; params: Record<string, string>; usage: Record<string, string> }> {
+    return this.request('POST', '/v1/certify/encode-swap', params || {});
+  }
+
+  async submitCertificationProof(runId: string, proof: Record<string, unknown> & { txHash: string }): Promise<{ run: CertificationRun; verification: { passed: boolean; checks: unknown[]; templateId: string; runId: string } }> {
+    return this.request('POST', `/v1/certify/runs/${runId}/submit`, { runId, proof });
+  }
+
+  async getCertificationRuns(): Promise<CertificationRun[]> {
+    const resp = await this.request<{ runs: CertificationRun[] }>('GET', '/v1/certify/runs');
+    return resp.runs || [];
+  }
+
+  async getCertificationAttestation(runId: string): Promise<CertificationAttestation | null> {
+    try {
+      return await this.request<CertificationAttestation>('GET', `/v1/certify/runs/${runId}/attestation`);
+    } catch {
+      return null;
+    }
+  }
+
+  async getCertificationLeaderboard(templateId?: string, limit = 50): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (templateId) params.set('templateId', templateId);
+    params.set('limit', String(limit));
+    const query = params.toString();
+    const resp = await this.request<{ leaderboard: any[] }>('GET', `/v1/certify/leaderboard${query ? '?' + query : ''}`);
+    return resp.leaderboard || [];
+  }
+
   async action(actionType: string, payload: Record<string, unknown>): Promise<void> {
     await this.request('POST', '/v1/agents/action', { action: actionType, payload });
   }
@@ -578,6 +760,66 @@ export class GridAPIClient {
     }
   }
 
+  /** Get this agent's current material inventory. */
+  async getMaterials(): Promise<Record<string, number>> {
+    try {
+      const resp = await this.request<{ materials: Record<string, number> }>('GET', '/v1/grid/materials');
+      return resp.materials || {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Trade materials to another agent. */
+  async trade(
+    toAgentId: string,
+    offer: { material: string; amount: number } | string,
+    request?: { material: string; amount: number } | number
+  ): Promise<any> {
+    const material = typeof offer === 'string' ? offer : offer.material;
+    const amount =
+      typeof offer === 'string'
+        ? (typeof request === 'number' ? request : 1)
+        : offer.amount;
+    return this.request('POST', '/v1/grid/trade', { toAgentId, material, amount });
+  }
+
+  /** Scavenge abandoned structures for materials (scavenger class only). */
+  async scavenge(): Promise<any> {
+    return this.request('POST', '/v1/grid/scavenge', {});
+  }
+
+  /** Get this agent's DM inbox (newest first). */
+  async getInbox(unreadOnly = false): Promise<DirectMessage[]> {
+    try {
+      const query = unreadOnly ? '?unread=true' : '';
+      const resp = await this.request<{ messages: DirectMessage[] }>('GET', `/v1/grid/dm/inbox${query}`);
+      return resp.messages || [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Send a direct message to another agent. */
+  async sendDM(toAgentId: string, message: string): Promise<DirectMessage | null> {
+    try {
+      return await this.request<DirectMessage>('POST', '/v1/grid/dm', { toAgentId, message });
+    } catch {
+      return null;
+    }
+  }
+
+  /** Mark DM message IDs as read. */
+  async markDMsRead(messageIds: number[]): Promise<number> {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return 0;
+    try {
+      const resp = await this.request<{ updated: number }>('POST', '/v1/grid/dm/mark-read', { messageIds });
+      return Number(resp.updated) || 0;
+    } catch {
+      return 0;
+    }
+  }
+
   /** Get building blueprints. Optional tag filter. */
   async getBlueprints(tags?: string[]): Promise<Record<string, any>> {
     try {
@@ -589,6 +831,26 @@ export class GridAPIClient {
   }
 
 
+
+  // --- Skills ---
+
+  /** Get skills available to this agent's class. */
+  async getSkills(): Promise<any[]> {
+    try {
+      return await this.request<any[]>('GET', '/v1/skills');
+    } catch {
+      return [];
+    }
+  }
+
+  /** Get full skill details including the prompt injection block. */
+  async getSkillDetail(skillId: string): Promise<any | null> {
+    try {
+      return await this.request('GET', `/v1/skills/${skillId}`);
+    } catch {
+      return null;
+    }
+  }
 
   // --- Agent Memory ---
 

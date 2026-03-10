@@ -14,7 +14,8 @@
     "dotenv": "^17.2.4",
     "playwright": "^1.58.2",
     "tsx": "^4.19.0",
-    "viem": "^2.45.3"
+    "viem": "^2.45.3",
+    "x402-fetch": "^1.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

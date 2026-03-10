@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Terminal, Users, Map, Send, Wallet, Moon, Sun, Maximize2, Minimize2, Menu, X, Focus, Copy, Check, LogOut, ChevronDown } from 'lucide-react';
 import { WorldState, WorldMessage } from '../../types';
 import AgentBioPanel from './AgentBioPanel';
+import CertificationPanel from './CertificationPanel';
 import { useWorldStore } from '../../store';
 
 interface OverlayProps {
@@ -40,21 +41,13 @@ const Overlay: React.FC<OverlayProps> = ({
   const [isWalletOpen, setIsWalletOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const walletDropdownRef = useRef<HTMLDivElement>(null);
-  const chatMessages = useWorldStore((state) => state.chatMessages);
-  const terminalMessages = useWorldStore((state) => state.terminalMessages);
+  const allEvents = useWorldStore((state) => state.messageEvents);
   const terminalScrollRef = useRef<HTMLDivElement>(null);
-  const CHAT_RENDER_LIMIT = 300;
 
-  // Prioritize agent conversations — show all of them, plus last few system events for context
-  const agentChats = chatMessages.filter((msg) => msg.agentName?.toLowerCase() !== 'system' && Boolean(msg?.message?.trim()));
-  const systemEvents = [
-    ...chatMessages.filter((msg) => msg.agentName?.toLowerCase() === 'system'),
-    ...terminalMessages
-  ].filter((msg) => Boolean(msg?.message?.trim()));
-  const conversationMessages = [
-    ...agentChats,
-    ...systemEvents.sort((a, b) => a.createdAt - b.createdAt).slice(-10)
-  ].sort((a, b) => a.createdAt - b.createdAt);
+  // Keep feed permissive during refactor testing: render full unified stream window.
+  const conversationMessages = allEvents
+    .filter((e) => Boolean(e.body?.trim()))
+    .sort((a, b) => a.createdAt - b.createdAt);
 
   // Auto-scroll terminal to bottom when messages change
   useEffect(() => {
@@ -131,7 +124,7 @@ const Overlay: React.FC<OverlayProps> = ({
             className={`flex items-center gap-2 px-3 py-2 rounded-xl ${hudBg} ${glassEffect} pointer-events-auto cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98]`}
           >
             <Wallet className="text-violet-600 w-4 h-4" />
-            <span className={`font-mono text-[11px] font-black tracking-tight ${textPrimary}`}>{balance} MON</span>
+            <span className={`font-mono text-[11px] font-black tracking-tight ${textPrimary}`}>{balance} ETH</span>
             <ChevronDown size={14} className={`${textMuted} transition-transform ${isWalletOpen ? 'rotate-180' : ''}`} />
           </button>
 
@@ -242,6 +235,8 @@ const Overlay: React.FC<OverlayProps> = ({
             </div>
           </section>
 
+          <CertificationPanel isDarkMode={isDarkMode} />
+
           {/* Terminal Section - Agent Chat Messages */}
           <section className="flex-1 flex flex-col space-y-2 min-h-0">
             <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${sidebarHeader}`}>
@@ -252,7 +247,7 @@ const Overlay: React.FC<OverlayProps> = ({
             </div>
             <div
               ref={terminalScrollRef}
-              className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin"
+              className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin select-text"
               style={{ scrollbarWidth: 'thin', scrollbarColor: isDarkMode ? '#334155 transparent' : '#cbd5e1 transparent' }}
             >
               {conversationMessages.length === 0 ? (
@@ -260,25 +255,25 @@ const Overlay: React.FC<OverlayProps> = ({
                   <span className="opacity-60">awaiting transmission...</span>
                 </div>
               ) : (
-                conversationMessages.slice(-CHAT_RENDER_LIMIT).map((msg, i) => (
+                conversationMessages.slice(-300).map((msg, i) => (
                   <div
                     key={`${msg.id || i}-${msg.createdAt}-${msg.agentId}`}
                     className={`py-1.5 px-2 rounded ${isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100/50'}`}
                   >
                     <div className="flex items-baseline gap-2">
-                      <span className={`font-semibold truncate max-w-[70px] ${
-                        msg.agentName.toLowerCase() === 'system'
+                      <span className={`font-semibold truncate max-w-[100px] ${
+                        msg.source === 'system'
                           ? (isDarkMode ? 'text-amber-300' : 'text-amber-600')
                           : (isDarkMode ? 'text-emerald-400' : 'text-emerald-600')
                       }`}>
-                        {msg.agentName}
+                        {msg.agentName || (msg.source === 'system' ? 'System' : msg.agentId || 'Unknown')}
                       </span>
                       <span className={`text-[8px] tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
-                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
                       </span>
                     </div>
                     <p className={`mt-0.5 break-words leading-snug ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                      {msg.message}
+                      {msg.body}
                     </p>
                   </div>
                 ))

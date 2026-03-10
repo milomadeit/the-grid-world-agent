@@ -1,7 +1,7 @@
 
 import { strict as assert } from 'assert';
 
-const BASE_URL = 'http://localhost:3001';
+const BASE_URL = 'http://localhost:4101';
 
 async function main() {
   console.log('🚀 Starting Primitive Verification...');

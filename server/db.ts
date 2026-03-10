@@ -1,23 +1,270 @@
 import pg from 'pg';
-import type { Agent, AgentRow, WorldPrimitive, TerminalMessage, Guild, Directive, GuildMemberRow, DirectiveVoteRow, BlueprintBuildPlan } from './types.js';
+import type {
+  Agent,
+  AgentRow,
+  WorldPrimitive,
+  MessageEvent,
+  MessageEventSource,
+  Guild,
+  Directive,
+  GuildMemberRow,
+  DirectiveVoteRow,
+  BlueprintBuildPlan,
+  AgentClass,
+  MaterialType,
+  MaterialCost,
+  MaterialInventory,
+} from './types.js';
+import { CLASS_BONUSES, AGENT_CLASSES, MATERIAL_CONFIG, MATERIAL_TYPES } from './types.js';
 
 const { Pool } = pg;
 
 let pool: pg.Pool | null = null;
 const DEFAULT_IN_MEMORY_BUILD_CREDITS = 500;
+const MATERIAL_SET = new Set<string>(MATERIAL_TYPES);
+const SWAP_EXECUTION_TEMPLATE_ID = 'SWAP_EXECUTION_V1';
+const SWAP_EXECUTION_TEMPLATE_SEED = {
+  id: SWAP_EXECUTION_TEMPLATE_ID,
+  version: 4,
+  displayName: 'Swap Execution V1',
+  type: 'swap',
+  description: 'Execute a token swap on Base Sepolia. You choose the DEX, routing, and execution strategy. Graded on multiple dimensions.',
+  feeUsdcAtomic: '1000000',
+  rewardCredits: 100,
+  rewardReputation: 10,
+  deadlineSeconds: 3600,
+  config: {
+    allowedTokenPairs: [
+      [
+        '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+        '0x4200000000000000000000000000000000000006',
+      ],
+    ],
+    maxGasLimit: 500000,
+    expectedGas: 150000,
+    passingScore: 70,
+  } as Record<string, unknown>,
+  challenge: {
+    network: 'testnet',
+    chain: { name: 'Base Sepolia', chainId: 84532 },
+    objective: 'Swap at least 1 USDC for WETH on Base Sepolia. You choose the DEX, routing, and execution strategy.',
+    constraints: {
+      inputToken: { symbol: 'USDC', decimals: 6 },
+      outputToken: { symbol: 'WETH', decimals: 18 },
+      minInputAmount: '1000000',   // 1 USDC
+      senderMustMatch: true,
+    },
+    rubric: [
+      { dimension: 'execution', weight: 30, description: 'Transaction confirmed onchain (status=1).' },
+      { dimension: 'route_validity', weight: 20, description: 'Correct token pair (USDC → WETH) transferred.' },
+      { dimension: 'slippage_management', weight: 20, description: 'Non-zero slippage protection set. Tighter is better.' },
+      { dimension: 'gas_efficiency', weight: 15, description: 'Gas usage. Lower is better.' },
+      { dimension: 'speed', weight: 15, description: 'Time from cert start to tx confirmation. Faster is better.' },
+    ],
+    passingScore: 70,
+    tools: [
+      'EXECUTE_ONCHAIN — sign and send any transaction from your wallet',
+      'APPROVE_TOKEN — approve a spender for ERC-20 tokens',
+      'SUBMIT_CERTIFICATION_PROOF — submit your tx hash for grading',
+    ],
+    hints: {
+      testnet: 'Base Sepolia testnet. Uniswap V3 is deployed here.',
+      contracts: {
+        USDC: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+        WETH: '0x4200000000000000000000000000000000000006',
+        SwapRouter02: '0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4',
+        QuoterV2: '0xC5290058841028F1614F3A6F0F5816cAd0df5E27',
+      },
+      poolFee: 3000,
+      flow: '1. APPROVE_TOKEN: token=0x036CbD53842c5426634e7929541eC2318f3dCF7e, spender=0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4, amount=1000000. 2. Use ENCODE_SWAP to get pre-built calldata. 3. EXECUTE_ONCHAIN: to=<router from encode-swap>, data=<calldata from encode-swap>, value=0. 4. SUBMIT_CERTIFICATION_PROOF: submit the swap tx hash.',
+      encodeSwapEndpoint: 'POST /v1/certify/encode-swap — returns ready-to-use calldata. Send { recipient: YOUR_WALLET } and it returns { router, calldata, usage } with exact APPROVE_TOKEN and EXECUTE_ONCHAIN instructions. Use action ENCODE_SWAP to call this.',
+      note: 'Use ENCODE_SWAP action to get pre-built calldata instead of manually encoding. Set amountOutMinimum > 0 for slippage protection — higher values score better.',
+    },
+    hintsEnabled: true,  // false on mainnet
+    submission: {
+      endpoint: 'POST /v1/certify/runs/{runId}/submit',
+      body: '{ "runId": "<your run ID>", "proof": { "txHash": "<your tx hash>" } }',
+    },
+  } as Record<string, unknown>,
+  isActive: true,
+} as const;
 
 type InMemoryAgent = Agent & { buildCredits?: number };
+type CertificationStatus = 'created' | 'active' | 'submitted' | 'verifying' | 'passed' | 'failed' | 'expired';
+
+export type DirectMessageFromType = 'human' | 'agent';
+
+export interface DirectMessage {
+  id: number;
+  fromId: string;
+  fromType: DirectMessageFromType;
+  toAgentId: string;
+  message: string;
+  readAt?: number | null;
+  createdAt: number;
+}
+
+export interface CertificationTemplateRecord {
+  id: string;
+  version: number;
+  displayName: string;
+  type: string;
+  description: string;
+  feeUsdcAtomic: string;
+  rewardCredits: number;
+  rewardReputation: number;
+  deadlineSeconds: number;
+  config: Record<string, unknown>;
+  challenge: Record<string, unknown>;
+  isActive: boolean;
+}
+
+export interface CertificationRunRecord {
+  id: string;
+  agentId: string;
+  ownerWallet: string;
+  templateId: string;
+  status: CertificationStatus;
+  feePaidUsdc: string;
+  x402PaymentRef?: string;
+  deadlineAt: number;
+  startedAt: number;
+  submittedAt?: number;
+  completedAt?: number;
+  verificationResult?: Record<string, unknown>;
+  attestationJson?: Record<string, unknown>;
+  onchainTxHash?: string;
+}
+
+export interface CertificationSubmissionRecord {
+  id: number;
+  runId: string;
+  submittedAt: number;
+  proof: Record<string, unknown>;
+}
+
+export interface CertificationVerificationRecord {
+  id: number;
+  runId: string;
+  submissionId: number;
+  templateId: string;
+  passed: boolean;
+  checks: unknown;
+  verifiedAt: number;
+}
+
+export interface CertificationPayoutRecord {
+  id: number;
+  runId: string;
+  payoutType: 'fee_collected' | 'credit_reward' | 'reputation_reward';
+  amount: string;
+  currency: 'USDC' | 'credits' | 'reputation';
+  recipientAgentId?: string;
+  recipientWallet?: string;
+  onchainTxHash?: string;
+}
+
+function normalizeCertificationTemplateRecord(row: {
+  id: string;
+  version: number;
+  display_name: string;
+  type?: string | null;
+  description: string | null;
+  fee_usdc_atomic: string;
+  reward_credits: number;
+  reward_reputation: number;
+  deadline_seconds: number;
+  config: Record<string, unknown> | null;
+  challenge?: Record<string, unknown> | null;
+  is_active: boolean;
+}): CertificationTemplateRecord {
+  return {
+    id: row.id,
+    version: Number(row.version ?? 1),
+    displayName: row.display_name,
+    type: row.type ?? 'swap',
+    description: row.description ?? '',
+    feeUsdcAtomic: row.fee_usdc_atomic,
+    rewardCredits: Number(row.reward_credits ?? 0),
+    rewardReputation: Number(row.reward_reputation ?? 0),
+    deadlineSeconds: Number(row.deadline_seconds ?? 0),
+    config: (row.config ?? {}) as Record<string, unknown>,
+    challenge: (row.challenge ?? {}) as Record<string, unknown>,
+    isActive: Boolean(row.is_active),
+  };
+}
+
+function normalizeCertificationRunRecord(row: {
+  id: string;
+  agent_id: string;
+  owner_wallet: string;
+  template_id: string;
+  status: CertificationStatus;
+  fee_paid_usdc: string;
+  x402_payment_ref: string | null;
+  deadline_at: Date;
+  started_at: Date;
+  submitted_at: Date | null;
+  completed_at: Date | null;
+  verification_result: Record<string, unknown> | null;
+  attestation_json: Record<string, unknown> | null;
+  onchain_tx_hash: string | null;
+}): CertificationRunRecord {
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    ownerWallet: row.owner_wallet,
+    templateId: row.template_id,
+    status: row.status,
+    feePaidUsdc: row.fee_paid_usdc,
+    x402PaymentRef: row.x402_payment_ref || undefined,
+    deadlineAt: new Date(row.deadline_at).getTime(),
+    startedAt: new Date(row.started_at).getTime(),
+    submittedAt: row.submitted_at ? new Date(row.submitted_at).getTime() : undefined,
+    completedAt: row.completed_at ? new Date(row.completed_at).getTime() : undefined,
+    verificationResult: row.verification_result || undefined,
+    attestationJson: row.attestation_json || undefined,
+    onchainTxHash: row.onchain_tx_hash || undefined,
+  };
+}
+
+function seedInMemoryCertificationTemplate(): void {
+  if (!inMemoryStore.certificationTemplates.has(SWAP_EXECUTION_TEMPLATE_ID)) {
+    inMemoryStore.certificationTemplates.set(SWAP_EXECUTION_TEMPLATE_ID, {
+      ...SWAP_EXECUTION_TEMPLATE_SEED,
+      config: JSON.parse(JSON.stringify(SWAP_EXECUTION_TEMPLATE_SEED.config)) as Record<string, unknown>,
+      challenge: JSON.parse(JSON.stringify(SWAP_EXECUTION_TEMPLATE_SEED.challenge)) as Record<string, unknown>,
+    });
+  }
+}
+
+function isMaterialType(value: string): value is MaterialType {
+  return MATERIAL_SET.has(value);
+}
+
+function materialColumn(materialType: string): string | null {
+  return isMaterialType(materialType) ? `mat_${materialType}` : null;
+}
 
 // In-memory fallback when no database is configured
 const inMemoryStore = {
   agents: new Map<string, InMemoryAgent>(),
   worldState: new Map<string, unknown>(),
-  chatMessages: [] as TerminalMessage[],
-  terminalMessages: [] as TerminalMessage[],
+  messageEvents: [] as MessageEvent[],
+  directMessages: [] as DirectMessage[],
   directives: new Map<string, Directive>(),
   directiveVotes: new Map<string, Map<string, string>>(), // directiveId -> agentId -> vote
   blueprintBuildPlans: new Map<string, { plan: BlueprintBuildPlan; updatedAt: number }>(),
+  certificationTemplates: new Map<string, CertificationTemplateRecord>(),
+  certificationRuns: new Map<string, CertificationRunRecord>(),
+  certificationSubmissions: [] as CertificationSubmissionRecord[],
+  certificationVerifications: [] as CertificationVerificationRecord[],
+  certificationPayouts: [] as CertificationPayoutRecord[],
   nextMsgId: 1,
+  nextDirectMessageId: 1,
+  nextCertificationSubmissionId: 1,
+  nextCertificationVerificationId: 1,
+  nextCertificationPayoutId: 1,
 };
 
 export async function initDatabase(): Promise<void> {
@@ -25,6 +272,7 @@ export async function initDatabase(): Promise<void> {
 
   if (!connectionString) {
     console.log('[DB] No DATABASE_URL found, using in-memory storage');
+    seedInMemoryCertificationTemplate();
     return;
   }
 
@@ -46,7 +294,10 @@ export async function initDatabase(): Promise<void> {
         visual_name VARCHAR(255) DEFAULT 'Agent',
         status VARCHAR(50) DEFAULT 'idle',
         last_active_at TIMESTAMP DEFAULT NOW(),
-        inventory JSONB DEFAULT '{}'::jsonb
+        inventory JSONB DEFAULT '{}'::jsonb,
+        is_external BOOLEAN DEFAULT FALSE,
+        source_chain_id INTEGER DEFAULT NULL,
+        external_metadata JSONB DEFAULT '{}'::jsonb
       );
 
       CREATE TABLE IF NOT EXISTS world_state (
@@ -98,7 +349,8 @@ export async function initDatabase(): Promise<void> {
         scale_z FLOAT NOT NULL,
         color VARCHAR(50) NOT NULL,
         created_at TIMESTAMP DEFAULT NOW(),
-        blueprint_instance_id VARCHAR(255) DEFAULT NULL
+        blueprint_instance_id VARCHAR(255) DEFAULT NULL,
+        material_type VARCHAR(20) DEFAULT NULL
       );
 
       CREATE TABLE IF NOT EXISTS terminal_messages (
@@ -114,6 +366,27 @@ export async function initDatabase(): Promise<void> {
         agent_id VARCHAR(255) NOT NULL,
         agent_name VARCHAR(255) NOT NULL,
         message TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS message_events (
+        id SERIAL PRIMARY KEY,
+        agent_id VARCHAR(255),
+        agent_name VARCHAR(255),
+        source VARCHAR(20) NOT NULL DEFAULT 'system',
+        kind VARCHAR(50) NOT NULL DEFAULT 'status',
+        body TEXT NOT NULL,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_direct_messages (
+        id SERIAL PRIMARY KEY,
+        from_id VARCHAR(255) NOT NULL,
+        from_type VARCHAR(20) NOT NULL DEFAULT 'human',
+        to_agent_id VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        read_at TIMESTAMP DEFAULT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
 
@@ -157,6 +430,67 @@ export async function initDatabase(): Promise<void> {
         plan_json JSONB NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS certification_templates (
+        id VARCHAR(100) PRIMARY KEY,
+        version INTEGER NOT NULL DEFAULT 1,
+        display_name VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL DEFAULT 'swap',
+        description TEXT NOT NULL DEFAULT '',
+        fee_usdc_atomic VARCHAR(100) NOT NULL,
+        reward_credits INTEGER NOT NULL DEFAULT 0,
+        reward_reputation INTEGER NOT NULL DEFAULT 0,
+        deadline_seconds INTEGER NOT NULL DEFAULT 3600,
+        config JSONB NOT NULL DEFAULT '{}'::jsonb,
+        challenge JSONB NOT NULL DEFAULT '{}'::jsonb,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE
+      );
+
+      CREATE TABLE IF NOT EXISTS certification_runs (
+        id VARCHAR(255) PRIMARY KEY,
+        agent_id VARCHAR(255) NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        owner_wallet VARCHAR(255) NOT NULL,
+        template_id VARCHAR(100) NOT NULL REFERENCES certification_templates(id),
+        status VARCHAR(50) NOT NULL,
+        fee_paid_usdc VARCHAR(100) NOT NULL,
+        x402_payment_ref TEXT,
+        deadline_at TIMESTAMP NOT NULL,
+        started_at TIMESTAMP DEFAULT NOW(),
+        submitted_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        verification_result JSONB,
+        attestation_json JSONB,
+        onchain_tx_hash VARCHAR(255)
+      );
+
+      CREATE TABLE IF NOT EXISTS certification_submissions (
+        id SERIAL PRIMARY KEY,
+        run_id VARCHAR(255) NOT NULL REFERENCES certification_runs(id) ON DELETE CASCADE,
+        submitted_at TIMESTAMP DEFAULT NOW(),
+        proof JSONB NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS certification_verifications (
+        id SERIAL PRIMARY KEY,
+        run_id VARCHAR(255) NOT NULL REFERENCES certification_runs(id) ON DELETE CASCADE,
+        submission_id INTEGER NOT NULL REFERENCES certification_submissions(id) ON DELETE CASCADE,
+        template_id VARCHAR(100) NOT NULL,
+        passed BOOLEAN NOT NULL,
+        checks JSONB NOT NULL,
+        verified_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS certification_payouts (
+        id SERIAL PRIMARY KEY,
+        run_id VARCHAR(255) NOT NULL REFERENCES certification_runs(id) ON DELETE CASCADE,
+        payout_type VARCHAR(50) NOT NULL CHECK (payout_type IN ('fee_collected', 'credit_reward', 'reputation_reward')),
+        amount VARCHAR(100) NOT NULL,
+        currency VARCHAR(20) NOT NULL CHECK (currency IN ('USDC', 'credits', 'reputation')),
+        recipient_agent_id VARCHAR(255),
+        recipient_wallet VARCHAR(255),
+        onchain_tx_hash VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Migrate columns for existing DBs (must run before index creation)
@@ -179,6 +513,25 @@ export async function initDatabase(): Promise<void> {
         ALTER TABLE directives ADD COLUMN IF NOT EXISTS target_structure_goal INTEGER DEFAULT NULL;
         ALTER TABLE directives ADD COLUMN IF NOT EXISTS completed_by VARCHAR(255) DEFAULT NULL;
         ALTER TABLE directives ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP DEFAULT NULL;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS agent_class VARCHAR(50) DEFAULT NULL;
+        ALTER TABLE world_primitives ADD COLUMN IF NOT EXISTS blueprint_name VARCHAR(100) DEFAULT NULL;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS referral_code VARCHAR(50) DEFAULT NULL;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS profile_updated_at TIMESTAMP DEFAULT NULL;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS profile_update_count INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS local_reputation INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS primitives_placed INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS successful_trades INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS mat_stone INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS mat_metal INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS mat_glass INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS mat_crystal INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS mat_organic INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS is_external BOOLEAN DEFAULT FALSE;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS source_chain_id INTEGER DEFAULT NULL;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS external_metadata JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE world_primitives ADD COLUMN IF NOT EXISTS material_type VARCHAR(20) DEFAULT NULL;
+        ALTER TABLE certification_templates ADD COLUMN IF NOT EXISTS type VARCHAR(50) NOT NULL DEFAULT 'swap';
+        ALTER TABLE certification_templates ADD COLUMN IF NOT EXISTS challenge JSONB NOT NULL DEFAULT '{}'::jsonb;
       EXCEPTION WHEN others THEN NULL;
       END $$;
     `);
@@ -204,6 +557,17 @@ export async function initDatabase(): Promise<void> {
       );
     `);
 
+    // Referrals tracking
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS referrals (
+        id SERIAL PRIMARY KEY,
+        referrer_agent_id VARCHAR(255) NOT NULL,
+        referee_agent_id VARCHAR(255) NOT NULL,
+        credited_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(referee_agent_id)
+      );
+    `);
+
     // Create indexes (safe now that all columns exist)
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(owner_id);
@@ -213,13 +577,66 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_reputation_to_agent ON reputation_feedback(to_agent_id);
       CREATE INDEX IF NOT EXISTS idx_reputation_from_agent ON reputation_feedback(from_agent_id);
       CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_message_events_created ON message_events(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_message_events_source_kind ON message_events(source, kind, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_message_events_agent ON message_events(agent_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_dm_to_agent ON agent_direct_messages(to_agent_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_blueprint_build_plans_updated_at ON blueprint_build_plans(updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_cert_runs_agent ON certification_runs(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_cert_runs_status ON certification_runs(status);
+      CREATE INDEX IF NOT EXISTS idx_cert_runs_template ON certification_runs(template_id);
     `);
 
     // Unique case-insensitive agent name constraint
     await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_name_unique ON agents (LOWER(visual_name));
     `);
+
+    // Unique referral code index
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_referral_code ON agents(referral_code) WHERE referral_code IS NOT NULL;
+    `);
+
+    await pool.query(
+      `
+      INSERT INTO certification_templates (
+        id,
+        version,
+        display_name,
+        type,
+        description,
+        fee_usdc_atomic,
+        reward_credits,
+        reward_reputation,
+        deadline_seconds,
+        config,
+        challenge,
+        is_active
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12)
+      ON CONFLICT (id) DO UPDATE SET
+        version = EXCLUDED.version,
+        display_name = EXCLUDED.display_name,
+        type = EXCLUDED.type,
+        description = EXCLUDED.description,
+        config = EXCLUDED.config,
+        challenge = EXCLUDED.challenge
+      `,
+      [
+        SWAP_EXECUTION_TEMPLATE_SEED.id,
+        SWAP_EXECUTION_TEMPLATE_SEED.version,
+        SWAP_EXECUTION_TEMPLATE_SEED.displayName,
+        SWAP_EXECUTION_TEMPLATE_SEED.type,
+        SWAP_EXECUTION_TEMPLATE_SEED.description,
+        SWAP_EXECUTION_TEMPLATE_SEED.feeUsdcAtomic,
+        SWAP_EXECUTION_TEMPLATE_SEED.rewardCredits,
+        SWAP_EXECUTION_TEMPLATE_SEED.rewardReputation,
+        SWAP_EXECUTION_TEMPLATE_SEED.deadlineSeconds,
+        JSON.stringify(SWAP_EXECUTION_TEMPLATE_SEED.config),
+        JSON.stringify(SWAP_EXECUTION_TEMPLATE_SEED.challenge),
+        SWAP_EXECUTION_TEMPLATE_SEED.isActive,
+      ],
+    );
 
     console.log('[DB] Tables initialized');
   } catch (error) {
@@ -235,6 +652,10 @@ interface ExtendedAgent extends Agent {
   reputationScore?: number;
   isAutonomous?: boolean;
   spawnGeneration?: number;
+  agentClass?: string;
+  isExternal?: boolean;
+  sourceChainId?: number;
+  externalMetadata?: Record<string, any>;
 }
 
 // Agent operations
@@ -249,8 +670,12 @@ export async function createAgent(agent: ExtendedAgent): Promise<ExtendedAgent> 
   }
 
   await pool.query(`
-    INSERT INTO agents (id, owner_id, x, y, visual_color, visual_name, status, inventory, erc8004_agent_id, erc8004_registry, reputation_score, is_autonomous, spawn_generation, bio)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    INSERT INTO agents (
+      id, owner_id, x, y, visual_color, visual_name, status, inventory,
+      erc8004_agent_id, erc8004_registry, reputation_score, is_autonomous, spawn_generation,
+      bio, agent_class, is_external, source_chain_id, external_metadata
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
     ON CONFLICT (id) DO UPDATE SET
       x = EXCLUDED.x,
       y = EXCLUDED.y,
@@ -258,7 +683,11 @@ export async function createAgent(agent: ExtendedAgent): Promise<ExtendedAgent> 
       last_active_at = NOW(),
       erc8004_agent_id = COALESCE(EXCLUDED.erc8004_agent_id, agents.erc8004_agent_id),
       erc8004_registry = COALESCE(EXCLUDED.erc8004_registry, agents.erc8004_registry),
-      bio = COALESCE(EXCLUDED.bio, agents.bio)
+      bio = COALESCE(EXCLUDED.bio, agents.bio),
+      agent_class = COALESCE(EXCLUDED.agent_class, agents.agent_class),
+      is_external = COALESCE(EXCLUDED.is_external, agents.is_external),
+      source_chain_id = COALESCE(EXCLUDED.source_chain_id, agents.source_chain_id),
+      external_metadata = COALESCE(EXCLUDED.external_metadata, agents.external_metadata)
   `, [
     agent.id,
     (agent.ownerId || 'anonymous').toLowerCase(),
@@ -273,7 +702,11 @@ export async function createAgent(agent: ExtendedAgent): Promise<ExtendedAgent> 
     agent.reputationScore || 0,
     agent.isAutonomous || false,
     agent.spawnGeneration || 0,
-    agent.bio || null
+    agent.bio || null,
+    agent.agentClass || null,
+    agent.isExternal || false,
+    agent.sourceChainId || null,
+    JSON.stringify(agent.externalMetadata || {})
   ]);
 
   return agent;
@@ -400,6 +833,47 @@ export async function updateAgent(id: string, updates: Partial<Agent>): Promise<
   return rowToAgent(result.rows[0]);
 }
 
+export async function updateAgentProfile(
+  agentId: string,
+  updates: { name?: string; color?: string; bio?: string; agentClass?: string },
+  newUpdateCount: number
+): Promise<void> {
+  if (!pool) return;
+  const setClauses: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (updates.name !== undefined) {
+    setClauses.push(`visual_name = $${paramIndex++}`);
+    values.push(updates.name);
+  }
+  if (updates.color !== undefined) {
+    setClauses.push(`visual_color = $${paramIndex++}`);
+    values.push(updates.color);
+  }
+  if (updates.bio !== undefined) {
+    setClauses.push(`bio = $${paramIndex++}`);
+    values.push(updates.bio);
+  }
+  if (updates.agentClass !== undefined) {
+    setClauses.push(`agent_class = $${paramIndex++}`);
+    values.push(updates.agentClass);
+  }
+
+  setClauses.push(`profile_update_count = $${paramIndex++}`);
+  values.push(newUpdateCount);
+
+  setClauses.push(`profile_updated_at = NOW()`);
+
+  if (setClauses.length === 0) return; // Nothing to update
+
+  values.push(agentId);
+  await pool.query(`
+    UPDATE agents SET ${setClauses.join(', ')}
+    WHERE id = $${paramIndex}
+  `, values);
+}
+
 export async function deleteAgent(id: string): Promise<boolean> {
   if (!pool) {
     return inMemoryStore.agents.delete(id);
@@ -437,7 +911,31 @@ export async function setWorldValue<T>(key: string, value: T): Promise<void> {
 }
 
 // Helper function to convert database row to Agent
-function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Registry?: string; reputationScore?: number; isAutonomous?: boolean; spawnGeneration?: number; buildCredits?: number; entry_fee_paid?: boolean; entry_fee_tx?: string } {
+function rowToAgent(row: AgentRow): Agent & {
+  erc8004AgentId?: string;
+  erc8004Registry?: string;
+  reputationScore?: number;
+  localReputation?: number;
+  combinedReputation?: number;
+  isAutonomous?: boolean;
+  spawnGeneration?: number;
+  buildCredits?: number;
+  entry_fee_paid?: boolean;
+  entry_fee_tx?: string;
+  agentClass?: string;
+  referralCode?: string;
+  profileUpdatedAt?: Date;
+  profileUpdateCount?: number;
+  primitivesPlaced?: number;
+  successfulTrades?: number;
+  lastActiveAt?: Date;
+  materials?: MaterialInventory;
+  isExternal?: boolean;
+  sourceChainId?: number;
+  externalMetadata?: Record<string, any>;
+} {
+  const onChainReputation = typeof row.reputation_score === 'number' ? row.reputation_score : 0;
+  const localReputation = typeof row.local_reputation === 'number' ? row.local_reputation : 0;
   return {
     id: row.id,
     name: row.visual_name,
@@ -451,7 +949,9 @@ function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Re
     // ERC-8004 fields
     erc8004AgentId: row.erc8004_agent_id || undefined,
     erc8004Registry: row.erc8004_registry || undefined,
-    reputationScore: row.reputation_score || 0,
+    reputationScore: onChainReputation,
+    localReputation,
+    combinedReputation: onChainReputation + localReputation,
     // Spawner fields
     isAutonomous: row.is_autonomous || false,
     spawnGeneration: row.spawn_generation || 0,
@@ -460,6 +960,25 @@ function rowToAgent(row: AgentRow): Agent & { erc8004AgentId?: string; erc8004Re
     // Entry fee
     entry_fee_paid: (row as any).entry_fee_paid ?? false,
     entry_fee_tx: (row as any).entry_fee_tx || undefined,
+    // Class
+    agentClass: row.agent_class || undefined,
+    // Referral
+    referralCode: row.referral_code || undefined,
+    profileUpdatedAt: row.profile_updated_at || undefined,
+    profileUpdateCount: typeof row.profile_update_count === 'number' ? row.profile_update_count : 0,
+    primitivesPlaced: typeof row.primitives_placed === 'number' ? row.primitives_placed : 0,
+    successfulTrades: typeof row.successful_trades === 'number' ? row.successful_trades : 0,
+    lastActiveAt: row.last_active_at || undefined,
+    isExternal: row.is_external || false,
+    sourceChainId: row.source_chain_id || undefined,
+    externalMetadata: row.external_metadata || undefined,
+    materials: {
+      stone: row.mat_stone ?? 0,
+      metal: row.mat_metal ?? 0,
+      glass: row.mat_glass ?? 0,
+      crystal: row.mat_crystal ?? 0,
+      organic: row.mat_organic ?? 0,
+    }
   };
 }
 
@@ -626,6 +1145,71 @@ async function updateReputationScore(agentId: string): Promise<void> {
   `, [agentId]);
 }
 
+export async function addLocalReputation(agentId: string, amount: number): Promise<void> {
+  if (!pool) return;
+  await pool.query(`
+    UPDATE agents
+    SET local_reputation = COALESCE(local_reputation, 0) + $1
+    WHERE id = $2
+  `, [amount, agentId]);
+}
+
+export async function getCombinedReputation(agentId: string): Promise<number> {
+  if (!pool) {
+    const agent = inMemoryStore.agents.get(agentId) as any;
+    const chain = typeof agent?.reputationScore === 'number' ? agent.reputationScore : 0;
+    const local = typeof agent?.localReputation === 'number' ? agent.localReputation : 0;
+    return chain + local;
+  }
+  const result = await pool.query<{ reputation_score: number; local_reputation: number }>(
+    'SELECT COALESCE(reputation_score, 0) AS reputation_score, COALESCE(local_reputation, 0) AS local_reputation FROM agents WHERE id = $1',
+    [agentId]
+  );
+  if (result.rows.length === 0) return 0;
+  return (result.rows[0].reputation_score || 0) + (result.rows[0].local_reputation || 0);
+}
+
+export async function incrementPrimitivesPlaced(agentId: string, count: number): Promise<number> {
+  if (count <= 0) return 0;
+  if (!pool) {
+    const agent = inMemoryStore.agents.get(agentId) as any;
+    if (!agent) return 0;
+    const nextValue = (typeof agent.primitivesPlaced === 'number' ? agent.primitivesPlaced : 0) + count;
+    agent.primitivesPlaced = nextValue;
+    inMemoryStore.agents.set(agentId, agent);
+    return nextValue;
+  }
+  const result = await pool.query<{ primitives_placed: number }>(
+    `UPDATE agents
+     SET primitives_placed = COALESCE(primitives_placed, 0) + $1
+     WHERE id = $2
+     RETURNING primitives_placed`,
+    [count, agentId]
+  );
+  if (result.rows.length === 0) return 0;
+  return result.rows[0].primitives_placed ?? 0;
+}
+
+export async function incrementSuccessfulTrades(agentId: string): Promise<number> {
+  if (!pool) {
+    const agent = inMemoryStore.agents.get(agentId) as any;
+    if (!agent) return 0;
+    const nextValue = (typeof agent.successfulTrades === 'number' ? agent.successfulTrades : 0) + 1;
+    agent.successfulTrades = nextValue;
+    inMemoryStore.agents.set(agentId, agent);
+    return nextValue;
+  }
+  const result = await pool.query<{ successful_trades: number }>(
+    `UPDATE agents
+     SET successful_trades = COALESCE(successful_trades, 0) + 1
+     WHERE id = $1
+     RETURNING successful_trades`,
+    [agentId]
+  );
+  if (result.rows.length === 0) return 0;
+  return result.rows[0].successful_trades ?? 0;
+}
+
 
 // ===========================================
 // World Primitives (New System)
@@ -634,8 +1218,8 @@ async function updateReputationScore(agentId: string): Promise<void> {
 export async function createWorldPrimitive(primitive: WorldPrimitive): Promise<WorldPrimitive> {
   if (!pool) return primitive;
   await pool.query(
-    `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at, blueprint_instance_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0), $15)`,
+    `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at, blueprint_instance_id, blueprint_name, material_type)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0), $15, $16, $17)`,
     [
       primitive.id,
       primitive.shape,
@@ -645,14 +1229,16 @@ export async function createWorldPrimitive(primitive: WorldPrimitive): Promise<W
       primitive.scale.x, primitive.scale.y, primitive.scale.z,
       primitive.color,
       primitive.createdAt,
-      primitive.blueprintInstanceId || null
+      primitive.blueprintInstanceId || null,
+      primitive.blueprintName || null,
+      primitive.materialType || null,
     ]
   );
   return primitive;
 }
 
 export type CreatePrimitiveWithCreditResult =
-  | { ok: true }
+  | { ok: true; repReward?: number; totalBuilt?: number; materialEarned?: MaterialType | null }
   | { ok: false; reason: 'insufficient_credits' | 'db_error' };
 
 /**
@@ -675,8 +1261,18 @@ export async function createWorldPrimitiveWithCreditDebit(
     }
 
     agent.buildCredits = currentCredits - creditCost;
+    const totalBuilt = ((agent as any).primitivesPlaced || 0) + 1;
+    (agent as any).primitivesPlaced = totalBuilt;
+    // Certification-first economy: primitive placement no longer grants reputation.
+    const repReward = 0;
+    let materialEarned: MaterialType | null = null;
+    if (totalBuilt % MATERIAL_CONFIG.EARN_EVERY_N_PRIMITIVES === 0) {
+      materialEarned = MATERIAL_TYPES[Math.floor(Math.random() * MATERIAL_TYPES.length)];
+      const matKey = `mat_${materialEarned}`;
+      (agent as any)[matKey] = ((agent as any)[matKey] || 0) + 1;
+    }
     inMemoryStore.agents.set(agent.id, agent);
-    return { ok: true };
+    return { ok: true, repReward, totalBuilt, materialEarned };
   }
 
   const client = await pool.connect();
@@ -694,8 +1290,8 @@ export async function createWorldPrimitiveWithCreditDebit(
     }
 
     await client.query(
-      `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at, blueprint_instance_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0), $15)`,
+      `INSERT INTO world_primitives (id, shape, owner_agent_id, x, y, z, rot_x, rot_y, rot_z, scale_x, scale_y, scale_z, color, created_at, blueprint_instance_id, blueprint_name, material_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TO_TIMESTAMP($14 / 1000.0), $15, $16, $17)`,
       [
         primitive.id,
         primitive.shape,
@@ -705,12 +1301,38 @@ export async function createWorldPrimitiveWithCreditDebit(
         primitive.scale.x, primitive.scale.y, primitive.scale.z,
         primitive.color,
         primitive.createdAt,
-        primitive.blueprintInstanceId || null
+        primitive.blueprintInstanceId || null,
+        primitive.blueprintName || null,
+        primitive.materialType || null,
       ]
     );
 
+    const countRes = await client.query<{ primitives_placed: number }>(
+      `UPDATE agents
+       SET primitives_placed = COALESCE(primitives_placed, 0) + 1
+       WHERE id = $1
+       RETURNING primitives_placed`,
+      [primitive.ownerAgentId]
+    );
+    const totalBuilt = countRes.rows[0]?.primitives_placed ?? 0;
+
+    // Certification-first economy: primitive placement no longer grants reputation.
+    const repReward = 0;
+
+    let materialEarned: MaterialType | null = null;
+    if (totalBuilt > 0 && totalBuilt % MATERIAL_CONFIG.EARN_EVERY_N_PRIMITIVES === 0) {
+      materialEarned = MATERIAL_TYPES[Math.floor(Math.random() * MATERIAL_TYPES.length)];
+      const earnedCol = materialColumn(materialEarned);
+      if (earnedCol) {
+        await client.query(
+          `UPDATE agents SET ${earnedCol} = COALESCE(${earnedCol}, 0) + 1 WHERE id = $1`,
+          [primitive.ownerAgentId]
+        );
+      }
+    }
+
     await client.query('COMMIT');
-    return { ok: true };
+    return { ok: true, repReward, totalBuilt, materialEarned };
   } catch (error) {
     try {
       await client.query('ROLLBACK');
@@ -751,7 +1373,9 @@ export async function getWorldPrimitive(id: string): Promise<WorldPrimitive | nu
     scale: { x: row.scale_x, y: row.scale_y, z: row.scale_z },
     color: row.color,
     createdAt: new Date(row.created_at).getTime(),
+    materialType: row.material_type || null,
     blueprintInstanceId: row.blueprint_instance_id || null,
+    blueprintName: row.blueprint_name || null,
   };
 }
 
@@ -773,7 +1397,9 @@ export async function getAllWorldPrimitives(): Promise<WorldPrimitive[]> {
     scale: { x: row.scale_x, y: row.scale_y, z: row.scale_z },
     color: row.color,
     createdAt: new Date(row.created_at).getTime(),
+    materialType: row.material_type || null,
     blueprintInstanceId: row.blueprint_instance_id || null,
+    blueprintName: row.blueprint_name || null,
   }));
 }
 
@@ -880,80 +1506,238 @@ export async function deleteBlueprintBuildPlansOlderThan(cutoffMs: number): Prom
 // World Objects (Legacy)
 // ===========================================
 
-// Terminal
-export async function writeTerminalMessage(msg: TerminalMessage): Promise<TerminalMessage> {
+// Legacy terminal/chat helpers removed — use insertMessageEvent / getRecentMessageEvents
+
+// ===========================================
+// Unified Message Events
+// ===========================================
+
+export async function insertMessageEvent(event: {
+  agentId?: string | null;
+  agentName?: string;
+  source: MessageEventSource;
+  kind: string;
+  body: string;
+  metadata?: Record<string, unknown>;
+}): Promise<MessageEvent> {
   if (!pool) {
-    const saved = { ...msg, id: inMemoryStore.nextMsgId++, createdAt: msg.createdAt || Date.now() };
-    inMemoryStore.terminalMessages.push(saved);
-    if (inMemoryStore.terminalMessages.length > 100) inMemoryStore.terminalMessages.shift();
+    const saved: MessageEvent = {
+      id: inMemoryStore.nextMsgId++,
+      agentId: event.agentId || null,
+      agentName: event.agentName,
+      source: event.source,
+      kind: event.kind,
+      body: event.body,
+      metadata: event.metadata || {},
+      createdAt: Date.now(),
+    };
+    inMemoryStore.messageEvents.push(saved);
+    if (inMemoryStore.messageEvents.length > 200) inMemoryStore.messageEvents.shift();
     return saved;
   }
+  const nowMs = Date.now();
   const result = await pool.query(
-    `INSERT INTO terminal_messages (agent_id, agent_name, message)
-     VALUES ($1, $2, $3)
-     RETURNING id, created_at`,
-    [msg.agentId, msg.agentName, msg.message]
+    `INSERT INTO message_events (agent_id, agent_name, source, kind, body, metadata, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7::double precision / 1000))
+     RETURNING id`,
+    [event.agentId || null, event.agentName || null, event.source, event.kind, event.body, JSON.stringify(event.metadata || {}), nowMs]
   );
-  return { ...msg, id: result.rows[0].id, createdAt: result.rows[0].created_at.getTime() };
+  return {
+    id: result.rows[0].id,
+    agentId: event.agentId || null,
+    agentName: event.agentName,
+    source: event.source,
+    kind: event.kind,
+    body: event.body,
+    metadata: event.metadata || {},
+    createdAt: nowMs,
+  };
 }
 
-export async function getTerminalMessages(limit = 20): Promise<TerminalMessage[]> {
+export async function getRecentMessageEvents(limit = 50): Promise<MessageEvent[]> {
   if (!pool) {
-    return inMemoryStore.terminalMessages.slice(-limit);
+    return inMemoryStore.messageEvents.slice(-limit);
   }
   const result = await pool.query(
-    'SELECT * FROM terminal_messages ORDER BY created_at DESC LIMIT $1',
+    'SELECT *, EXTRACT(EPOCH FROM created_at) * 1000 AS created_at_ms FROM message_events ORDER BY created_at DESC LIMIT $1',
     [limit]
   );
   return result.rows.reverse().map(row => ({
     id: row.id,
     agentId: row.agent_id,
     agentName: row.agent_name,
-    message: row.message,
-    createdAt: new Date(row.created_at).getTime()
+    source: row.source as MessageEventSource,
+    kind: row.kind,
+    body: row.body,
+    metadata: row.metadata || {},
+    createdAt: Math.round(Number(row.created_at_ms)),
   }));
 }
 
-// Chat — only for real agent conversations, NOT system notifications
-export async function writeChatMessage(msg: TerminalMessage): Promise<TerminalMessage> {
-  // Safety net: reject System messages — they belong in terminal_messages
-  if (msg.agentName === 'System' || msg.agentId === 'system') {
-    console.warn('[DB] writeChatMessage called with System message — redirecting to terminal_messages');
-    return writeTerminalMessage(msg);
-  }
+// Human-Agent direct messages (REST inbox polling)
+export async function sendDirectMessage(
+  fromId: string,
+  fromType: DirectMessageFromType,
+  toAgentId: string,
+  message: string
+): Promise<DirectMessage> {
+  const normalizedType: DirectMessageFromType = fromType === 'agent' ? 'agent' : 'human';
+  const normalizedMessage = String(message || '').trim();
+  const TTL_MS = 24 * 60 * 60 * 1000;
+  const MAX_PER_AGENT = 50;
+
   if (!pool) {
-    const saved = { ...msg, id: inMemoryStore.nextMsgId++, createdAt: msg.createdAt || Date.now() };
-    inMemoryStore.chatMessages.push(saved);
-    if (inMemoryStore.chatMessages.length > 100) inMemoryStore.chatMessages.shift();
+    const now = Date.now();
+    const cutoff = now - TTL_MS;
+    inMemoryStore.directMessages = inMemoryStore.directMessages.filter((dm) => dm.createdAt >= cutoff);
+
+    const saved: DirectMessage = {
+      id: inMemoryStore.nextDirectMessageId++,
+      fromId,
+      fromType: normalizedType,
+      toAgentId,
+      message: normalizedMessage,
+      readAt: null,
+      createdAt: now,
+    };
+    inMemoryStore.directMessages.push(saved);
+
+    const recipient = inMemoryStore.directMessages
+      .filter((dm) => dm.toAgentId === toAgentId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+
+    if (recipient.length > MAX_PER_AGENT) {
+      const keepIds = new Set(recipient.slice(0, MAX_PER_AGENT).map((dm) => dm.id));
+      inMemoryStore.directMessages = inMemoryStore.directMessages.filter(
+        (dm) => dm.toAgentId !== toAgentId || keepIds.has(dm.id)
+      );
+    }
+
     return saved;
   }
-  const result = await pool.query(
-    `INSERT INTO chat_messages (agent_id, agent_name, message)
-     VALUES ($1, $2, $3)
-     RETURNING id, created_at`,
-    [msg.agentId, msg.agentName, msg.message]
-  );
-  return { ...msg, id: result.rows[0].id, createdAt: result.rows[0].created_at.getTime() };
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      `DELETE FROM agent_direct_messages
+       WHERE created_at < NOW() - INTERVAL '24 hours'`
+    );
+
+    const inserted = await client.query<{ id: number; created_at: Date }>(
+      `INSERT INTO agent_direct_messages (from_id, from_type, to_agent_id, message)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, created_at`,
+      [fromId, normalizedType, toAgentId, normalizedMessage]
+    );
+
+    await client.query(
+      `DELETE FROM agent_direct_messages
+       WHERE to_agent_id = $1
+         AND id NOT IN (
+           SELECT id
+           FROM agent_direct_messages
+           WHERE to_agent_id = $1
+           ORDER BY created_at DESC
+           LIMIT ${MAX_PER_AGENT}
+         )`,
+      [toAgentId]
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      id: inserted.rows[0].id,
+      fromId,
+      fromType: normalizedType,
+      toAgentId,
+      message: normalizedMessage,
+      readAt: null,
+      createdAt: inserted.rows[0].created_at.getTime(),
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
-export async function getChatMessages(limit = 20): Promise<TerminalMessage[]> {
+export async function getAgentInbox(agentId: string, unreadOnly = false): Promise<DirectMessage[]> {
+  const limit = 50;
+
   if (!pool) {
-    return inMemoryStore.chatMessages
-      .filter(m => m.agentName !== 'System')
-      .slice(-limit);
+    return inMemoryStore.directMessages
+      .filter((dm) => dm.toAgentId === agentId && (!unreadOnly || !dm.readAt))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
   }
-  // Only return real agent conversations — System messages belong in terminal_messages
-  const result = await pool.query(
-    `SELECT * FROM chat_messages WHERE agent_name != 'System' ORDER BY created_at DESC LIMIT $1`,
-    [limit]
+
+  const params: unknown[] = [agentId, limit];
+  const unreadClause = unreadOnly ? 'AND read_at IS NULL' : '';
+  const result = await pool.query<{
+    id: number;
+    from_id: string;
+    from_type: string;
+    to_agent_id: string;
+    message: string;
+    read_at: Date | null;
+    created_at: Date;
+  }>(
+    `SELECT id, from_id, from_type, to_agent_id, message, read_at, created_at
+     FROM agent_direct_messages
+     WHERE to_agent_id = $1
+       ${unreadClause}
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    params
   );
-  return result.rows.reverse().map(row => ({
+
+  return result.rows.map((row) => ({
     id: row.id,
-    agentId: row.agent_id,
-    agentName: row.agent_name,
+    fromId: row.from_id,
+    fromType: row.from_type === 'agent' ? 'agent' : 'human',
+    toAgentId: row.to_agent_id,
     message: row.message,
-    createdAt: new Date(row.created_at).getTime()
+    readAt: row.read_at ? row.read_at.getTime() : null,
+    createdAt: row.created_at.getTime(),
   }));
+}
+
+export async function markDMsRead(agentId: string, messageIds: number[]): Promise<number> {
+  const dedupedIds = Array.from(
+    new Set(
+      messageIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    )
+  );
+  if (dedupedIds.length === 0) return 0;
+
+  if (!pool) {
+    let updated = 0;
+    const now = Date.now();
+    inMemoryStore.directMessages = inMemoryStore.directMessages.map((dm) => {
+      if (dm.toAgentId === agentId && dedupedIds.includes(dm.id) && !dm.readAt) {
+        updated += 1;
+        return { ...dm, readAt: now };
+      }
+      return dm;
+    });
+    return updated;
+  }
+
+  const result = await pool.query(
+    `UPDATE agent_direct_messages
+     SET read_at = NOW()
+     WHERE to_agent_id = $1
+       AND id = ANY($2::int[])
+       AND read_at IS NULL`,
+    [agentId, dedupedIds]
+  );
+
+  return result.rowCount ?? 0;
 }
 
 // Guilds
@@ -1238,22 +2022,54 @@ export async function deductCredits(agentId: string, amount: number): Promise<bo
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function resetDailyCredits(soloAmount: number, creditCap: number): Promise<void> {
+export async function resetDailyCredits(soloAmount: number, creditCap: number, externalAmount: number = 500): Promise<void> {
   if (!pool) return;
-  const guildAmount = Math.round(soloAmount * 1.5);
-  // Solo agents: set to daily amount, capped
+  const guildMultiplier = 1.5;
+  const builderMultiplier = CLASS_BONUSES.builder.creditMultiplier; // 1.2
+
+  // External visitors always reset to their lower daily credit pool.
   await pool.query(
     `UPDATE agents SET build_credits = LEAST($1::integer, $2::integer), credits_last_reset = NOW()
      WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
-     AND id NOT IN (SELECT agent_id FROM guild_members)`,
-    [soloAmount, creditCap]
+     AND COALESCE(is_external, FALSE) = TRUE`,
+    [Math.round(externalAmount), Math.round(externalAmount)]
   );
-  // Guild agents: 1.5x multiplier, capped
+
+  // Solo non-builder agents: base amount, capped
   await pool.query(
     `UPDATE agents SET build_credits = LEAST($1::integer, $2::integer), credits_last_reset = NOW()
      WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
-     AND id IN (SELECT agent_id FROM guild_members)`,
-    [guildAmount, creditCap]
+     AND COALESCE(is_external, FALSE) = FALSE
+     AND id NOT IN (SELECT agent_id FROM guild_members)
+     AND (agent_class IS NULL OR agent_class != 'builder')`,
+    [Math.round(soloAmount), Math.round(creditCap)]
+  );
+  // Solo builder agents: 1.2x amount, capped
+  await pool.query(
+    `UPDATE agents SET build_credits = LEAST($1::integer, $2::integer), credits_last_reset = NOW()
+     WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
+     AND COALESCE(is_external, FALSE) = FALSE
+     AND id NOT IN (SELECT agent_id FROM guild_members)
+     AND agent_class = 'builder'`,
+    [Math.round(soloAmount * builderMultiplier), Math.round(creditCap)]
+  );
+  // Guild non-builder agents: 1.5x multiplier, capped
+  await pool.query(
+    `UPDATE agents SET build_credits = LEAST($1::integer, $2::integer), credits_last_reset = NOW()
+     WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
+     AND COALESCE(is_external, FALSE) = FALSE
+     AND id IN (SELECT agent_id FROM guild_members)
+     AND (agent_class IS NULL OR agent_class != 'builder')`,
+    [Math.round(soloAmount * guildMultiplier), Math.round(creditCap)]
+  );
+  // Guild builder agents: 1.5x * 1.2x multiplier, capped
+  await pool.query(
+    `UPDATE agents SET build_credits = LEAST($1::integer, $2::integer), credits_last_reset = NOW()
+     WHERE credits_last_reset < NOW() - INTERVAL '24 hours'
+     AND COALESCE(is_external, FALSE) = FALSE
+     AND id IN (SELECT agent_id FROM guild_members)
+     AND agent_class = 'builder'`,
+    [Math.round(soloAmount * guildMultiplier * builderMultiplier), Math.round(creditCap)]
   );
 }
 
@@ -1413,6 +2229,58 @@ export async function transferCredits(fromAgentId: string, toAgentId: string, am
   }
 }
 
+// --- Referrals ---
+
+export function generateReferralCode(agentName: string, agentId: string): string {
+  // Sanitize name: lowercase, replace non-alphanumeric with dash, trim
+  const safeName = agentName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 20);
+  return `ref_${safeName}_${agentId.slice(-6)}`;
+}
+
+export async function setReferralCode(agentId: string, code: string): Promise<void> {
+  if (!pool) return;
+  await pool.query(
+    'UPDATE agents SET referral_code = $1 WHERE id = $2',
+    [code, agentId]
+  );
+}
+
+export async function getAgentByReferralCode(code: string): Promise<Agent | null> {
+  if (!pool) return null;
+  const result = await pool.query<AgentRow>(
+    'SELECT * FROM agents WHERE referral_code = $1',
+    [code]
+  );
+  if (result.rows.length === 0) return null;
+  return rowToAgent(result.rows[0]);
+}
+
+export async function recordReferral(referrerAgentId: string, refereeAgentId: string): Promise<boolean> {
+  if (!pool) return false;
+  try {
+    await pool.query(
+      'INSERT INTO referrals (referrer_agent_id, referee_agent_id) VALUES ($1, $2) ON CONFLICT (referee_agent_id) DO NOTHING',
+      [referrerAgentId, refereeAgentId]
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getReferralStats(agentId: string): Promise<{ referralCount: number; creditsEarned: number }> {
+  if (!pool) return { referralCount: 0, creditsEarned: 0 };
+  const result = await pool.query(
+    'SELECT COUNT(*) as count FROM referrals WHERE referrer_agent_id = $1',
+    [agentId]
+  );
+  const count = parseInt(result.rows[0]?.count ?? '0', 10);
+  return {
+    referralCount: count,
+    creditsEarned: count * 250, // REFERRAL_BONUS_CREDITS
+  };
+}
+
 // --- Entry Fee ---
 
 export async function isEntryFeePaid(agentId: string): Promise<boolean> {
@@ -1533,6 +2401,945 @@ export async function clearAllAgentMemory(): Promise<number> {
   const count = result.rowCount ?? 0;
   console.log(`[DB] Cleared ${count} agent memory entries`);
   return count;
+}
+
+// --- Materials Functions ---
+
+export async function getAgentMaterials(agentId: string): Promise<MaterialInventory> {
+  if (!pool) {
+    const inMemoryAgent = inMemoryStore.agents.get(agentId) as any;
+    return {
+      stone: inMemoryAgent?.mat_stone ?? 0,
+      metal: inMemoryAgent?.mat_metal ?? 0,
+      glass: inMemoryAgent?.mat_glass ?? 0,
+      crystal: inMemoryAgent?.mat_crystal ?? 0,
+      organic: inMemoryAgent?.mat_organic ?? 0,
+    };
+  }
+  const result = await pool.query(
+    'SELECT mat_stone, mat_metal, mat_glass, mat_crystal, mat_organic FROM agents WHERE id = $1',
+    [agentId]
+  );
+  if (result.rows.length === 0) {
+    return { stone: 0, metal: 0, glass: 0, crystal: 0, organic: 0 };
+  }
+  const row = result.rows[0];
+  return {
+    stone: row.mat_stone ?? 0,
+    metal: row.mat_metal ?? 0,
+    glass: row.mat_glass ?? 0,
+    crystal: row.mat_crystal ?? 0,
+    organic: row.mat_organic ?? 0
+  };
+}
+
+export async function addMaterial(agentId: string, materialType: string, amount: number): Promise<void> {
+  if (amount <= 0) return;
+  const col = materialColumn(materialType);
+  if (!col) throw new Error(`Invalid material type: ${materialType}`);
+
+  if (!pool) {
+    const inMemoryAgent = inMemoryStore.agents.get(agentId) as any;
+    if (!inMemoryAgent) return;
+    inMemoryAgent[col] = (inMemoryAgent[col] || 0) + amount;
+    inMemoryStore.agents.set(agentId, inMemoryAgent);
+    return;
+  }
+
+  await pool.query(`UPDATE agents SET ${col} = COALESCE(${col}, 0) + $1 WHERE id = $2`, [amount, agentId]);
+}
+
+export async function addRandomMaterial(agentId: string): Promise<MaterialType | null> {
+  const materialType = MATERIAL_TYPES[Math.floor(Math.random() * MATERIAL_TYPES.length)];
+  await addMaterial(agentId, materialType, 1);
+  return materialType;
+}
+
+export async function deductMaterials(agentId: string, costs: MaterialCost): Promise<boolean> {
+  if (!pool) {
+    const inMemoryAgent = inMemoryStore.agents.get(agentId) as any;
+    if (!inMemoryAgent) return false;
+    for (const [mat, amount] of Object.entries(costs)) {
+      if (!amount || amount <= 0) continue;
+      const col = materialColumn(mat);
+      if (!col) return false;
+      if ((inMemoryAgent[col] || 0) < amount) return false;
+    }
+    for (const [mat, amount] of Object.entries(costs)) {
+      if (!amount || amount <= 0) continue;
+      const col = materialColumn(mat);
+      if (!col) return false;
+      inMemoryAgent[col] = (inMemoryAgent[col] || 0) - amount;
+    }
+    inMemoryStore.agents.set(agentId, inMemoryAgent);
+    return true;
+  }
+  
+  const updates: string[] = [];
+  const checks: string[] = [];
+  const values: unknown[] = [agentId];
+  let paramIdx = 2; // $1 is agentId
+
+  for (const [mat, amount] of Object.entries(costs)) {
+    if (!amount || amount <= 0) continue;
+    const col = materialColumn(mat);
+    if (!col) return false;
+    updates.push(`${col} = ${col} - $${paramIdx}`);
+    checks.push(`${col} >= $${paramIdx}`);
+    values.push(amount);
+    paramIdx++;
+  }
+
+  if (updates.length === 0) return true; // nothing to deduct
+
+  const query = `
+    UPDATE agents 
+    SET ${updates.join(', ')}
+    WHERE id = $1 AND ${checks.join(' AND ')}
+  `;
+
+  const result = await pool.query(query, values);
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function startBlueprintWithMaterialCost(
+  agentId: string,
+  creditCost: number,
+  materialCost: MaterialCost
+): Promise<boolean> {
+  if (!pool) {
+    const inMemoryAgent = inMemoryStore.agents.get(agentId) as any;
+    if (!inMemoryAgent) return false;
+    const currentCredits = inMemoryAgent.buildCredits ?? DEFAULT_IN_MEMORY_BUILD_CREDITS;
+    if (currentCredits < creditCost) return false;
+    for (const [mat, amount] of Object.entries(materialCost)) {
+      if (!amount || amount <= 0) continue;
+      const col = materialColumn(mat);
+      if (!col) return false;
+      if ((inMemoryAgent[col] || 0) < amount) return false;
+    }
+    inMemoryAgent.buildCredits = currentCredits - creditCost;
+    for (const [mat, amount] of Object.entries(materialCost)) {
+      if (!amount || amount <= 0) continue;
+      const col = materialColumn(mat);
+      if (!col) return false;
+      inMemoryAgent[col] = (inMemoryAgent[col] || 0) - amount;
+    }
+    inMemoryStore.agents.set(agentId, inMemoryAgent);
+    return true;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const creditDebit = await client.query(
+      'UPDATE agents SET build_credits = build_credits - $1 WHERE id = $2 AND build_credits >= $1',
+      [creditCost, agentId]
+    );
+    if ((creditDebit.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+
+    const updates: string[] = [];
+    const checks: string[] = [];
+    const values: unknown[] = [agentId];
+    let paramIdx = 2;
+    for (const [mat, amount] of Object.entries(materialCost)) {
+      if (!amount || amount <= 0) continue;
+      const col = materialColumn(mat);
+      if (!col) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      updates.push(`${col} = ${col} - $${paramIdx}`);
+      checks.push(`${col} >= $${paramIdx}`);
+      values.push(amount);
+      paramIdx++;
+    }
+
+    if (updates.length > 0) {
+      const deduction = await client.query(
+        `UPDATE agents
+         SET ${updates.join(', ')}
+         WHERE id = $1 AND ${checks.join(' AND ')}`,
+        values
+      );
+      if ((deduction.rowCount ?? 0) === 0) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+    }
+
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function transferMaterial(fromAgentId: string, toAgentId: string, materialType: string, amount: number): Promise<boolean> {
+  if (amount <= 0) return false;
+  const col = materialColumn(materialType);
+  if (!col) return false;
+
+  if (!pool) {
+    const fromAgent = inMemoryStore.agents.get(fromAgentId) as any;
+    const toAgent = inMemoryStore.agents.get(toAgentId) as any;
+    if (!fromAgent || !toAgent) return false;
+    if ((fromAgent[col] || 0) < amount) return false;
+    fromAgent[col] = (fromAgent[col] || 0) - amount;
+    toAgent[col] = (toAgent[col] || 0) + amount;
+    inMemoryStore.agents.set(fromAgentId, fromAgent);
+    inMemoryStore.agents.set(toAgentId, toAgent);
+    return true;
+  }
+  
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Deduct
+    const debit = await client.query(
+      `UPDATE agents SET ${col} = ${col} - $1 WHERE id = $2 AND ${col} >= $1`,
+      [amount, fromAgentId]
+    );
+    
+    if ((debit.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      return false; // Insufficient funds
+    }
+    
+    // Add
+    await client.query(
+      `UPDATE agents SET ${col} = COALESCE(${col}, 0) + $1 WHERE id = $2`,
+      [amount, toAgentId]
+    );
+    
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ===========================================
+// Certification System
+// ===========================================
+
+export interface CertificationRunUpdateInput {
+  feePaidUsdc?: string;
+  x402PaymentRef?: string | null;
+  deadlineAt?: number;
+  startedAt?: number;
+  submittedAt?: number | null;
+  completedAt?: number | null;
+  verificationResult?: Record<string, unknown> | null;
+  attestationJson?: Record<string, unknown> | null;
+  onchainTxHash?: string | null;
+}
+
+export interface CertificationVerificationInput {
+  runId: string;
+  submissionId: number;
+  templateId: string;
+  passed: boolean;
+  checks: unknown;
+  verifiedAt?: number;
+}
+
+export interface CertificationPayoutInput {
+  runId: string;
+  payoutType: 'fee_collected' | 'credit_reward' | 'reputation_reward';
+  amount: string;
+  currency: 'USDC' | 'credits' | 'reputation';
+  recipientAgentId?: string;
+  recipientWallet?: string;
+  onchainTxHash?: string;
+}
+
+export interface CertificationAgentStats {
+  total: number;
+  passed: number;
+  failed: number;
+}
+
+export interface CertificationLeaderboardEntry {
+  agentId: string;
+  agentName: string;
+  templateId: string;
+  totalRuns: number;
+  passCount: number;
+  failCount: number;
+  passRate: number;
+  bestScore: number;
+  avgScore: number;
+}
+
+export async function getCertificationTemplate(id: string): Promise<CertificationTemplateRecord | null> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    return inMemoryStore.certificationTemplates.get(id) || null;
+  }
+
+  const result = await pool.query<{
+    id: string;
+    version: number;
+    display_name: string;
+    type: string | null;
+    description: string | null;
+    fee_usdc_atomic: string;
+    reward_credits: number;
+    reward_reputation: number;
+    deadline_seconds: number;
+    config: Record<string, unknown> | null;
+    challenge: Record<string, unknown> | null;
+    is_active: boolean;
+  }>(
+    `
+    SELECT id, version, display_name, type, description, fee_usdc_atomic, reward_credits, reward_reputation, deadline_seconds, config, challenge, is_active
+    FROM certification_templates
+    WHERE id = $1
+    `,
+    [id],
+  );
+
+  if (result.rows.length === 0) return null;
+  return normalizeCertificationTemplateRecord(result.rows[0]);
+}
+
+export async function getActiveCertificationTemplates(): Promise<CertificationTemplateRecord[]> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    return Array.from(inMemoryStore.certificationTemplates.values())
+      .filter((template) => template.isActive)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  const result = await pool.query<{
+    id: string;
+    version: number;
+    display_name: string;
+    type: string | null;
+    description: string | null;
+    fee_usdc_atomic: string;
+    reward_credits: number;
+    reward_reputation: number;
+    deadline_seconds: number;
+    config: Record<string, unknown> | null;
+    challenge: Record<string, unknown> | null;
+    is_active: boolean;
+  }>(
+    `
+    SELECT id, version, display_name, type, description, fee_usdc_atomic, reward_credits, reward_reputation, deadline_seconds, config, challenge, is_active
+    FROM certification_templates
+    WHERE is_active = TRUE
+    ORDER BY id ASC
+    `,
+  );
+
+  return result.rows.map(normalizeCertificationTemplateRecord);
+}
+
+export async function createCertificationRun(run: CertificationRunRecord): Promise<CertificationRunRecord> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    const created: CertificationRunRecord = {
+      ...run,
+      x402PaymentRef: run.x402PaymentRef || undefined,
+      verificationResult: run.verificationResult || undefined,
+      attestationJson: run.attestationJson || undefined,
+      onchainTxHash: run.onchainTxHash || undefined,
+    };
+    inMemoryStore.certificationRuns.set(run.id, created);
+    return created;
+  }
+
+  const result = await pool.query<{
+    id: string;
+    agent_id: string;
+    owner_wallet: string;
+    template_id: string;
+    status: CertificationStatus;
+    fee_paid_usdc: string;
+    x402_payment_ref: string | null;
+    deadline_at: Date;
+    started_at: Date;
+    submitted_at: Date | null;
+    completed_at: Date | null;
+    verification_result: Record<string, unknown> | null;
+    attestation_json: Record<string, unknown> | null;
+    onchain_tx_hash: string | null;
+  }>(
+    `
+    INSERT INTO certification_runs (
+      id,
+      agent_id,
+      owner_wallet,
+      template_id,
+      status,
+      fee_paid_usdc,
+      x402_payment_ref,
+      deadline_at,
+      started_at,
+      submitted_at,
+      completed_at,
+      verification_result,
+      attestation_json,
+      onchain_tx_hash
+    )
+    VALUES (
+      $1,
+      $2,
+      $3,
+      $4,
+      $5,
+      $6,
+      $7,
+      TO_TIMESTAMP($8 / 1000.0),
+      TO_TIMESTAMP($9 / 1000.0),
+      $10,
+      $11,
+      $12::jsonb,
+      $13::jsonb,
+      $14
+    )
+    RETURNING *
+    `,
+    [
+      run.id,
+      run.agentId,
+      run.ownerWallet.toLowerCase(),
+      run.templateId,
+      run.status,
+      run.feePaidUsdc,
+      run.x402PaymentRef || null,
+      run.deadlineAt,
+      run.startedAt,
+      run.submittedAt ? new Date(run.submittedAt) : null,
+      run.completedAt ? new Date(run.completedAt) : null,
+      run.verificationResult ? JSON.stringify(run.verificationResult) : null,
+      run.attestationJson ? JSON.stringify(run.attestationJson) : null,
+      run.onchainTxHash || null,
+    ],
+  );
+
+  return normalizeCertificationRunRecord(result.rows[0]);
+}
+
+export async function getCertificationRun(id: string): Promise<CertificationRunRecord | null> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    return inMemoryStore.certificationRuns.get(id) || null;
+  }
+
+  const result = await pool.query<{
+    id: string;
+    agent_id: string;
+    owner_wallet: string;
+    template_id: string;
+    status: CertificationStatus;
+    fee_paid_usdc: string;
+    x402_payment_ref: string | null;
+    deadline_at: Date;
+    started_at: Date;
+    submitted_at: Date | null;
+    completed_at: Date | null;
+    verification_result: Record<string, unknown> | null;
+    attestation_json: Record<string, unknown> | null;
+    onchain_tx_hash: string | null;
+  }>(
+    `
+    SELECT *
+    FROM certification_runs
+    WHERE id = $1
+    `,
+    [id],
+  );
+
+  if (result.rows.length === 0) return null;
+  return normalizeCertificationRunRecord(result.rows[0]);
+}
+
+export async function getCertificationRunsForAgent(agentId: string): Promise<CertificationRunRecord[]> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    return Array.from(inMemoryStore.certificationRuns.values())
+      .filter((run) => run.agentId === agentId)
+      .sort((a, b) => b.startedAt - a.startedAt);
+  }
+
+  const result = await pool.query<{
+    id: string;
+    agent_id: string;
+    owner_wallet: string;
+    template_id: string;
+    status: CertificationStatus;
+    fee_paid_usdc: string;
+    x402_payment_ref: string | null;
+    deadline_at: Date;
+    started_at: Date;
+    submitted_at: Date | null;
+    completed_at: Date | null;
+    verification_result: Record<string, unknown> | null;
+    attestation_json: Record<string, unknown> | null;
+    onchain_tx_hash: string | null;
+  }>(
+    `
+    SELECT *
+    FROM certification_runs
+    WHERE agent_id = $1
+    ORDER BY started_at DESC
+    `,
+    [agentId],
+  );
+
+  return result.rows.map(normalizeCertificationRunRecord);
+}
+
+export async function updateCertificationRunStatus(
+  id: string,
+  status: CertificationStatus,
+  updates?: CertificationRunUpdateInput,
+): Promise<CertificationRunRecord | null> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    const existing = inMemoryStore.certificationRuns.get(id);
+    if (!existing) return null;
+    const merged: CertificationRunRecord = {
+      ...existing,
+      status,
+      ...(updates?.feePaidUsdc !== undefined ? { feePaidUsdc: updates.feePaidUsdc } : {}),
+      ...(updates?.x402PaymentRef !== undefined ? { x402PaymentRef: updates.x402PaymentRef || undefined } : {}),
+      ...(updates?.deadlineAt !== undefined ? { deadlineAt: updates.deadlineAt } : {}),
+      ...(updates?.startedAt !== undefined ? { startedAt: updates.startedAt } : {}),
+      ...(updates?.submittedAt !== undefined ? { submittedAt: updates.submittedAt || undefined } : {}),
+      ...(updates?.completedAt !== undefined ? { completedAt: updates.completedAt || undefined } : {}),
+      ...(updates?.verificationResult !== undefined ? { verificationResult: updates.verificationResult || undefined } : {}),
+      ...(updates?.attestationJson !== undefined ? { attestationJson: updates.attestationJson || undefined } : {}),
+      ...(updates?.onchainTxHash !== undefined ? { onchainTxHash: updates.onchainTxHash || undefined } : {}),
+    };
+    inMemoryStore.certificationRuns.set(id, merged);
+    return merged;
+  }
+
+  const setClauses: string[] = ['status = $1'];
+  const values: unknown[] = [status];
+  let paramIndex = 2;
+
+  if (updates?.feePaidUsdc !== undefined) {
+    setClauses.push(`fee_paid_usdc = $${paramIndex++}`);
+    values.push(updates.feePaidUsdc);
+  }
+  if (updates?.x402PaymentRef !== undefined) {
+    setClauses.push(`x402_payment_ref = $${paramIndex++}`);
+    values.push(updates.x402PaymentRef || null);
+  }
+  if (updates?.deadlineAt !== undefined) {
+    setClauses.push(`deadline_at = TO_TIMESTAMP($${paramIndex++} / 1000.0)`);
+    values.push(updates.deadlineAt);
+  }
+  if (updates?.startedAt !== undefined) {
+    setClauses.push(`started_at = TO_TIMESTAMP($${paramIndex++} / 1000.0)`);
+    values.push(updates.startedAt);
+  }
+  if (updates?.submittedAt !== undefined) {
+    setClauses.push(`submitted_at = $${paramIndex++}`);
+    values.push(updates.submittedAt ? new Date(updates.submittedAt) : null);
+  }
+  if (updates?.completedAt !== undefined) {
+    setClauses.push(`completed_at = $${paramIndex++}`);
+    values.push(updates.completedAt ? new Date(updates.completedAt) : null);
+  }
+  if (updates?.verificationResult !== undefined) {
+    setClauses.push(`verification_result = $${paramIndex++}::jsonb`);
+    values.push(updates.verificationResult ? JSON.stringify(updates.verificationResult) : null);
+  }
+  if (updates?.attestationJson !== undefined) {
+    setClauses.push(`attestation_json = $${paramIndex++}::jsonb`);
+    values.push(updates.attestationJson ? JSON.stringify(updates.attestationJson) : null);
+  }
+  if (updates?.onchainTxHash !== undefined) {
+    setClauses.push(`onchain_tx_hash = $${paramIndex++}`);
+    values.push(updates.onchainTxHash || null);
+  }
+
+  values.push(id);
+  const result = await pool.query<{
+    id: string;
+    agent_id: string;
+    owner_wallet: string;
+    template_id: string;
+    status: CertificationStatus;
+    fee_paid_usdc: string;
+    x402_payment_ref: string | null;
+    deadline_at: Date;
+    started_at: Date;
+    submitted_at: Date | null;
+    completed_at: Date | null;
+    verification_result: Record<string, unknown> | null;
+    attestation_json: Record<string, unknown> | null;
+    onchain_tx_hash: string | null;
+  }>(
+    `
+    UPDATE certification_runs
+    SET ${setClauses.join(', ')}
+    WHERE id = $${paramIndex}
+    RETURNING *
+    `,
+    values,
+  );
+
+  if (result.rows.length === 0) return null;
+  return normalizeCertificationRunRecord(result.rows[0]);
+}
+
+export async function createCertificationSubmission(
+  runId: string,
+  proof: Record<string, unknown>,
+): Promise<CertificationSubmissionRecord> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    const created: CertificationSubmissionRecord = {
+      id: inMemoryStore.nextCertificationSubmissionId++,
+      runId,
+      submittedAt: Date.now(),
+      proof,
+    };
+    inMemoryStore.certificationSubmissions.push(created);
+    return created;
+  }
+
+  const result = await pool.query<{
+    id: number;
+    run_id: string;
+    submitted_at: Date;
+    proof: Record<string, unknown>;
+  }>(
+    `
+    INSERT INTO certification_submissions (run_id, proof)
+    VALUES ($1, $2::jsonb)
+    RETURNING id, run_id, submitted_at, proof
+    `,
+    [runId, JSON.stringify(proof)],
+  );
+
+  return {
+    id: result.rows[0].id,
+    runId: result.rows[0].run_id,
+    submittedAt: new Date(result.rows[0].submitted_at).getTime(),
+    proof: result.rows[0].proof || {},
+  };
+}
+
+export async function createCertificationVerification(
+  verification: CertificationVerificationInput,
+): Promise<CertificationVerificationRecord> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    const created: CertificationVerificationRecord = {
+      id: inMemoryStore.nextCertificationVerificationId++,
+      runId: verification.runId,
+      submissionId: verification.submissionId,
+      templateId: verification.templateId,
+      passed: verification.passed,
+      checks: verification.checks,
+      verifiedAt: verification.verifiedAt || Date.now(),
+    };
+    inMemoryStore.certificationVerifications.push(created);
+    return created;
+  }
+
+  const result = await pool.query<{
+    id: number;
+    run_id: string;
+    submission_id: number;
+    template_id: string;
+    passed: boolean;
+    checks: unknown;
+    verified_at: Date;
+  }>(
+    `
+    INSERT INTO certification_verifications (run_id, submission_id, template_id, passed, checks, verified_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, TO_TIMESTAMP($6 / 1000.0))
+    RETURNING id, run_id, submission_id, template_id, passed, checks, verified_at
+    `,
+    [
+      verification.runId,
+      verification.submissionId,
+      verification.templateId,
+      verification.passed,
+      JSON.stringify(verification.checks),
+      verification.verifiedAt || Date.now(),
+    ],
+  );
+
+  return {
+    id: result.rows[0].id,
+    runId: result.rows[0].run_id,
+    submissionId: result.rows[0].submission_id,
+    templateId: result.rows[0].template_id,
+    passed: result.rows[0].passed,
+    checks: result.rows[0].checks || [],
+    verifiedAt: new Date(result.rows[0].verified_at).getTime(),
+  };
+}
+
+export async function recordCertificationPayout(
+  payout: CertificationPayoutInput,
+): Promise<CertificationPayoutRecord> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    const created: CertificationPayoutRecord = {
+      id: inMemoryStore.nextCertificationPayoutId++,
+      runId: payout.runId,
+      payoutType: payout.payoutType,
+      amount: payout.amount,
+      currency: payout.currency,
+      recipientAgentId: payout.recipientAgentId,
+      recipientWallet: payout.recipientWallet,
+      onchainTxHash: payout.onchainTxHash,
+    };
+    inMemoryStore.certificationPayouts.push(created);
+    return created;
+  }
+
+  const result = await pool.query<{
+    id: number;
+    run_id: string;
+    payout_type: 'fee_collected' | 'credit_reward' | 'reputation_reward';
+    amount: string;
+    currency: 'USDC' | 'credits' | 'reputation';
+    recipient_agent_id: string | null;
+    recipient_wallet: string | null;
+    onchain_tx_hash: string | null;
+  }>(
+    `
+    INSERT INTO certification_payouts (
+      run_id,
+      payout_type,
+      amount,
+      currency,
+      recipient_agent_id,
+      recipient_wallet,
+      onchain_tx_hash
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING id, run_id, payout_type, amount, currency, recipient_agent_id, recipient_wallet, onchain_tx_hash
+    `,
+    [
+      payout.runId,
+      payout.payoutType,
+      payout.amount,
+      payout.currency,
+      payout.recipientAgentId || null,
+      payout.recipientWallet ? payout.recipientWallet.toLowerCase() : null,
+      payout.onchainTxHash || null,
+    ],
+  );
+
+  return {
+    id: result.rows[0].id,
+    runId: result.rows[0].run_id,
+    payoutType: result.rows[0].payout_type,
+    amount: result.rows[0].amount,
+    currency: result.rows[0].currency,
+    recipientAgentId: result.rows[0].recipient_agent_id || undefined,
+    recipientWallet: result.rows[0].recipient_wallet || undefined,
+    onchainTxHash: result.rows[0].onchain_tx_hash || undefined,
+  };
+}
+
+export async function getAgentCertificationStats(agentId: string): Promise<CertificationAgentStats> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    const runs = Array.from(inMemoryStore.certificationRuns.values()).filter((run) => run.agentId === agentId);
+    const passed = runs.filter((run) => run.status === 'passed').length;
+    const failed = runs.filter((run) => run.status === 'failed').length;
+    return {
+      total: runs.length,
+      passed,
+      failed,
+    };
+  }
+
+  const result = await pool.query<{
+    total: string;
+    passed: string;
+    failed: string;
+  }>(
+    `
+    SELECT
+      COUNT(*)::text AS total,
+      COUNT(*) FILTER (WHERE status = 'passed')::text AS passed,
+      COUNT(*) FILTER (WHERE status = 'failed')::text AS failed
+    FROM certification_runs
+    WHERE agent_id = $1
+    `,
+    [agentId],
+  );
+
+  return {
+    total: parseInt(result.rows[0]?.total ?? '0', 10),
+    passed: parseInt(result.rows[0]?.passed ?? '0', 10),
+    failed: parseInt(result.rows[0]?.failed ?? '0', 10),
+  };
+}
+
+export async function getCertificationLeaderboard(
+  templateId?: string,
+  limit = 50,
+): Promise<CertificationLeaderboardEntry[]> {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 200);
+
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    const grouped = new Map<string, CertificationLeaderboardEntry>();
+
+    for (const run of inMemoryStore.certificationRuns.values()) {
+      if (templateId && run.templateId !== templateId) continue;
+      const key = `${run.agentId}:${run.templateId}`;
+      const existing = grouped.get(key) || {
+        agentId: run.agentId,
+        agentName: inMemoryStore.agents.get(run.agentId)?.name || run.agentId,
+        templateId: run.templateId,
+        totalRuns: 0,
+        passCount: 0,
+        failCount: 0,
+        passRate: 0,
+        bestScore: 0,
+        avgScore: 0,
+      };
+      existing.totalRuns += 1;
+      if (run.status === 'passed') existing.passCount += 1;
+      if (run.status === 'failed') existing.failCount += 1;
+      existing.passRate = existing.totalRuns > 0 ? (existing.passCount / existing.totalRuns) * 100 : 0;
+      const score = (typeof run.verificationResult?.score === 'number' ? run.verificationResult.score : 0) as number;
+      if (score > existing.bestScore) existing.bestScore = score;
+      const completedRuns = existing.passCount + existing.failCount;
+      if (completedRuns > 0) {
+        existing.avgScore = Math.round(((existing.avgScore * (completedRuns - 1)) + score) / completedRuns);
+      }
+      grouped.set(key, existing);
+    }
+
+    return Array.from(grouped.values())
+      .sort((a, b) => {
+        if (b.passCount !== a.passCount) return b.passCount - a.passCount;
+        if (b.bestScore !== a.bestScore) return b.bestScore - a.bestScore;
+        if (b.totalRuns !== a.totalRuns) return b.totalRuns - a.totalRuns;
+        return a.agentId.localeCompare(b.agentId);
+      })
+      .slice(0, safeLimit);
+  }
+
+  const result = await pool.query<{
+    agent_id: string;
+    agent_name: string | null;
+    template_id: string;
+    total_runs: string;
+    pass_count: string;
+    fail_count: string;
+    pass_rate: string;
+    best_score: string;
+    avg_score: string;
+  }>(
+    `
+    SELECT
+      cr.agent_id,
+      COALESCE(a.visual_name, cr.agent_id) AS agent_name,
+      cr.template_id,
+      COUNT(*)::text AS total_runs,
+      COUNT(*) FILTER (WHERE cr.status = 'passed')::text AS pass_count,
+      COUNT(*) FILTER (WHERE cr.status = 'failed')::text AS fail_count,
+      COALESCE(
+        ROUND(
+          (
+            COUNT(*) FILTER (WHERE cr.status = 'passed')::numeric
+            / NULLIF(COUNT(*)::numeric, 0)
+          ) * 100,
+          2
+        ),
+        0
+      )::text AS pass_rate,
+      COALESCE(MAX((cr.verification_result->>'score')::int) FILTER (WHERE cr.status IN ('passed','failed')), 0)::text AS best_score,
+      COALESCE(ROUND(AVG((cr.verification_result->>'score')::int) FILTER (WHERE cr.status IN ('passed','failed'))), 0)::text AS avg_score
+    FROM certification_runs cr
+    LEFT JOIN agents a ON a.id = cr.agent_id
+    WHERE ($1::varchar IS NULL OR cr.template_id = $1)
+    GROUP BY cr.agent_id, a.visual_name, cr.template_id
+    ORDER BY
+      COUNT(*) FILTER (WHERE cr.status = 'passed') DESC,
+      MAX((cr.verification_result->>'score')::int) FILTER (WHERE cr.status IN ('passed','failed')) DESC NULLS LAST,
+      COUNT(*) DESC,
+      cr.agent_id ASC
+    LIMIT $2
+    `,
+    [templateId || null, safeLimit],
+  );
+
+  return result.rows.map((row) => ({
+    agentId: row.agent_id,
+    agentName: row.agent_name || row.agent_id,
+    templateId: row.template_id,
+    totalRuns: parseInt(row.total_runs, 10),
+    passCount: parseInt(row.pass_count, 10),
+    failCount: parseInt(row.fail_count, 10),
+    passRate: parseFloat(row.pass_rate),
+    bestScore: parseInt(row.best_score, 10),
+    avgScore: parseInt(row.avg_score, 10),
+  }));
+}
+
+export async function expireActiveCertificationRuns(nowMs: number = Date.now()): Promise<number> {
+  if (!pool) {
+    seedInMemoryCertificationTemplate();
+    let expired = 0;
+    for (const [runId, run] of inMemoryStore.certificationRuns.entries()) {
+      if (run.status === 'active' && run.deadlineAt < nowMs) {
+        inMemoryStore.certificationRuns.set(runId, {
+          ...run,
+          status: 'expired',
+          completedAt: nowMs,
+        });
+        expired += 1;
+      }
+    }
+    return expired;
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE certification_runs
+    SET
+      status = 'expired',
+      completed_at = COALESCE(completed_at, NOW())
+    WHERE status = 'active' AND deadline_at < TO_TIMESTAMP($1 / 1000.0)
+    `,
+    [nowMs],
+  );
+
+  return result.rowCount ?? 0;
+}
+
+export async function getAbandonedStructureCount(daysInactive = 7): Promise<number> {
+  if (!pool) return 0;
+  const result = await pool.query<{ structure_count: string }>(
+    `
+      SELECT COUNT(DISTINCT COALESCE(wp.blueprint_instance_id, wp.id)) AS structure_count
+      FROM world_primitives wp
+      JOIN agents a ON a.id = wp.owner_agent_id
+      WHERE a.last_active_at < NOW() - ($1 * INTERVAL '1 day')
+    `,
+    [daysInactive]
+  );
+  return parseInt(result.rows[0]?.structure_count ?? '0', 10);
 }
 
 export async function closeDatabase(): Promise<void> {

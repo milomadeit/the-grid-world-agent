@@ -1,6 +1,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { createWalletClient, custom } from 'viem';
+import { base, baseSepolia } from 'viem/chains';
+import { wrapFetchWithPayment } from 'x402-fetch';
 import WorldScene from './components/World/WorldScene';
 import Overlay from './components/UI/Overlay';
 import SpectatorHUD from './components/UI/SpectatorHUD';
@@ -199,7 +202,7 @@ const App: React.FC = () => {
       const signer = await provider.getSigner();
       const { ethers } = await import('ethers');
       const identityRegistry = new ethers.Contract(
-        '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+        '0x8004A818BFB912233c491871b3d84c89A494BD9e',
         ['function register() returns (uint256 agentId)', 'event Registered(uint256 indexed agentId, string agentURI, address indexed owner)'],
         signer
       );
@@ -217,7 +220,7 @@ const App: React.FC = () => {
         if (newAgentId) {
           setRegisteredAgentId(newAgentId);
           setRegisterStatus('success');
-          addEvent(`Agent #${newAgentId} registered on Monad!`);
+          addEvent(`Agent #${newAgentId} registered on Base Sepolia!`);
           return;
         }
       }
@@ -263,6 +266,17 @@ const App: React.FC = () => {
         params: [message, addr],
       }) as string;
 
+      const chainId = Number(import.meta.env.VITE_CHAIN_ID || 84532);
+      const walletClient = createWalletClient({
+        account: addr as `0x${string}`,
+        chain: chainId === 8453 ? base : baseSepolia,
+        transport: custom(provider as any),
+      });
+      const maxUsdcAtomic = BigInt(
+        Math.max(1, Math.round(Number(import.meta.env.VITE_ENTRY_FEE_USDC || '0.10') * 1_000_000))
+      );
+      const paidFetch = wrapFetchWithPayment(fetch as any, walletClient as any, maxUsdcAtomic);
+
       // Step 2: Register agent via REST API (signed auth + ERC-8004)
       addEvent('Verifying agent identity...');
       const { agentId, position } = await socketService.enterWorld(
@@ -271,7 +285,8 @@ const App: React.FC = () => {
         erc8004,
         bio,
         signature,
-        timestamp
+        timestamp,
+        paidFetch as any
       );
 
       // Step 2: Reconnect socket with auth token
@@ -450,7 +465,7 @@ const App: React.FC = () => {
                 <div>
                   <h1 className="text-base font-bold tracking-tight">OpGrid</h1>
                   <p className={`text-xs mt-1 leading-relaxed max-w-sm ${isDarkMode ? 'text-slate-400' : 'text-gray-500'}`}>
-                    A persistent world on Monad where autonomous agents live, move, and build reputation.
+                    A persistent world on Base where autonomous agents live, move, and build reputation.
                     Double-click any agent to learn about them.
                   </p>
                 </div>

@@ -13,12 +13,13 @@ import { registerAgentRoutes } from './api/agents.js';
 import { registerSimulateRoutes } from './api/simulate.js';
 import { registerReputationRoutes } from './api/reputation.js';
 import { registerGridRoutes } from './api/grid.js';
+import { registerCertificationRoutes } from './api/certify.js';
 import { initChain } from './chain.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const PORT = parseInt(process.env.PORT || '3001', 10);
+const PORT = parseInt(process.env.PORT || '4101', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 const API_MAINTENANCE_MODE = true;
 const API_MAINTENANCE_MESSAGE = 'opgrid is under maintainence.';
@@ -50,7 +51,7 @@ async function main() {
   // Register CORS
   const allowedOrigins = [
     'http://localhost:5173',
-    'http://localhost:3000',
+    'http://localhost:4100',
     'http://127.0.0.1:5173',
     process.env.FRONTEND_URL,
     'https://opgrid.world',
@@ -102,15 +103,63 @@ async function main() {
     }
   });
 
-  // Serve skill-runtime.md — guide for agents building their own autonomous loop
-  const skillRuntimePath = join(__dirname, '..', 'public', 'skill-runtime.md');
-  fastify.get('/skill-runtime.md', async (request, reply) => {
+  // Serve skill-mcp.md — MCP server setup and certification workflow
+  const skillMcpPath = join(__dirname, '..', 'public', 'skill-mcp.md');
+  fastify.get('/skill-mcp.md', async (request, reply) => {
     try {
-      const content = await readFile(skillRuntimePath, 'utf-8');
+      const content = await readFile(skillMcpPath, 'utf-8');
       return reply.type('text/markdown').send(content);
     } catch (err) {
       request.log.error(err);
-      return reply.status(500).send('skill-runtime.md not found');
+      return reply.status(500).send('skill-mcp.md not found');
+    }
+  });
+
+  // Serve skill-x402.md — x402 USDC payment signing reference
+  const skillX402Path = join(__dirname, '..', 'public', 'skill-x402.md');
+  fastify.get('/skill-x402.md', async (request, reply) => {
+    try {
+      const content = await readFile(skillX402Path, 'utf-8');
+      return reply.type('text/markdown').send(content);
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send('skill-x402.md not found');
+    }
+  });
+
+  // Serve skill-api-reference.md — endpoint-by-endpoint auth/payload/response notes
+  const skillApiRefPath = join(__dirname, '..', 'public', 'skill-api-reference.md');
+  fastify.get('/skill-api-reference.md', async (request, reply) => {
+    try {
+      const content = await readFile(skillApiRefPath, 'utf-8');
+      return reply.type('text/markdown').send(content);
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send('skill-api-reference.md not found');
+    }
+  });
+
+  // Serve skill-building.md — building logic, node founding, settlement growth
+  const skillBuildingPath = join(__dirname, '..', 'public', 'skill-building.md');
+  fastify.get('/skill-building.md', async (request, reply) => {
+    try {
+      const content = await readFile(skillBuildingPath, 'utf-8');
+      return reply.type('text/markdown').send(content);
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send('skill-building.md not found');
+    }
+  });
+
+  // Serve skill-troubleshooting.md — common failures and concrete fixes
+  const skillTroubleshootingPath = join(__dirname, '..', 'public', 'skill-troubleshooting.md');
+  fastify.get('/skill-troubleshooting.md', async (request, reply) => {
+    try {
+      const content = await readFile(skillTroubleshootingPath, 'utf-8');
+      return reply.type('text/markdown').send(content);
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send('skill-troubleshooting.md not found');
     }
   });
 
@@ -119,6 +168,7 @@ async function main() {
   await registerSimulateRoutes(fastify);
   await registerReputationRoutes(fastify);
   await registerGridRoutes(fastify);
+  await registerCertificationRoutes(fastify);
 
   // Serve static frontend in production (built files in ../dist)
   const distPath = join(__dirname, '..', 'dist');
@@ -191,6 +241,12 @@ async function main() {
   console.log(`  - POST /v1/grid/terminal`);
   console.log(`  - GET  /v1/grid/state-lite`);
   console.log(`  - GET  /v1/grid/state`);
+  console.log(`  - GET  /v1/certify/templates`);
+  console.log(`  - POST /v1/certify/start`);
+  console.log(`  - GET  /v1/certify/runs`);
+  console.log(`  - POST /v1/certify/runs/:runId/submit`);
+  console.log(`  - GET  /v1/certify/runs/:runId/attestation`);
+  console.log(`  - GET  /v1/certify/leaderboard`);
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {

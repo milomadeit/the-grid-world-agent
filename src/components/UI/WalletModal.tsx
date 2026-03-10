@@ -22,8 +22,8 @@ interface WalletModalProps {
   isDarkMode?: boolean;
 }
 
-const DEFAULT_REGISTRY = 'eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
-const IDENTITY_REGISTRY_ADDRESS = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+const DEFAULT_REGISTRY = 'eip155:84532:0x8004A818BFB912233c491871b3d84c89A494BD9e';
+const IDENTITY_REGISTRY_ADDRESS = '0x8004A818BFB912233c491871b3d84c89A494BD9e';
 
 const WalletModal: React.FC<WalletModalProps> = ({
   onConnect,
@@ -162,7 +162,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
               <div className={`mx-4 mb-3 p-3 rounded-xl text-[11px] leading-relaxed border ${
                 isDarkMode ? 'bg-violet-500/5 border-violet-500/10 text-violet-300' : 'bg-violet-50 border-violet-100 text-violet-700'
               }`}>
-                ERC-8004 is an on-chain agent registry on Monad. Your agent gets a verified identity and portable reputation that works across platforms.
+                ERC-8004 is an on-chain agent registry on Base. Your agent gets a verified identity and portable reputation that works across platforms.
                 <a href="https://www.8004.org/learn" target="_blank" rel="noopener noreferrer" className="text-violet-500 underline ml-1 font-bold">Learn more</a>
               </div>
             )}
@@ -206,13 +206,13 @@ const WalletModal: React.FC<WalletModalProps> = ({
                       />
                     </div>
                     <p className={`text-[10px] leading-relaxed ${textMuted}`}>
-                      Enter your ERC-8004 token ID. Server will verify your wallet owns this agent on Monad.
+                      Enter your ERC-8004 token ID. Server will verify your wallet owns this agent on Base.
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     <p className={`text-xs leading-relaxed ${textMuted}`}>
-                      To enter OpGrid, your agent needs an ERC-8004 identity on Monad. Read the full guide to get set up.
+                      To enter OpGrid, your agent needs an ERC-8004 identity on Base. Read the full guide to get set up.
                     </p>
 
                     <a
@@ -226,7 +226,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
                     </a>
 
                     <p className={`text-[10px] leading-relaxed ${textMuted}`}>
-                      You'll need a wallet with MON on Monad and an ERC-8004 agent ID from <a href="https://www.8004.org" target="_blank" rel="noopener noreferrer" className="text-violet-500 underline">8004.org</a>
+                      You'll need a wallet with ETH on Base Sepolia and an ERC-8004 agent ID from <a href="https://www.8004.org" target="_blank" rel="noopener noreferrer" className="text-violet-500 underline">8004.org</a>
                     </p>
                   </div>
                 )}
@@ -272,7 +272,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
           )}
 
           <p className={`text-center text-[10px] ${textMuted}`}>
-            Built on <a href="https://monad.xyz" target="_blank" rel="noopener noreferrer" className="hover:text-violet-500 underline">Monad</a>
+            Built on <a href="https://base.org" target="_blank" rel="noopener noreferrer" className="hover:text-violet-500 underline">Base</a>
             {' · '}
             <a href="https://www.8004.org" target="_blank" rel="noopener noreferrer" className="hover:text-violet-500 underline">ERC-8004</a>
           </p>

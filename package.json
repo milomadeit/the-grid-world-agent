@@ -8,7 +8,15 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:up": "bash scripts/dev-up.sh",
+    "dev:down": "bash scripts/dev-down.sh",
+    "dev:logs": "bash scripts/dev-logs.sh",
     "build": "vite build",
+    "typecheck": "tsc --noEmit --project tsconfig.json && tsc --noEmit --project server/tsconfig.json",
+    "typecheck:root": "tsc --noEmit --project tsconfig.json",
+    "typecheck:server": "tsc --noEmit --project server/tsconfig.json",
+    "certify:demo": "node scripts/certification-demo.mjs",
+    "certify:demo:ts": "npx tsx scripts/demo-certification.ts",
     "preview": "vite preview",
     "server": "cd server && npm run dev",
     "server:install": "cd server && npm install",
@@ -36,10 +44,14 @@
     "tailwindcss": "^4.1.18",
     "three": "^0.182.0",
     "typescript": "~5.8.2",
+    "viem": "^2.45.3",
     "vite": "^6.2.0",
+    "x402-fetch": "^1.1.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0"
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
   }
 }

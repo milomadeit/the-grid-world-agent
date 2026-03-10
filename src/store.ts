@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, WorldState, WorldMessage, WorldPrimitive, TerminalMessage, Guild, Directive } from './types';
+import { Agent, WorldState, WorldMessage, WorldPrimitive, MessageEvent, Guild, Directive, DirectMessage } from './types';
 
 interface WorldStore extends WorldState {
   // State
@@ -15,13 +15,15 @@ interface WorldStore extends WorldState {
   // Grid State
   worldPrimitives: WorldPrimitive[];
   primitiveRevision: number;
-  terminalMessages: TerminalMessage[];
-  chatMessages: TerminalMessage[];
+  messageEvents: MessageEvent[];
   guilds: Guild[];
   directives: Directive[];
   selectedPrimitive: WorldPrimitive | null;
   terminalOpen: boolean;
   snapshotLoaded: boolean;
+  isAgentOwner: boolean;
+  ownedAgentId: string | null;
+  dmMessages: DirectMessage[];
 
   // Actions
   setAgents: (agents: Agent[]) => void;
@@ -36,6 +38,7 @@ interface WorldStore extends WorldState {
   setIsSimulating: (isSimulating: boolean) => void;
   setPlayerId: (playerId: string | null) => void;
   setWalletAddress: (walletAddress: string | null) => void;
+  setOwnership: (isAgentOwner: boolean, ownedAgentId: string | null) => void;
   setFollowAgentId: (id: string | null) => void;
   setLastFollowAgentId: (id: string | null) => void;
   updateWorldState: (updates: Partial<WorldState>) => void;
@@ -44,12 +47,12 @@ interface WorldStore extends WorldState {
   setPrimitiveRevision: (revision: number) => void;
   addWorldPrimitive: (primitive: WorldPrimitive) => void;
   removeWorldPrimitive: (id: string) => void;
-  setTerminalMessages: (messages: TerminalMessage[]) => void;
-  addTerminalMessage: (message: TerminalMessage) => void;
-  setChatMessages: (messages: TerminalMessage[]) => void;
-  addChatMessage: (message: TerminalMessage) => void;
+  setMessageEvents: (events: MessageEvent[]) => void;
+  addMessageEvent: (event: MessageEvent) => void;
   setGuilds: (guilds: Guild[]) => void;
   setDirectives: (directives: Directive[]) => void;
+  setDMMessages: (messages: DirectMessage[]) => void;
+  addDMMessage: (message: DirectMessage) => void;
   setSelectedPrimitive: (primitive: WorldPrimitive | null) => void;
   setSnapshotLoaded: (loaded: boolean) => void;
   toggleTerminal: () => void;
@@ -73,17 +76,19 @@ const initialState = {
   lastFollowAgentId: null,
   worldPrimitives: [],
   primitiveRevision: 0,
-  terminalMessages: [],
-  chatMessages: [],
+  messageEvents: [],
   guilds: [],
   directives: [],
   selectedPrimitive: null,
   terminalOpen: false,
   snapshotLoaded: false,
+  isAgentOwner: false,
+  ownedAgentId: null,
+  dmMessages: [],
 };
 
-const MAX_TERMINAL_MESSAGES = 300;
-const MAX_CHAT_MESSAGES = 300;
+const MAX_EVENTS = 300;
+const MAX_DM_MESSAGES = 200;
 
 export const useWorldStore = create<WorldStore>((set) => ({
   // Initial state
@@ -137,6 +142,8 @@ export const useWorldStore = create<WorldStore>((set) => ({
 
   setWalletAddress: (walletAddress) => set({ walletAddress }),
 
+  setOwnership: (isAgentOwner, ownedAgentId) => set({ isAgentOwner, ownedAgentId }),
+
   setFollowAgentId: (followAgentId) => set({ followAgentId }),
 
   setLastFollowAgentId: (lastFollowAgentId) => set({ lastFollowAgentId }),
@@ -170,25 +177,27 @@ export const useWorldStore = create<WorldStore>((set) => ({
     worldPrimitives: state.worldPrimitives.filter(prim => prim.id !== id)
   })),
   
-  setTerminalMessages: (terminalMessages) => set({
-    terminalMessages: terminalMessages.slice(-MAX_TERMINAL_MESSAGES)
-  }),
-  
-  addTerminalMessage: (message) => set((state) => ({
-    terminalMessages: [...state.terminalMessages, message].slice(-MAX_TERMINAL_MESSAGES)
-  })),
-
-  setChatMessages: (chatMessages) => set({
-    chatMessages: chatMessages.slice(-MAX_CHAT_MESSAGES)
+  setMessageEvents: (messageEvents) => set({
+    messageEvents: messageEvents.slice(-MAX_EVENTS)
   }),
 
-  addChatMessage: (message) => set((state) => ({
-    chatMessages: [...state.chatMessages, message].slice(-MAX_CHAT_MESSAGES)
+  addMessageEvent: (event) => set((state) => ({
+    messageEvents: [...state.messageEvents, event].slice(-MAX_EVENTS)
   })),
   
   setGuilds: (guilds) => set({ guilds }),
   
   setDirectives: (directives) => set({ directives }),
+
+  setDMMessages: (dmMessages) => set({
+    dmMessages: dmMessages.slice(0, MAX_DM_MESSAGES)
+  }),
+
+  addDMMessage: (message) => set((state) => ({
+    dmMessages: [message, ...state.dmMessages.filter((m) => m.id !== message.id)]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, MAX_DM_MESSAGES)
+  })),
   
   setSelectedPrimitive: (selectedPrimitive) => set({ selectedPrimitive }),
 
