@@ -14,7 +14,7 @@ import { useWorldStore } from './store';
 import { fetchWalletBalance } from './utils/balance';
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error';
-const FRONTEND_MAINTENANCE_MODE = true;
+const FRONTEND_MAINTENANCE_MODE = false;
 const FRONTEND_MAINTENANCE_MESSAGE = 'opgrid is under maintainence.';
 
 const App: React.FC = () => {
