@@ -1056,6 +1056,7 @@ async function executeAction(
 
       default:
         console.warn(`[${name}] Unknown action: ${decision.action}`);
+        return `Unknown action "${decision.action}". Valid actions: MOVE, CHAT, SEND_DM, BUILD_PRIMITIVE, BUILD_MULTI, BUILD_BLUEPRINT, BUILD_CONTINUE, CANCEL_BUILD, VOTE, SUBMIT_DIRECTIVE, COMPLETE_DIRECTIVE, TRANSFER_CREDITS, ENCODE_SWAP, START_CERTIFICATION, SUBMIT_CERTIFICATION_PROOF, CHECK_CERTIFICATION, EXECUTE_ONCHAIN, APPROVE_TOKEN, SCAVENGE, IDLE`;
     }
   } catch (err: any) {
     const errMsg = err?.message || String(err);
@@ -1256,7 +1257,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
       if (tickCount - blueprintCacheTick >= BLUEPRINT_REFRESH || !cachedBlueprintCatalog) {
         try {
           const bps = await api.getBlueprints();
-          const entries = Object.entries(bps || {}).slice(0, 30);
+          let entries = Object.entries(bps || {}).slice(0, 30);
           // Sort: hard first (biggest impact), then medium, then easy
           const diffOrder: Record<string, number> = { hard: 0, medium: 1, easy: 2 };
           entries.sort(([, a]: [string, any], [, b]: [string, any]) =>
