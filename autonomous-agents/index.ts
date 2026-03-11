@@ -55,6 +55,7 @@ const ANTHROPIC_KEY = envFirst('ANTHROPIC_API_KEY');
 const OPENAI_KEY = envFirst('GPT_API_KEY', 'OPENAI_API_KEY');
 const MINIMAX_KEY = envFirst('MINI_MAX_API_KEY', 'MINIMAX_API_KEY');
 const OPENCODE_KEY = envFirst('OPENCODE_API');
+const OPENROUTER_KEY = envFirst('OPENROUTER_API');
 const DEFAULT_HEARTBEAT_SECONDS = envSeconds(60, 'AGENT_HEARTBEAT_SECONDS');
 
 // Which agent to start (default: all)
@@ -72,7 +73,7 @@ interface AgentDef {
   walletAddress: string;
   erc8004AgentId: string;
   heartbeatSeconds: number;
-  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode';
+  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode' | 'openrouter';
   llmModel: string;
   llmApiKey: string;
   visionBridge?: {
@@ -104,9 +105,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('ORACLE_WALLET'),
     erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'ORACLE_HEARTBEAT_SECONDS'),
-    llmProvider: 'opencode',
-    llmModel: 'glm-5',
-    llmApiKey: OPENCODE_KEY,
+    llmProvider: 'openrouter',
+    llmModel: 'nvidia/llama-3.3-nemotron-super-49b-v1:free',
+    llmApiKey: OPENROUTER_KEY,
   },
   clank: {
     name: 'clank',
@@ -116,7 +117,7 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'CLANK_HEARTBEAT_SECONDS'),
     llmProvider: 'opencode',
-    llmModel: 'kimi-k2.5',
+    llmModel: 'opencode/big-pickle',
     llmApiKey: OPENCODE_KEY,
   },
   mouse: {
@@ -127,7 +128,7 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'MOUSE_HEARTBEAT_SECONDS'),
     llmProvider: 'opencode',
-    llmModel: 'kimi-k2.5',
+    llmModel: 'opencode/minimax-m2.5-free',
     llmApiKey: OPENCODE_KEY,
   },
 };
