@@ -21,6 +21,8 @@ interface WorldStore extends WorldState {
   selectedPrimitive: WorldPrimitive | null;
   terminalOpen: boolean;
   snapshotLoaded: boolean;
+  loadingOlderMessages: boolean;
+  hasOlderMessages: boolean;
   isAgentOwner: boolean;
   ownedAgentId: string | null;
   dmMessages: DirectMessage[];
@@ -49,6 +51,9 @@ interface WorldStore extends WorldState {
   removeWorldPrimitive: (id: string) => void;
   setMessageEvents: (events: MessageEvent[]) => void;
   addMessageEvent: (event: MessageEvent) => void;
+  prependMessageEvents: (events: MessageEvent[]) => void;
+  setLoadingOlderMessages: (loading: boolean) => void;
+  setHasOlderMessages: (has: boolean) => void;
   setGuilds: (guilds: Guild[]) => void;
   setDirectives: (directives: Directive[]) => void;
   setDMMessages: (messages: DirectMessage[]) => void;
@@ -82,6 +87,8 @@ const initialState = {
   selectedPrimitive: null,
   terminalOpen: false,
   snapshotLoaded: false,
+  loadingOlderMessages: false,
+  hasOlderMessages: true,
   isAgentOwner: false,
   ownedAgentId: null,
   dmMessages: [],
@@ -184,6 +191,16 @@ export const useWorldStore = create<WorldStore>((set) => ({
   addMessageEvent: (event) => set((state) => ({
     messageEvents: [...state.messageEvents, event].slice(-MAX_EVENTS)
   })),
+
+  prependMessageEvents: (events) => set((state) => {
+    const existingIds = new Set(state.messageEvents.map(e => e.id));
+    const newEvents = events.filter(e => !existingIds.has(e.id));
+    return { messageEvents: [...newEvents, ...state.messageEvents] };
+  }),
+
+  setLoadingOlderMessages: (loadingOlderMessages) => set({ loadingOlderMessages }),
+
+  setHasOlderMessages: (hasOlderMessages) => set({ hasOlderMessages }),
   
   setGuilds: (guilds) => set({ guilds }),
   

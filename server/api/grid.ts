@@ -2067,6 +2067,16 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     return await db.getRecentMessageEvents(50);
   });
 
+  fastify.get('/v1/grid/terminal/history', async (request, reply) => {
+    const query = request.query as { before?: string; limit?: string };
+    const beforeId = parseInt(query.before || '0', 10);
+    const limit = Math.min(parseInt(query.limit || '50', 10), 100);
+    if (!beforeId || beforeId <= 0) {
+      return reply.status(400).send({ error: 'before parameter (message id) is required' });
+    }
+    return await db.getMessageEventsBefore(beforeId, limit);
+  });
+
   // --- Human-Agent DMs (REST polling inbox) ---
 
   fastify.post('/v1/grid/dm', async (request, reply) => {

@@ -1,10 +1,17 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Terminal, Maximize2, Minimize2, Menu, X, Focus, LogIn, Moon, Sun, Shield } from 'lucide-react';
-import { WorldState } from '../../types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Terminal, Maximize2, Minimize2, Menu, X, Focus, LogIn, Moon, Sun, Shield, Loader2 } from 'lucide-react';
+import { WorldState, MessageEvent } from '../../types';
 import AgentBioPanel from './AgentBioPanel';
 import CertificationPanel from './CertificationPanel';
 import { useWorldStore } from '../../store';
+
+const SERVER_URL = import.meta.env.VITE_SERVER_URL ||
+  (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')
+    ? window.location.origin
+    : 'http://localhost:4101');
+
+const HISTORY_BATCH_SIZE = 50;
 
 interface SpectatorHUDProps {
   worldState: WorldState;
@@ -16,10 +23,10 @@ interface SpectatorHUDProps {
   onAgentClick: (agentId: string) => void;
 }
 
-const SpectatorHUD: React.FC<SpectatorHUDProps> = ({ 
-  worldState, 
-  isDarkMode, 
-  cameraLocked, 
+const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
+  worldState,
+  isDarkMode,
+  cameraLocked,
   onToggleCameraLock,
   onEnterWorld,
   onToggleDarkMode,
@@ -29,15 +36,71 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const followAgentId = useWorldStore((state) => state.followAgentId);
   const allEvents = useWorldStore((state) => state.messageEvents);
+  const loadingOlderMessages = useWorldStore((state) => state.loadingOlderMessages);
+  const hasOlderMessages = useWorldStore((state) => state.hasOlderMessages);
   // Keep feed permissive during refactor testing: render full unified stream window.
   const visibleChatMessages = allEvents
     .filter((e) => Boolean(e.body?.trim()))
     .sort((a, b) => a.createdAt - b.createdAt);
   const terminalScrollRef = useRef<HTMLDivElement>(null);
+  const isUserScrolledUp = useRef(false);
 
-  // Auto-scroll terminal to bottom when messages change
+  // Load older messages when user scrolls to top
+  const loadOlderMessages = useCallback(async () => {
+    const store = useWorldStore.getState();
+    if (store.loadingOlderMessages || !store.hasOlderMessages) return;
+
+    const sorted = [...store.messageEvents].sort((a, b) => a.createdAt - b.createdAt);
+    const oldestMsg = sorted[0];
+    if (!oldestMsg?.id) return;
+
+    store.setLoadingOlderMessages(true);
+    try {
+      const res = await fetch(`${SERVER_URL}/v1/grid/terminal/history?before=${oldestMsg.id}&limit=${HISTORY_BATCH_SIZE}`);
+      if (!res.ok) throw new Error('Failed to fetch history');
+      const older: MessageEvent[] = await res.json();
+      if (older.length < HISTORY_BATCH_SIZE) {
+        store.setHasOlderMessages(false);
+      }
+      if (older.length > 0) {
+        // Preserve scroll position
+        const el = terminalScrollRef.current;
+        const prevHeight = el?.scrollHeight || 0;
+        store.prependMessageEvents(older);
+        requestAnimationFrame(() => {
+          if (el) {
+            el.scrollTop = el.scrollHeight - prevHeight;
+          }
+        });
+      }
+    } catch (err) {
+      console.error('[Terminal] Failed to load older messages:', err);
+    } finally {
+      store.setLoadingOlderMessages(false);
+    }
+  }, []);
+
+  // Detect scroll position
   useEffect(() => {
-    if (terminalScrollRef.current) {
+    const el = terminalScrollRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      // User is near bottom if within 60px
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+      isUserScrolledUp.current = !nearBottom;
+
+      // Load older messages when scrolled near top
+      if (el.scrollTop < 40 && hasOlderMessages && !loadingOlderMessages) {
+        loadOlderMessages();
+      }
+    };
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [hasOlderMessages, loadingOlderMessages, loadOlderMessages]);
+
+  // Auto-scroll terminal to bottom when messages change (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (terminalScrollRef.current && !isUserScrolledUp.current) {
       const el = terminalScrollRef.current;
       requestAnimationFrame(() => {
         el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
@@ -90,13 +153,17 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
       )}
 
       {/* HUD SIDEBAR - Transparent with accent lines */}
-      <aside className={`
-        fixed top-0 right-0 bottom-0
-        w-[312px] transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] z-40
-        ${hudSidebarBg} backdrop-blur-sm flex flex-col pointer-events-auto
-        ${isFullView ? 'translate-x-full' : (isSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0')}
-      `}>
-        <div className="flex flex-col h-full px-5 py-8 gap-8">
+      <aside
+        className={`
+          fixed top-0 right-0 bottom-0
+          w-[312px] transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] z-40
+          ${hudSidebarBg} backdrop-blur-sm flex flex-col pointer-events-auto
+          ${isFullView ? 'translate-x-full' : (isSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0')}
+          overscroll-contain touch-pan-y
+        `}
+        onTouchMove={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-col h-full px-5 py-8 gap-8 overflow-y-auto overscroll-contain">
           {/* Header with accent line */}
           <div className="space-y-3">
             <div className="flex items-center gap-3">
@@ -151,7 +218,7 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
           <CertificationPanel isDarkMode={isDarkMode} />
 
           {/* Terminal Section - Agent Chat Messages */}
-          <section className="flex-1 flex flex-col space-y-2 min-h-0">
+          <section className="flex-1 flex flex-col space-y-2 min-h-[200px] lg:min-h-0">
             <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${sidebarHeader}`}>
               <Terminal size={12} className="text-emerald-500" />
               <span>Terminal</span>
@@ -160,15 +227,21 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
             </div>
             <div
               ref={terminalScrollRef}
-              className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin select-text"
+              className="flex-1 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 pr-1 scrollbar-thin select-text overscroll-contain touch-pan-y"
               style={{ scrollbarWidth: 'thin', scrollbarColor: isDarkMode ? '#334155 transparent' : '#cbd5e1 transparent' }}
             >
+              {loadingOlderMessages && (
+                <div className={`py-2 text-center ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  <Loader2 size={12} className="inline animate-spin mr-1" />
+                  <span className="text-[9px]">loading history...</span>
+                </div>
+              )}
               {visibleChatMessages.length === 0 ? (
                 <div className={`py-4 text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
                   <span className="opacity-60">awaiting transmission...</span>
                 </div>
               ) : (
-                visibleChatMessages.slice(-300).map((msg, i) => (
+                visibleChatMessages.map((msg, i) => (
                   <div
                     key={`${msg.id || i}-${msg.createdAt}-${msg.agentId}`}
                     className={`py-1.5 px-2 rounded ${isDarkMode ? 'bg-slate-800/30' : 'bg-slate-100/50'}`}

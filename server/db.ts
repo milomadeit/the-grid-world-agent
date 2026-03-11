@@ -1574,6 +1574,28 @@ export async function getRecentMessageEvents(limit = 50): Promise<MessageEvent[]
   }));
 }
 
+export async function getMessageEventsBefore(beforeId: number, limit = 50): Promise<MessageEvent[]> {
+  if (!pool) {
+    const idx = inMemoryStore.messageEvents.findIndex(e => e.id === beforeId);
+    if (idx <= 0) return [];
+    return inMemoryStore.messageEvents.slice(Math.max(0, idx - limit), idx);
+  }
+  const result = await pool.query(
+    'SELECT *, EXTRACT(EPOCH FROM created_at) * 1000 AS created_at_ms FROM message_events WHERE id < $1 ORDER BY created_at DESC LIMIT $2',
+    [beforeId, limit]
+  );
+  return result.rows.reverse().map(row => ({
+    id: row.id,
+    agentId: row.agent_id,
+    agentName: row.agent_name,
+    source: row.source as MessageEventSource,
+    kind: row.kind,
+    body: row.body,
+    metadata: row.metadata || {},
+    createdAt: Math.round(Number(row.created_at_ms)),
+  }));
+}
+
 // Human-Agent direct messages (REST inbox polling)
 export async function sendDirectMessage(
   fromId: string,
