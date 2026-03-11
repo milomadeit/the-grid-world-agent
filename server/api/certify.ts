@@ -187,6 +187,17 @@ export async function registerCertificationRoutes(fastify: FastifyInstance): Pro
       return reply.code(404).send({ error: 'Certification template not found or inactive' });
     }
 
+    // Hard cap: max 3 passes per template per agent, then locked
+    const MAX_PASSES_PER_CERT = 3;
+    const passCount = await db.getCertificationPassCount(auth.agentId, parsed.data.templateId);
+    if (passCount >= MAX_PASSES_PER_CERT) {
+      return reply.code(403).send({
+        error: `You have already passed ${template.displayName} ${passCount} times (max ${MAX_PASSES_PER_CERT}). This certification is locked. Attempt a different certification or a higher tier.`,
+        passCount,
+        maxPasses: MAX_PASSES_PER_CERT,
+      });
+    }
+
     const paymentHeader = getXPaymentHeader(request);
     const paymentResource = certificationResourceUrl(request, '/v1/certify/start');
     if (!paymentHeader) {

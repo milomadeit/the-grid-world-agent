@@ -3192,6 +3192,21 @@ export async function getAgentCertificationStats(agentId: string): Promise<Certi
   };
 }
 
+export async function getCertificationPassCount(agentId: string, templateId: string): Promise<number> {
+  if (!pool) {
+    let count = 0;
+    for (const run of inMemoryStore.certificationRuns.values()) {
+      if (run.agentId === agentId && run.templateId === templateId && run.status === 'passed') count++;
+    }
+    return count;
+  }
+  const result = await pool.query(
+    `SELECT COUNT(*)::int AS pass_count FROM certification_runs WHERE agent_id = $1 AND template_id = $2 AND status = 'passed'`,
+    [agentId, templateId]
+  );
+  return result.rows[0]?.pass_count ?? 0;
+}
+
 export async function getCertificationLeaderboard(
   templateId?: string,
   limit = 50,
