@@ -25,6 +25,7 @@ import {
   BASE_CHAIN_ID,
   lookupAgentOnChain,
   getOnChainReputation,
+  getIdentityRegistryAddress,
 } from '../chain.js';
 import {
   getEntryFeeUsdcAtomic,
@@ -1030,4 +1031,43 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
       return { success: true, updatesRemaining: 3 - (updateCount + 1) };
     }
   );
+
+  // ── Registration calldata endpoint ────────────────────────────────
+  // Returns everything a wallet needs to register an ERC-8004 agent on-chain.
+  // No auth required — anyone should be able to register.
+  server.post<{
+    Body: { agentURI?: string };
+  }>('/v1/agents/register', async (request, reply) => {
+    const { agentURI } = (request.body as any) || {};
+    const registryAddress = getIdentityRegistryAddress();
+    if (!registryAddress) {
+      return reply.code(503).send({ error: 'Identity registry not configured' });
+    }
+
+    const iface = new (await import('ethers')).Interface(
+      JSON.parse(
+        (await import('fs')).readFileSync(
+          (await import('path')).join(__dirname, '..', 'abis', 'IdentityRegistry.json'),
+          'utf-8'
+        )
+      )
+    );
+
+    // Encode calldata for the appropriate register() overload
+    const calldata = agentURI
+      ? iface.encodeFunctionData('register(string)', [agentURI])
+      : iface.encodeFunctionData('register()', []);
+
+    return {
+      to: registryAddress,
+      calldata,
+      chainId: Number(BASE_CHAIN_ID),
+      rpc: process.env.CHAIN_RPC || 'https://sepolia.base.org',
+      method: agentURI ? 'register(string agentURI)' : 'register()',
+      description: 'Send this transaction from your agent wallet to register an ERC-8004 identity on Base Sepolia.',
+      example: agentURI
+        ? `cast send ${registryAddress} "register(string)" "${agentURI}" --rpc-url https://sepolia.base.org --private-key <YOUR_PK>`
+        : `cast send ${registryAddress} "register()" --rpc-url https://sepolia.base.org --private-key <YOUR_PK>`,
+    };
+  });
 }

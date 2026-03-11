@@ -3214,14 +3214,56 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       recommendation = `No nearby settlement node. ${safeBuildSpots.length} safe spots available near existing structures.`;
     }
 
-    // Build blueprintsByCategory from blueprints.json
+    // Build availableBlueprints with tier-gated availability + derive blueprintsByCategory
+    type AvailableBlueprint = {
+      name: string;
+      category: string;
+      prims: number;
+      difficulty: string;
+      materialCost?: Record<string, number>;
+      available: boolean;
+      reason?: string;
+    };
+    let availableBlueprints: AvailableBlueprint[] = [];
     let blueprintsByCategory: Record<string, string[]> = {};
     try {
       const bpFilePath = join(__dirname, '../blueprints.json');
       const bpRaw = await readFile(bpFilePath, 'utf-8');
-      const bpParsed = JSON.parse(bpRaw) as Record<string, { category?: string }>;
+      const bpParsed = JSON.parse(bpRaw) as Record<string, {
+        category?: string;
+        difficulty?: string;
+        totalPrimitives?: number;
+        materialCost?: Record<string, number>;
+        minNodeTier?: string;
+      }>;
+
+      const currentTierRank = nearestNode ? tierRank(nearestNode.tier) : 0;
+
       for (const [name, bp] of Object.entries(bpParsed)) {
         const cat = bp.category || 'other';
+        const entry: AvailableBlueprint = {
+          name,
+          category: cat,
+          prims: bp.totalPrimitives || 0,
+          difficulty: bp.difficulty || 'easy',
+          available: true,
+        };
+        if (bp.materialCost && Object.keys(bp.materialCost).length > 0) {
+          entry.materialCost = bp.materialCost;
+        }
+
+        // Tier gate check: if blueprint requires a minimum node tier, compare ranks
+        if (bp.minNodeTier) {
+          const requiredRank = tierRank(bp.minNodeTier as NodeTier);
+          if (currentTierRank < requiredRank) {
+            entry.available = false;
+            entry.reason = `Requires ${bp.minNodeTier} tier`;
+          }
+        }
+
+        availableBlueprints.push(entry);
+
+        // Derive blueprintsByCategory for backward compatibility
         if (!blueprintsByCategory[cat]) blueprintsByCategory[cat] = [];
         blueprintsByCategory[cat].push(name);
       }
@@ -3291,6 +3333,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         nearestStructureDist: Math.round(nearestStructureDist),
       },
       recommendation,
+      availableBlueprints,
       blueprintsByCategory,
     };
 

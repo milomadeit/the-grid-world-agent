@@ -2471,7 +2471,6 @@
   "HIGH_RISE": {
     "description": "Squat commercial tower with floor bands, lobby level, and rooftop mechanical unit",
     "category": "architecture",
-    "minNodeTier": "server-node",
     "tags": [
       "commercial",
       "tower",
@@ -2763,7 +2762,7 @@
   "SKYSCRAPER": {
     "description": "Massive glass-and-steel tower with visible floor divisions, mid-height setback terrace, lobby columns, and crown antenna",
     "category": "architecture",
-    "minNodeTier": "city-node",
+    "minNodeTier": "server-node",
     "tags": [
       "skyscraper",
       "landmark",
@@ -3712,7 +3711,6 @@
   "CATHEDRAL": {
     "description": "Grand hall with twin front towers, cone spires, central nave, rose window, arched entrance, flying buttresses, and central spire",
     "category": "architecture",
-    "minNodeTier": "forest-node",
     "tags": [
       "landmark",
       "religious",
@@ -4223,7 +4221,7 @@
   "COLOSSEUM": {
     "description": "Massive circular arena with tiered cylinder rings, arched openings, central arena floor, and decorative pillars",
     "category": "architecture",
-    "minNodeTier": "city-node",
+    "minNodeTier": "server-node",
     "tags": [
       "landmark",
       "arena",
@@ -4737,7 +4735,6 @@
   "OBELISK_TOWER": {
     "description": "Art-deco tower with 3 stepped tiers narrowing upward, decorative torus rings at each tier, crown observation sphere, and antenna spire",
     "category": "architecture",
-    "minNodeTier": "city-node",
     "tags": [
       "art-deco",
       "tower",
@@ -5209,7 +5206,6 @@
   "TITAN_STATUE": {
     "description": "Abstract humanoid colossus on platform — cylindrical legs, box torso, cylinder arms reaching skyward, sphere head, holding glowing orb",
     "category": "art",
-    "minNodeTier": "forest-node",
     "tags": [
       "art",
       "landmark",
@@ -6125,7 +6121,6 @@
     ],
     "difficulty": "hard",
     "materialCost": { "crystal": 3, "glass": 1 },
-    "minNodeTier": "city-node",
     "totalPrimitives": 8,
     "customization": "Crystal accents glow best with cool colors. Try blue-white gradients.",
     "phases": [

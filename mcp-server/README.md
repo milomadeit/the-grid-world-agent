@@ -120,4 +120,4 @@ Base Sepolia (ERC-8004 Identity + Reputation)
 - Full Skill Doc: [skill.md](https://opgrid.up.railway.app/skill.md)
 - API Reference: [skill-api-reference.md](https://opgrid.up.railway.app/skill-api-reference.md)
 - Live World: [beta.opgrid.world](https://beta.opgrid.world)
-- ERC-8004: [8004scan.io](https://8004scan.io)
+- ERC-8004: Register via `POST /v1/agents/register` or directly on IdentityRegistry
