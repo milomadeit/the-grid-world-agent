@@ -89,6 +89,174 @@ const SWAP_EXECUTION_TEMPLATE_SEED = {
   isActive: true,
 } as const;
 
+const SWAP_EXECUTION_V2_TEMPLATE_SEED = {
+  id: 'SWAP_EXECUTION_V2',
+  version: 1,
+  displayName: 'Swap Execution V2',
+  type: 'swap',
+  description: 'Advanced swap execution. Requires proper slippage protection via QuoterV2, minimum 5 USDC input, and tighter gas/speed targets. Slippage management is hard-gated — no lazy amountOutMinimum.',
+  feeUsdcAtomic: '2000000',
+  rewardCredits: 150,
+  rewardReputation: 15,
+  deadlineSeconds: 3600,
+  config: {
+    allowedTokenPairs: [
+      ['0x036CbD53842c5426634e7929541eC2318f3dCF7e', '0x4200000000000000000000000000000000000006'],
+    ],
+    maxGasLimit: 500000,
+    expectedGas: 130000,
+    passingScore: 70,
+  } as Record<string, unknown>,
+  challenge: {
+    network: 'testnet',
+    chain: { name: 'Base Sepolia', chainId: 84532 },
+    objective: 'Swap at least 5 USDC for WETH on Base Sepolia with proper slippage protection. You MUST use QuoterV2 to get a real quote and set amountOutMinimum within 2% of the quoted amount. Lazy slippage (amountOutMinimum=0 or 1) is an auto-fail.',
+    constraints: {
+      inputToken: { symbol: 'USDC', decimals: 6 },
+      outputToken: { symbol: 'WETH', decimals: 18 },
+      minInputAmount: '5000000',
+      senderMustMatch: true,
+    },
+    rubric: [
+      { dimension: 'execution', weight: 20, description: 'Transaction confirmed onchain.' },
+      { dimension: 'route_validity', weight: 15, description: 'Correct token pair transferred.' },
+      { dimension: 'slippage_management', weight: 30, description: 'Must use QuoterV2. amountOutMinimum must be within 2% of quote. >5% tolerance = 0. Hard gate: must score >= 50 or entire cert fails.' },
+      { dimension: 'gas_efficiency', weight: 15, description: 'Under 130k gas = perfect.' },
+      { dimension: 'speed', weight: 10, description: 'Under 3 minutes = perfect.' },
+      { dimension: 'amount', weight: 10, description: 'Must swap at least 5 USDC.' },
+    ],
+    passingScore: 70,
+    tools: [
+      'EXECUTE_ONCHAIN — sign and send any transaction',
+      'APPROVE_TOKEN — approve ERC-20 spender',
+      'SUBMIT_CERTIFICATION_PROOF — submit tx hash for grading',
+    ],
+    hints: {
+      testnet: 'Base Sepolia. Uniswap V3 deployed.',
+      contracts: {
+        USDC: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+        WETH: '0x4200000000000000000000000000000000000006',
+        SwapRouter02: '0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4',
+        QuoterV2: '0xC5290058841028F1614F3A6F0F5816cAd0df5E27',
+      },
+      poolFee: 3000,
+      flow: '1. Call QuoterV2.quoteExactInputSingle to get expected output amount. 2. APPROVE_TOKEN for 5+ USDC. 3. Swap with amountOutMinimum set to ~98% of quoted amount. 4. SUBMIT_CERTIFICATION_PROOF with tx hash.',
+      note: 'V2 REQUIRES proper slippage. Use QuoterV2 to get a real quote, then set amountOutMinimum = quotedAmount * 98 / 100. Setting min=0 or min=1 is an auto-fail.',
+    },
+    hintsEnabled: true,
+    submission: {
+      endpoint: 'POST /v1/certify/runs/{runId}/submit',
+      body: '{ "runId": "<your run ID>", "proof": { "txHash": "<your tx hash>" } }',
+    },
+  } as Record<string, unknown>,
+  isActive: true,
+} as const;
+
+const SNIPER_V1_TEMPLATE_SEED = {
+  id: 'SNIPER_V1',
+  version: 1,
+  displayName: 'Sniper V1',
+  type: 'sniper',
+  description: 'Detect a target activation onchain and interact with it as fast as possible. Tests monitoring, speed, and transaction execution.',
+  feeUsdcAtomic: '3000000',
+  rewardCredits: 200,
+  rewardReputation: 20,
+  deadlineSeconds: 600,
+  config: {
+    passingScore: 70,
+  } as Record<string, unknown>,
+  challenge: {
+    network: 'testnet',
+    chain: { name: 'Base Sepolia', chainId: 84532 },
+    objective: 'After starting this certification, a target will be activated on the SnipeTarget contract within 30-90 seconds. You must detect the activation and call snipe(bytes32) with your runId hash as fast as possible. Fewer blocks between activation and your snipe = higher score.',
+    constraints: {
+      senderMustMatch: true,
+    },
+    rubric: [
+      { dimension: 'detection', weight: 30, description: 'Block delta between activation and snipe. Same block = perfect.' },
+      { dimension: 'execution', weight: 25, description: 'snipe() called successfully by correct wallet.' },
+      { dimension: 'gas_efficiency', weight: 20, description: 'Gas used for snipe tx.' },
+      { dimension: 'speed', weight: 25, description: 'Wall clock time from activation to snipe.' },
+    ],
+    passingScore: 70,
+    tools: [
+      'EXECUTE_ONCHAIN — sign and send the snipe transaction',
+      'SUBMIT_CERTIFICATION_PROOF — submit your snipe tx hash for grading',
+    ],
+    hints: {
+      testnet: 'Base Sepolia. Watch the SnipeTarget contract for activations.',
+      snipeTargetContract: 'Set via SNIPE_TARGET_ADDRESS env var. Check GET /v1/certify/templates for the address.',
+      relayerAddress: 'The activation tx comes from the OpGrid relayer. Watch for activateTarget(bytes32) calls.',
+      runIdEncoding: 'Your runId is hashed with keccak256 to produce the bytes32 used in activateTarget and snipe. Use ethers.id(runId) to compute it.',
+      flow: '1. Start cert. 2. Immediately begin monitoring the SnipeTarget contract. 3. When activateTarget(yourRunIdHash) is called, call snipe(yourRunIdHash) ASAP. 4. Submit your snipe tx hash.',
+    },
+    hintsEnabled: true,
+    submission: {
+      endpoint: 'POST /v1/certify/runs/{runId}/submit',
+      body: '{ "runId": "<your run ID>", "proof": { "txHash": "<your snipe tx hash>" } }',
+    },
+  } as Record<string, unknown>,
+  isActive: true,
+} as const;
+
+const DEPLOYER_V1_TEMPLATE_SEED = {
+  id: 'DEPLOYER_V1',
+  version: 1,
+  displayName: 'Deployer V1',
+  type: 'deploy',
+  description: 'Deploy a valid ERC-20 token contract on Base Sepolia. Graded on deployment success, spec compliance, code quality, gas efficiency, and speed.',
+  feeUsdcAtomic: '2000000',
+  rewardCredits: 175,
+  rewardReputation: 15,
+  deadlineSeconds: 1800,
+  config: {
+    passingScore: 70,
+  } as Record<string, unknown>,
+  challenge: {
+    network: 'testnet',
+    chain: { name: 'Base Sepolia', chainId: 84532 },
+    objective: 'Deploy an ERC-20 token on Base Sepolia. The token must have: a non-empty name, a symbol of 3-6 characters, 18 decimals, and a total supply between 1,000,000 and 100,000,000 tokens.',
+    constraints: {
+      decimals: 18,
+      minTotalSupply: '1000000000000000000000000',
+      maxTotalSupply: '100000000000000000000000000',
+      symbolLength: { min: 3, max: 6 },
+      senderMustMatch: true,
+    },
+    rubric: [
+      { dimension: 'deployment', weight: 25, description: 'Contract deployed successfully with code at address.' },
+      { dimension: 'spec_compliance', weight: 25, description: 'name(), symbol(), decimals(), totalSupply() all match requirements.' },
+      { dimension: 'code_quality', weight: 20, description: 'Bytecode size > 200 bytes, transfer() works.' },
+      { dimension: 'gas_efficiency', weight: 15, description: 'Deploy gas used. Under 1M = perfect.' },
+      { dimension: 'speed', weight: 15, description: 'Time from cert start to deploy. Under 5 min = perfect.' },
+    ],
+    passingScore: 70,
+    tools: [
+      'EXECUTE_ONCHAIN — deploy your contract',
+      'SUBMIT_CERTIFICATION_PROOF — submit your deploy tx hash for grading',
+    ],
+    hints: {
+      testnet: 'Base Sepolia. Deploy using any method — Foundry, Hardhat, raw bytecode via EXECUTE_ONCHAIN.',
+      note: 'Submit the DEPLOYMENT transaction hash, not any subsequent calls. The verifier reads contractAddress from the tx receipt.',
+      flow: '1. Compile or prepare ERC-20 bytecode. 2. Deploy via EXECUTE_ONCHAIN with to=null/0x, data=<bytecode+constructor>. 3. SUBMIT_CERTIFICATION_PROOF with the deploy tx hash.',
+      example: 'A standard OpenZeppelin ERC20 with constructor(name, symbol, initialSupply) works well.',
+    },
+    hintsEnabled: true,
+    submission: {
+      endpoint: 'POST /v1/certify/runs/{runId}/submit',
+      body: '{ "runId": "<your run ID>", "proof": { "txHash": "<your deploy tx hash>" } }',
+    },
+  } as Record<string, unknown>,
+  isActive: true,
+} as const;
+
+const ALL_TEMPLATE_SEEDS = [
+  SWAP_EXECUTION_TEMPLATE_SEED,
+  SWAP_EXECUTION_V2_TEMPLATE_SEED,
+  SNIPER_V1_TEMPLATE_SEED,
+  DEPLOYER_V1_TEMPLATE_SEED,
+];
+
 type InMemoryAgent = Agent & { buildCredits?: number };
 type CertificationStatus = 'created' | 'active' | 'submitted' | 'verifying' | 'passed' | 'failed' | 'expired';
 
@@ -229,12 +397,14 @@ function normalizeCertificationRunRecord(row: {
 }
 
 function seedInMemoryCertificationTemplate(): void {
-  if (!inMemoryStore.certificationTemplates.has(SWAP_EXECUTION_TEMPLATE_ID)) {
-    inMemoryStore.certificationTemplates.set(SWAP_EXECUTION_TEMPLATE_ID, {
-      ...SWAP_EXECUTION_TEMPLATE_SEED,
-      config: JSON.parse(JSON.stringify(SWAP_EXECUTION_TEMPLATE_SEED.config)) as Record<string, unknown>,
-      challenge: JSON.parse(JSON.stringify(SWAP_EXECUTION_TEMPLATE_SEED.challenge)) as Record<string, unknown>,
-    });
+  for (const seed of ALL_TEMPLATE_SEEDS) {
+    if (!inMemoryStore.certificationTemplates.has(seed.id)) {
+      inMemoryStore.certificationTemplates.set(seed.id, {
+        ...seed,
+        config: JSON.parse(JSON.stringify(seed.config)) as Record<string, unknown>,
+        challenge: JSON.parse(JSON.stringify(seed.challenge)) as Record<string, unknown>,
+      });
+    }
   }
 }
 
@@ -597,46 +767,32 @@ export async function initDatabase(): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_referral_code ON agents(referral_code) WHERE referral_code IS NOT NULL;
     `);
 
-    await pool.query(
-      `
-      INSERT INTO certification_templates (
-        id,
-        version,
-        display_name,
-        type,
-        description,
-        fee_usdc_atomic,
-        reward_credits,
-        reward_reputation,
-        deadline_seconds,
-        config,
-        challenge,
-        is_active
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12)
-      ON CONFLICT (id) DO UPDATE SET
-        version = EXCLUDED.version,
-        display_name = EXCLUDED.display_name,
-        type = EXCLUDED.type,
-        description = EXCLUDED.description,
-        config = EXCLUDED.config,
-        challenge = EXCLUDED.challenge
-      `,
-      [
-        SWAP_EXECUTION_TEMPLATE_SEED.id,
-        SWAP_EXECUTION_TEMPLATE_SEED.version,
-        SWAP_EXECUTION_TEMPLATE_SEED.displayName,
-        SWAP_EXECUTION_TEMPLATE_SEED.type,
-        SWAP_EXECUTION_TEMPLATE_SEED.description,
-        SWAP_EXECUTION_TEMPLATE_SEED.feeUsdcAtomic,
-        SWAP_EXECUTION_TEMPLATE_SEED.rewardCredits,
-        SWAP_EXECUTION_TEMPLATE_SEED.rewardReputation,
-        SWAP_EXECUTION_TEMPLATE_SEED.deadlineSeconds,
-        JSON.stringify(SWAP_EXECUTION_TEMPLATE_SEED.config),
-        JSON.stringify(SWAP_EXECUTION_TEMPLATE_SEED.challenge),
-        SWAP_EXECUTION_TEMPLATE_SEED.isActive,
-      ],
-    );
+    // Seed all certification templates
+    for (const seed of ALL_TEMPLATE_SEEDS) {
+      await pool.query(
+        `
+        INSERT INTO certification_templates (
+          id, version, display_name, type, description,
+          fee_usdc_atomic, reward_credits, reward_reputation,
+          deadline_seconds, config, challenge, is_active
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12)
+        ON CONFLICT (id) DO UPDATE SET
+          version = EXCLUDED.version,
+          display_name = EXCLUDED.display_name,
+          type = EXCLUDED.type,
+          description = EXCLUDED.description,
+          config = EXCLUDED.config,
+          challenge = EXCLUDED.challenge
+        `,
+        [
+          seed.id, seed.version, seed.displayName, seed.type, seed.description,
+          seed.feeUsdcAtomic, seed.rewardCredits, seed.rewardReputation,
+          seed.deadlineSeconds, JSON.stringify(seed.config), JSON.stringify(seed.challenge),
+          seed.isActive,
+        ],
+      );
+    }
 
     console.log('[DB] Tables initialized');
   } catch (error) {

@@ -45,6 +45,9 @@ const BUILDER_CREDITS_ADDRESS = process.env.BUILDER_CREDITS || '';
 const DIRECTIVE_REGISTRY_ADDRESS = process.env.DIRECTIVE_REGISTRY || '';
 const RELAYER_PK = process.env.RELAYER_PK || '';
 
+// Sniper certification target contract
+let SNIPE_TARGET_ADDRESS = process.env.SNIPE_TARGET_ADDRESS || '';
+
 const identityAbi = JSON.parse(
   readFileSync(join(__dirname, 'abis', 'IdentityRegistry.json'), 'utf-8')
 );
@@ -522,4 +525,67 @@ export async function submitDirectiveOnChain(params: {
     Number(params.hoursDuration)
   );
   return { txHash: tx.hash };
+}
+
+// --- Sniper Certification ---
+
+export function getSnipeTargetAddress(): string {
+  return SNIPE_TARGET_ADDRESS;
+}
+
+/**
+ * Activate a sniper target (called by cert flow after random delay).
+ * The relayer calls activateTarget(bytes32) on the pre-deployed SnipeTarget contract.
+ */
+export async function activateSnipeTarget(runId: string): Promise<{ txHash: string; activationBlock: number } | null> {
+  if (!SNIPE_TARGET_ADDRESS || !relayer) {
+    console.warn('[Chain] Cannot activate snipe target (SNIPE_TARGET_ADDRESS or RELAYER_PK missing)');
+    return null;
+  }
+
+  const snipeAbi = JSON.parse(
+    readFileSync(join(__dirname, 'abis', 'SnipeTarget.json'), 'utf-8')
+  );
+  const contract = new ethers.Contract(SNIPE_TARGET_ADDRESS, snipeAbi, relayer);
+
+  // Convert runId to bytes32
+  const runIdBytes32 = ethers.id(runId);
+
+  const tx = await contract.activateTarget(runIdBytes32);
+  const receipt = await tx.wait();
+
+  return {
+    txHash: tx.hash,
+    activationBlock: receipt.blockNumber,
+  };
+}
+
+/**
+ * Read snipe result from the SnipeTarget contract for a given runId.
+ */
+export async function readSnipeResult(runId: string): Promise<{
+  activationBlock: number;
+  sniper: string;
+  snipedBlock: number;
+} | null> {
+  if (!SNIPE_TARGET_ADDRESS || !provider) return null;
+
+  const snipeAbi = JSON.parse(
+    readFileSync(join(__dirname, 'abis', 'SnipeTarget.json'), 'utf-8')
+  );
+  const contract = new ethers.Contract(SNIPE_TARGET_ADDRESS, snipeAbi, provider);
+
+  const runIdBytes32 = ethers.id(runId);
+
+  const [activationBlock, sniper, snipedBlock] = await Promise.all([
+    contract.activationBlock(runIdBytes32),
+    contract.sniped(runIdBytes32),
+    contract.snipedBlock(runIdBytes32),
+  ]);
+
+  return {
+    activationBlock: Number(activationBlock),
+    sniper: sniper,
+    snipedBlock: Number(snipedBlock),
+  };
 }

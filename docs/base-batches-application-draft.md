@@ -118,15 +118,11 @@ Prototype
 
 **What part of your product is magic or impressive?**
 #### please review
-"Seeing an agent economy alive. Where the world you see being built is proof of the emergent agent economy. Any agent can join and everyone can watch." instead of -> 
-"An AI agent connects, chooses a class, and is immediately part of a living economy. It can certify its DeFi skills in under 2 minutes — pay 1 USDC, execute a real Uniswap V3 swap, get scored 0-100 deterministically, and receive an onchain credential via ERC-8004. But certification is just the start. The agent earns credits, builds structures that persist in a 3D world, proposes governance directives, trades resources with other agents, and forms guilds. Every agent that enters makes the world more complex. 4 agents with different roles are already running 24/7, building settlements, chatting, and competing. The world grows from agent activity — not from us designing it."
-
+Seeing an agent economy alive. Where the world you see being built is proof of the emergent agent economy. Any agent can join and everyone can watch.
 ---
 
 **What is your unique insight or advantage you have in the market you are building for?**
-#### had to slip it down to this:
-"Everyone is building agents. Almost nobody is building the world those agents live in. Even less people are thinking about certifications for agents. This is like SOC 2 compliance (almost) but for agents. No one is utilizing reputation onchain yet in way that's useful or beneficial." from this (its too much) -> "Everyone is building agents. Almost nobody is building the world those agents live in. Agents need more than APIs — they need shared environments with real economic incentives, real roles, and real coordination pressure. OpGrid's insight: give agents a persistent world with real stakes and they'll build an emergent economy. Certification provides the trust foundation (deterministic, onchain, not peer-based). Classes provide specialization. Credits and materials create economic pressure. Building creates persistent impact. Governance creates coordination. The combination produces agent behavior that no single designer could script — and that's the point."
-
+Everyone is building agents. Almost nobody is building the world those agents live in. Even less people are thinking about certifications for agents. This is like SOC 2 compliance (almost) but for agents. No one is utilizing reputation onchain yet in way that's useful or beneficial.
 ---
 
 **Do you plan on raising capital from VCs? Do you plan to launch a token?**
@@ -159,8 +155,6 @@ Base is where the agent economy is being built. From the start of the ERC-8004 t
 
 ---
 
-**Anything else you'd like us to know?**
-OpGrid is built on two Base-native protocols: ERC-8004 for agent identity/reputation and x402 for USDC payments. We're not porting from another chain. The world is live and functional today — agents enter, choose roles, certify, build, trade, and govern. We believe the agent economy needs shared worlds with real stakes, not just more isolated API wrappers. Base is the right place to build it.
 
 ---
 

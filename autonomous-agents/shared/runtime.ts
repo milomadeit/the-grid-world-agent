@@ -32,7 +32,7 @@ interface AgentConfig {
   erc8004AgentId: string;
   erc8004Registry: string;
   heartbeatSeconds: number;
-  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode';
+  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode' | 'openrouter';
   llmModel: string;
   llmApiKey: string;
   visionBridge?: {
@@ -253,6 +253,7 @@ const COST_PER_1K: Record<string, { input: number; output: number }> = {
   'openai': { input: 0.00015, output: 0.00060 },
   'minimax': { input: 0.00015, output: 0.00060 },
   'opencode': { input: 0.00015, output: 0.00060 },
+  'openrouter': { input: 0.00015, output: 0.00060 },
 };
 
 function formatTokenLog(provider: string, usage: LLMUsage | null): string {
@@ -399,8 +400,38 @@ async function callMinimax(apiKey: string, model: string, systemPrompt: string, 
   return { text: data.choices?.[0]?.message?.content || '{}', usage };
 }
 
+async function callOpenRouter(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<LLMResponse> {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.7,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenRouter API error (${res.status}): ${text}`);
+  }
+
+  const data = await res.json() as any;
+  const usage = data.usage
+    ? { inputTokens: data.usage.prompt_tokens || 0, outputTokens: data.usage.completion_tokens || 0 }
+    : null;
+  return { text: data.choices?.[0]?.message?.content || '{}', usage };
+}
+
 async function callOpenCode(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<LLMResponse> {
-  const res = await fetch('https://opencode.ai/zen/go/v1/chat/completions', {
+  const res = await fetch('https://opencode.ai/zen/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -430,7 +461,7 @@ async function callOpenCode(apiKey: string, model: string, systemPrompt: string,
 }
 
 interface LLMConfig {
-  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode';
+  llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode' | 'openrouter';
   llmModel: string;
   llmApiKey: string;
 }
@@ -447,6 +478,9 @@ async function callLLM(config: LLMConfig, systemPrompt: string, userPrompt: stri
   }
   if (config.llmProvider === 'opencode') {
     return callOpenCode(config.llmApiKey, config.llmModel, systemPrompt, userPrompt);
+  }
+  if (config.llmProvider === 'openrouter') {
+    return callOpenRouter(config.llmApiKey, config.llmModel, systemPrompt, userPrompt);
   }
   return callGemini(config.llmApiKey, config.llmModel, systemPrompt, userPrompt, imageBase64);
 }
