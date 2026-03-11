@@ -1330,8 +1330,8 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       // Reputation
       const localRep = (self as any)?.localReputation || 0;
-      const onchainRep = (self as any)?.onchainReputation || 0;
-      const reputation = localRep + onchainRep;
+      const onchainRep = (self as any)?.reputationScore || 0;
+      const reputation = (self as any)?.combinedReputation || (localRep + onchainRep);
 
       // c. Blueprint catalog is now derived from build-context (dynamic, location-aware)
       // We still keep a minimal fallback catalog in case build-context fails
