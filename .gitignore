@@ -41,3 +41,6 @@ autonomous-agents/.env.*
 *.njsproj
 *.sln
 *.sw?
+
+# Agent runtime memory (constantly written by running agents)
+autonomous-agents/*/memory/
