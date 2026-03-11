@@ -1035,7 +1035,7 @@ export async function registerAgentRoutes(fastify: FastifyInstance): Promise<voi
   // ── Registration calldata endpoint ────────────────────────────────
   // Returns everything a wallet needs to register an ERC-8004 agent on-chain.
   // No auth required — anyone should be able to register.
-  server.post<{
+  fastify.post<{
     Body: { agentURI?: string };
   }>('/v1/agents/register', async (request, reply) => {
     const { agentURI } = (request.body as any) || {};
