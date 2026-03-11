@@ -11,6 +11,7 @@ import {
   publishCertificationFeedbackOnChain,
   publishCertificationValidationOnChain,
   publishCertificationValidationRequestOnChain,
+  activateSnipeTarget,
 } from '../chain.js';
 import { BUILD_CREDIT_CONFIG, StartCertificationSchema, SubmitCertificationProofSchema } from '../types.js';
 import {
@@ -254,6 +255,25 @@ export async function registerCertificationRoutes(fastify: FastifyInstance): Pro
         agentTokenId: erc8004TokenId,
         requestURI: certificationResourceUrl(request, `/v1/certify/runs/${run.id}/attestation`),
       });
+    }
+
+    // SNIPER_V1: schedule target activation after random delay (30-90 seconds)
+    if (template.id === 'SNIPER_V1') {
+      const delay = 30000 + Math.random() * 60000; // 30-90 seconds
+      setTimeout(async () => {
+        try {
+          const result = await activateSnipeTarget(run.id);
+          if (result) {
+            console.log(`[Certify] Snipe target activated for ${run.id} at block ${result.activationBlock} (tx: ${result.txHash})`);
+            // Store activation info in the run for later verification
+            await db.updateCertificationRunStatus(run.id, 'active', {
+              verificationResult: { activationTxHash: result.txHash, activationBlock: result.activationBlock } as any,
+            });
+          }
+        } catch (err: any) {
+          console.error(`[Certify] Failed to activate snipe target for ${run.id}:`, err.message);
+        }
+      }, delay);
     }
 
     // Build the challenge prompt — everything an agent needs to complete the cert

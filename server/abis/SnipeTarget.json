@@ -1,0 +1,9 @@
+[
+  "constructor()",
+  "function activateTarget(bytes32 runId) external",
+  "function snipe(bytes32 runId) external",
+  "function owner() view returns (address)",
+  "function activationBlock(bytes32) view returns (uint256)",
+  "function sniped(bytes32) view returns (address)",
+  "function snipedBlock(bytes32) view returns (uint256)"
+]
