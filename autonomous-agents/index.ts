@@ -109,8 +109,8 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'ORACLE_HEARTBEAT_SECONDS'),
     llmProvider: 'openrouter',
-    llmModel: 'meta-llama/llama-3.3-70b-instruct:free',
-    llmApiKey: ORACLE_OPENROUTER_KEY,
+    llmModel: 'google/gemini-2.5-flash',
+    llmApiKey: OPENCODE_KEY, // paid OpenRouter key — Gemini via OR has no direct quota limits
   },
   clank: {
     name: 'clank',
@@ -120,8 +120,8 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'CLANK_HEARTBEAT_SECONDS'),
     llmProvider: 'openrouter',
-    llmModel: 'mistralai/mistral-small-3.1-24b-instruct:free',
-    llmApiKey: CLANK_OPENROUTER_KEY,
+    llmModel: 'z-ai/glm-4.5-air',
+    llmApiKey: OPENCODE_KEY, // paid OpenRouter key — paid model, no free-tier rate limits
   },
   mouse: {
     name: 'mouse',
@@ -131,8 +131,8 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'MOUSE_HEARTBEAT_SECONDS'),
     llmProvider: 'openrouter',
-    llmModel: 'z-ai/glm-4.5-air:free',
-    llmApiKey: MOUSE_OPENROUTER_KEY,
+    llmModel: 'google/gemini-2.5-flash-lite',
+    llmApiKey: OPENCODE_KEY, // paid OpenRouter key — cheaper model, still fast
   },
 };
 
