@@ -106,7 +106,7 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'ORACLE_HEARTBEAT_SECONDS'),
     llmProvider: 'openrouter',
-    llmModel: 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+    llmModel: 'nvidia/nemotron-3-super-120b-a12b:free',
     llmApiKey: OPENROUTER_KEY,
   },
   clank: {
@@ -116,9 +116,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('CLANK_WALLET'),
     erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'CLANK_HEARTBEAT_SECONDS'),
-    llmProvider: 'opencode',
-    llmModel: 'big-pickle',
-    llmApiKey: OPENCODE_KEY,
+    llmProvider: 'openrouter',
+    llmModel: 'nvidia/nemotron-3-super-120b-a12b:free',
+    llmApiKey: OPENROUTER_KEY,
   },
   mouse: {
     name: 'mouse',
@@ -127,9 +127,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('MOUSE_WALLET'),
     erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'MOUSE_HEARTBEAT_SECONDS'),
-    llmProvider: 'opencode',
-    llmModel: 'minimax-m2.5-free',
-    llmApiKey: OPENCODE_KEY,
+    llmProvider: 'openrouter',
+    llmModel: 'z-ai/glm-4.5-air:free',
+    llmApiKey: OPENROUTER_KEY,
   },
 };
 
