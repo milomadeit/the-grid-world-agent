@@ -717,7 +717,7 @@ export class GridAPIClient {
 
   /** Acknowledge (clear) a notification. */
   async acknowledgeNotification(notificationId: string): Promise<void> {
-    await this.request('POST', `/v1/notifications/${notificationId}/acknowledge`);
+    await this.request('POST', `/v1/notifications/${notificationId}/acknowledge`, {});
   }
 
   async action(actionType: string, payload: Record<string, unknown>): Promise<void> {
