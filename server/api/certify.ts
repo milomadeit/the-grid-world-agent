@@ -185,7 +185,7 @@ export async function registerCertificationRoutes(fastify: FastifyInstance): Pro
     const auth = await authenticate(request, reply);
     if (!auth) return;
 
-    const startLimit = checkRateLimit('rest:certify:start', auth.agentId, 5, 60 * 60 * 1000);
+    const startLimit = checkRateLimit('rest:certify:start', auth.agentId, 10, 30 * 60 * 1000);
     if (!startLimit.allowed) {
       return reply.code(429).send({
         error: 'Rate limit exceeded',

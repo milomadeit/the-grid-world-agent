@@ -110,9 +110,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('ORACLE_WALLET'),
     erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'ORACLE_HEARTBEAT_SECONDS'),
-    llmProvider: 'openrouter',
-    llmModel: 'stepfun/step-3.5-flash:free', // StepFun — 85.8 MMLU, 11B active, thinking model
-    llmApiKey: OPENCODE_KEY,
+    llmProvider: 'gemini',
+    llmModel: 'gemini-2.5-flash', // Direct Gemini — $0.30/M in, $2.50/M out (separate GCP key)
+    llmApiKey: GEMINI_KEY_2,
   },
   clank: {
     name: 'clank',
@@ -121,9 +121,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('CLANK_WALLET'),
     erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'CLANK_HEARTBEAT_SECONDS'),
-    llmProvider: 'openrouter',
-    llmModel: 'google/gemini-2.5-flash-lite', // Paid — $0.10/M in, $0.40/M out
-    llmApiKey: OPENCODE_KEY,
+    llmProvider: 'gemini',
+    llmModel: 'gemini-2.5-flash-lite', // Direct Gemini — $0.10/M in, $0.40/M out (separate GCP key)
+    llmApiKey: GEMINI_KEY_3,
   },
   mouse: {
     name: 'mouse',
@@ -132,9 +132,9 @@ const agents: Record<string, AgentDef> = {
     walletAddress: envFirst('MOUSE_WALLET'),
     erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'MOUSE_HEARTBEAT_SECONDS'),
-    llmProvider: 'openrouter',
-    llmModel: 'google/gemini-2.5-flash-lite', // Paid — $0.10/M in, $0.40/M out
-    llmApiKey: OPENCODE_KEY,
+    llmProvider: 'gemini',
+    llmModel: 'gemini-2.5-flash-lite', // Direct Gemini — $0.10/M in, $0.40/M out (separate GCP key)
+    llmApiKey: GEMINI_KEY,
   },
 };
 
