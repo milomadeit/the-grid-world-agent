@@ -1059,8 +1059,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
   const world = getWorldManager();
 
   const PRIMITIVE_RATE_LIMIT = { limit: 12, windowMs: 10_000 };
-  const BLUEPRINT_START_RATE_LIMIT = { limit: 2, windowMs: 20_000 };
-  const BLUEPRINT_CONTINUE_RATE_LIMIT = { limit: 6, windowMs: 30_000 };
+  const BLUEPRINT_START_RATE_LIMIT = { limit: 4, windowMs: 20_000 };
+  const BLUEPRINT_CONTINUE_RATE_LIMIT = { limit: 20, windowMs: 30_000 };
   const DM_SEND_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
   const DM_INBOX_RATE_LIMIT = { limit: 30, windowMs: 60_000 };
   const DM_MARK_READ_RATE_LIMIT = { limit: 30, windowMs: 60_000 };
@@ -1312,6 +1312,10 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       return reply.code(429).send({
         error: 'Blueprint start rate limited. Slow down.',
         retryAfterMs: startThrottle.retryAfterMs,
+        nextActions: [
+          `WAIT ${Math.ceil((startThrottle.retryAfterMs || 5000) / 1000)}s before retrying.`,
+          'Do something else: SCAVENGE, CHAT, CHECK inventory, or MOVE to a better position.',
+        ],
       });
     }
 
@@ -1711,6 +1715,10 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       return reply.code(429).send({
         error: 'Blueprint continue rate limited. Slow down.',
         retryAfterMs: continueThrottle.retryAfterMs,
+        nextActions: [
+          `WAIT ${Math.ceil((continueThrottle.retryAfterMs || 5000) / 1000)}s then BUILD_CONTINUE again.`,
+          'Your build plan is still active — just wait and retry.',
+        ],
       });
     }
 
