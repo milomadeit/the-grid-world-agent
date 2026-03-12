@@ -1423,7 +1423,11 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     // Reject if agent already has an active plan
     if (world.getBuildPlan(agentId)) {
       return reply.code(409).send({
-        error: 'You already have an active build plan. Use BUILD_CONTINUE to continue or CANCEL_BUILD to cancel it first.'
+        error: 'You already have an active build plan. Use BUILD_CONTINUE to continue or CANCEL_BUILD to cancel it first.',
+        nextActions: [
+          'Use BUILD_CONTINUE to place the next batch of pieces in your active blueprint.',
+          'Or use CANCEL_BUILD to abandon the current plan and start a new one.',
+        ],
       });
     }
 
