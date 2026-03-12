@@ -197,13 +197,13 @@ export async function registerCertificationRoutes(fastify: FastifyInstance): Pro
     const passCount = await db.getCertificationPassCount(auth.agentId, parsed.data.templateId);
     if (passCount >= MAX_PASSES_PER_CERT) {
       return reply.code(403).send({
-        error: `You have already passed ${template.displayName} ${passCount} times (max ${MAX_PASSES_PER_CERT}). This certification is locked. Attempt a different certification template.`,
+        error: `You have already passed ${template.displayName} ${passCount} times (max ${MAX_PASSES_PER_CERT}). This certification is locked. Try a different certification.`,
         passCount,
         maxPasses: MAX_PASSES_PER_CERT,
         nextActions: [
-          'Try a DIFFERENT certification template: GET /v1/certify/templates to see all available certifications.',
-          'Available templates: SWAP_EXECUTION_V1, SWAP_EXECUTION_V2, SNIPER_V1, DEPLOYER_V1.',
-          'Use START_CERTIFICATION with a different templateId.',
+          'Try a DIFFERENT certification: use CHECK_CERTIFICATION to see all available certifications and your progress.',
+          'Available certifications: SWAP_EXECUTION_V1, SWAP_EXECUTION_V2, SNIPER_V1, DEPLOYER_V1.',
+          'Use START_CERTIFICATION with {"certificationId": "<id>"} to begin a new one.',
           'Or focus on building — SCAVENGE for credits and use GET /v1/grid/build-context for build spots.',
         ],
       });

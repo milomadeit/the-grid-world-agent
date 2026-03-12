@@ -44,7 +44,7 @@ interface AgentConfig {
 
 interface AgentDecision {
   thought: string;
-  action: 'MOVE' | 'CHAT' | 'SEND_DM' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'COMPLETE_DIRECTIVE' | 'TRANSFER_CREDITS' | 'SCAVENGE' | 'START_CERTIFICATION' | 'SUBMIT_CERTIFICATION_PROOF' | 'CHECK_CERTIFICATION' | 'ENCODE_SWAP' | 'EXECUTE_SWAP' | 'EXECUTE_ONCHAIN' | 'APPROVE_TOKEN' | 'IDLE';
+  action: 'MOVE' | 'CHAT' | 'SEND_DM' | 'BUILD_BLUEPRINT' | 'BUILD_CONTINUE' | 'CANCEL_BUILD' | 'BUILD_PRIMITIVE' | 'BUILD_MULTI' | 'TERMINAL' | 'VOTE' | 'SUBMIT_DIRECTIVE' | 'COMPLETE_DIRECTIVE' | 'TRANSFER_CREDITS' | 'SCAVENGE' | 'START_CERTIFICATION' | 'SUBMIT_CERTIFICATION_PROOF' | 'CHECK_CERTIFICATION' | 'ENCODE_SWAP' | 'EXECUTE_SWAP' | 'EXECUTE_ONCHAIN' | 'APPROVE_TOKEN' | 'ACKNOWLEDGE_NOTIFICATION' | 'IDLE';
   payload?: Record<string, unknown>;
 }
 
@@ -188,8 +188,8 @@ function formatActionUpdateChat(
     }
     case 'START_CERTIFICATION': {
       const thought = (decision.thought || '').split('|')[0].trim();
-      const tpl = String(payload.templateId || 'certification');
-      return thought.length > 15 ? thought : `Starting certification: ${tpl}`;
+      const certId = String(payload.certificationId || payload.templateId || 'certification');
+      return thought.length > 15 ? thought : `Starting certification: ${certId}`;
     }
     case 'SUBMIT_CERTIFICATION_PROOF': {
       const thought = (decision.thought || '').split('|')[0].trim();
@@ -437,7 +437,21 @@ async function callOpenRouter(apiKey: string, model: string, systemPrompt: strin
   const usage = data.usage
     ? { inputTokens: data.usage.prompt_tokens || 0, outputTokens: data.usage.completion_tokens || 0 }
     : null;
-  return { text: data.choices?.[0]?.message?.content || '{}', usage };
+  const msg = data.choices?.[0]?.message;
+  let text = msg?.content || '';
+  // Thinking models (Step 3.5, etc) may put all output in reasoning and return content=null.
+  // Fall back to extracting a JSON action object from the reasoning field.
+  if ((!text || text.trim() === '{}' || text.trim() === '') && (msg?.reasoning || msg?.reasoning_content)) {
+    const reasoning = msg.reasoning || msg.reasoning_content || '';
+    console.log(`[OpenRouter] content empty, checking reasoning (${typeof reasoning === 'string' ? reasoning.length : 'non-string'} chars)`);
+    const reasoningStr = typeof reasoning === 'string' ? reasoning : JSON.stringify(reasoning);
+    const jsonMatch = reasoningStr.match(/\{[\s\S]*?"action"\s*:\s*"[A-Z_]+"[\s\S]*?\}/);
+    if (jsonMatch) {
+      text = jsonMatch[0];
+      console.log(`[OpenRouter] Extracted action from reasoning: ${text.slice(0, 120)}`);
+    }
+  }
+  return { text: text || '{}', usage };
   } finally {
     clearTimeout(timeout);
   }
@@ -519,12 +533,13 @@ const ACTION_FORMAT = [
   '  VOTE: {"directiveId": "dir_xxx", "vote": "yes"}',
   '  SUBMIT_DIRECTIVE: {"description": "[Title] Description...", "agentsNeeded": 2, "hoursDuration": 24}',
   '  COMPLETE_DIRECTIVE: {"directiveId": "dir_xxx"}',
-  '  START_CERTIFICATION: {"templateId": "SWAP_EXECUTION_V1"}',
+  '  START_CERTIFICATION: {"certificationId": "SWAP_EXECUTION_V1"}',
   '  ENCODE_SWAP: {} ← generates ready-to-use swap calldata. Returns router address and calldata for APPROVE_TOKEN and EXECUTE_ONCHAIN. Call this BEFORE executing a swap.',
   '  EXECUTE_ONCHAIN: {"runId": "uuid", "to": "0xContractAddress", "data": "0xCalldata", "value": "0"}',
   '  APPROVE_TOKEN: {"token": "0xTokenAddress", "spender": "0xSpenderAddress", "amount": "1000000"}',
   '  SUBMIT_CERTIFICATION_PROOF: {"runId": "uuid", "txHash": "0x..."}',
   '  CHECK_CERTIFICATION: {}',
+  '  ACKNOWLEDGE_NOTIFICATION: {"notificationId": "notif_xxx"}  ← clear a system notification after reading it',
   '  IDLE: {}',
   '',
   '**BUILD ZONE RULE:** You MUST NOT build within 50 units of origin (0,0).',
@@ -627,6 +642,7 @@ function buildTickPrompt(
   directives: Array<{ id: string; description: string; status: string; yesVotes: number; noVotes: number }>,
   certRuns: Array<{ id: string; templateId: string; status: string; deadlineAt?: number }>,
   certTemplates: Array<{ id: string; displayName?: string; feeUsdcAtomic?: string }>,
+  notifications: Array<{ id: string; type: string; title: string; body: string }>,
   blueprintCatalog: string,
   workingMemory: string,
   buildContextHint: string,
@@ -738,9 +754,14 @@ function buildTickPrompt(
 
   // Certification state
   if (certTemplates.length > 0 || certRuns.length > 0) {
-    sections.push('# CERTIFICATION');
+    sections.push('# CERTIFICATIONS');
     if (certTemplates.length > 0) {
-      sections.push('Available templates: ' + certTemplates.map(t => t.id || t.displayName).join(', '));
+      sections.push('Available certifications: ' + certTemplates.map(t => {
+        const name = t.id || t.displayName || 'unknown';
+        const fee = t.feeUsdcAtomic ? `$${(Number(t.feeUsdcAtomic) / 1e6).toFixed(2)}` : '';
+        return fee ? `${name} (fee: ${fee} USDC)` : name;
+      }).join(', '));
+      sections.push('Use CHECK_CERTIFICATION to see full details, or START_CERTIFICATION with a certificationId to begin.');
     }
     const activeRuns = certRuns.filter(r => ['created', 'active', 'submitted', 'verifying'].includes(r.status));
     if (activeRuns.length > 0) {
@@ -751,8 +772,18 @@ function buildTickPrompt(
       }
     }
     const passedRuns = certRuns.filter(r => r.status === 'passed');
+    // Group by certification type
+    const passByType = new Map<string, number>();
+    for (const r of passedRuns) passByType.set(r.templateId, (passByType.get(r.templateId) || 0) + 1);
     if (passedRuns.length > 0) {
-      sections.push(`Passed certifications: ${passedRuns.length}`);
+      const passDetails = Array.from(passByType.entries()).map(([id, n]) => `${id}: ${n}`).join(', ');
+      sections.push(`Passed certifications: ${passedRuns.length} (${passDetails})`);
+    }
+    // Show which certs they haven't attempted
+    const attemptedTypes = new Set(certRuns.map(r => r.templateId));
+    const unattempted = certTemplates.filter(t => !attemptedTypes.has(t.id));
+    if (unattempted.length > 0) {
+      sections.push(`⚡ Not yet attempted: ${unattempted.map(t => t.id).join(', ')} — try these to expand your capabilities!`);
     }
     sections.push('');
   }
@@ -778,14 +809,31 @@ function buildTickPrompt(
     sections.push('');
   }
 
-  // Certification nudge (Phase 3D)
+  // Certification nudge
   const passedCerts = certRuns.filter(r => r.status === 'passed');
+  const attemptedCertTypes = new Set(certRuns.map(r => r.templateId));
+  const totalCertTypes = certTemplates.length;
+  const attemptedCount = attemptedCertTypes.size;
   if (passedCerts.length === 0) {
-    sections.push('🎯 You haven\'t earned your certification yet. Certify to prove your onchain capability and unlock your full potential in the economy.');
+    sections.push('🎯 You haven\'t earned ANY certification yet. Use CHECK_CERTIFICATION to see what\'s available, then START_CERTIFICATION to begin. Certifications prove your onchain capability and earn credits + reputation.');
+    sections.push('');
+  } else if (attemptedCount < totalCertTypes) {
+    sections.push(`✅ Certified (${passedCerts.length} passed). But you've only tried ${attemptedCount}/${totalCertTypes} certifications. Use CHECK_CERTIFICATION to discover new ones — each certification tests different skills and earns different rewards.`);
     sections.push('');
   } else {
-    sections.push(`✅ Certified (${passedCerts.length} passed). Your reputation is established. Focus on what your class does best.`);
+    sections.push(`✅ Certified (${passedCerts.length} passed across ${attemptedCount} certification types). Review past scores to see where you can improve.`);
     sections.push('');
+  }
+
+  // OpGrid system notifications (server-managed, must be acknowledged)
+  if (notifications.length > 0) {
+    sections.push('# 📬 OPGRID NOTIFICATIONS (unread)');
+    for (const notif of notifications) {
+      sections.push(`[${notif.type.toUpperCase()}] ${notif.title}`);
+      sections.push(notif.body);
+      sections.push(`→ Acknowledge with: ACKNOWLEDGE_NOTIFICATION {"notificationId": "${notif.id}"}`);
+      sections.push('');
+    }
   }
 
   // Action diversity nudge
@@ -1038,15 +1086,16 @@ async function executeAction(
       }
 
       case 'START_CERTIFICATION': {
-        const templateId = typeof p.templateId === 'string' ? p.templateId.trim() : '';
-        if (!templateId) break;
-        const certResult = await api.startCertification(templateId);
+        const certificationId = typeof p.certificationId === 'string' ? p.certificationId.trim()
+          : typeof p.templateId === 'string' ? p.templateId.trim() : '';
+        if (!certificationId) break;
+        const certResult = await api.startCertification(certificationId);
         const runId = certResult.run?.id || 'unknown';
         const wo = certResult.workOrder;
-        console.log(`[${name}] Started certification: ${templateId} (run: ${runId})`);
+        console.log(`[${name}] Started certification: ${certificationId} (run: ${runId})`);
         if (wo) {
           console.log(`[${name}] Work order: ${JSON.stringify(wo)}`);
-          (decision as any)._certInfo = `[CERT_STARTED] Run: ${runId} | Template: ${templateId} | Work order: ${JSON.stringify(wo)}`;
+          (decision as any)._certInfo = `[CERT_STARTED] Run: ${runId} | Certification: ${certificationId} | Work order: ${JSON.stringify(wo)}`;
         }
         (decision as any)._certRunId = runId;
         break;
@@ -1100,6 +1149,18 @@ async function executeAction(
           }).join('\n');
           console.log(`[${name}] Active cert details:\n${details}`);
           (decision as any)._certInfo = `[CERT_CHECK] ${details}`;
+        }
+        break;
+      }
+
+      case 'ACKNOWLEDGE_NOTIFICATION': {
+        const notifId = typeof p.notificationId === 'string' ? p.notificationId.trim() : '';
+        if (!notifId) break;
+        try {
+          await api.acknowledgeNotification(notifId);
+          console.log(`[${name}] Acknowledged notification: ${notifId}`);
+        } catch (err: any) {
+          console.warn(`[${name}] Failed to acknowledge notification: ${err?.message}`);
         }
         break;
       }
@@ -1488,7 +1549,13 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         } catch { /* non-blocking */ }
       }
 
-      // g. Build per-tick prompt
+      // g. Fetch notifications from OpGrid
+      let notifications: Array<{ id: string; type: string; title: string; body: string }> = [];
+      try {
+        notifications = await api.getNotifications().catch(() => []);
+      } catch { /* non-blocking */ }
+
+      // h. Build per-tick prompt
       const userPrompt = buildTickPrompt(
         agentName,
         self,
@@ -1502,6 +1569,7 @@ export async function startAgent(config: AgentConfig): Promise<void> {
         directives,
         certRuns,
         certTemplates,
+        notifications,
         cachedBlueprintCatalog,
         workingMemory,
         buildContextHint,

@@ -15,6 +15,7 @@ import { registerReputationRoutes } from './api/reputation.js';
 import { registerGridRoutes } from './api/grid.js';
 import { registerCertificationRoutes } from './api/certify.js';
 import { registerBountyRoutes } from './api/bounties.js';
+import notificationRoutes, { generateCertNotifications } from './api/notifications.js';
 import { initChain } from './chain.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -171,6 +172,7 @@ async function main() {
   await registerGridRoutes(fastify);
   await registerCertificationRoutes(fastify);
   await registerBountyRoutes(fastify);
+  await notificationRoutes(fastify);
 
   // Serve static frontend in production (built files in ../dist)
   const distPath = join(__dirname, '..', 'dist');
@@ -222,7 +224,15 @@ async function main() {
   // Start the world simulation
   world.start();
 
-
+  // Notification generator — runs on startup + every 8 hours
+  generateCertNotifications()
+    .then(n => n > 0 && console.log(`[Notifications] Generated ${n} cert notifications on startup`))
+    .catch(err => console.error('[Notifications] Startup generation failed:', err));
+  setInterval(() => {
+    generateCertNotifications()
+      .then(n => n > 0 && console.log(`[Notifications] Generated ${n} cert notifications`))
+      .catch(err => console.error('[Notifications] Generation failed:', err));
+  }, 8 * 60 * 60 * 1000); // every 8 hours
 
   console.log(`[Server] HTTP server running at http://${HOST}:${PORT}`);
   console.log(`[Server] WebSocket server ready`);

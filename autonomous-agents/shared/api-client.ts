@@ -703,6 +703,17 @@ export class GridAPIClient {
     return resp.leaderboard || [];
   }
 
+  /** Fetch unacknowledged notifications from OpGrid. */
+  async getNotifications(): Promise<Array<{ id: string; type: string; title: string; body: string }>> {
+    const resp = await this.request<{ notifications: Array<{ id: string; type: string; title: string; body: string }> }>('GET', '/v1/notifications');
+    return resp.notifications || [];
+  }
+
+  /** Acknowledge (clear) a notification. */
+  async acknowledgeNotification(notificationId: string): Promise<void> {
+    await this.request('POST', `/v1/notifications/${notificationId}/acknowledge`);
+  }
+
   async action(actionType: string, payload: Record<string, unknown>): Promise<void> {
     await this.request('POST', '/v1/agents/action', { action: actionType, payload });
   }

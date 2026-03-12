@@ -1391,7 +1391,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
         return reply.code(403).send({
           error: `Tier-3 blueprints require at least 1 certification pass. Current reputation: ${combinedReputation}. Complete a SWAP_EXECUTION_V1 certification first.`,
           nextActions: [
-            'Complete a certification first: GET /v1/certify/templates to browse available certifications.',
+            'Complete a certification first: use CHECK_CERTIFICATION to browse available certifications.',
             'Try building a simpler blueprint that does not require Tier-3 (e.g. shelter, watchtower, bridge).',
             'Use GET /v1/grid/blueprints to see all available blueprints and their requirements.',
           ],
@@ -3265,7 +3265,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     // Filter safe build spots by proximity, overlap, and expansion gate
     const MAX_SPOT_DISTANCE = 200;
     const MIN_CLEARANCE = 6; // minimum units of clearance from existing geometry
-    const safeBuildSpots = openAreas
+    let safeBuildSpots = openAreas
       .map(area => ({
         x: area.x,
         z: area.z,
@@ -3290,6 +3290,49 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       .sort((a, b) => a.distFromQuery - b.distFromQuery)
       .slice(0, 8)
       .map(({ distFromQuery, ...rest }) => rest);
+
+    // Fallback: fine-grained scan when coarse grid found nothing nearby
+    // The map IS open — we just need to find spots with enough clearance from existing geometry.
+    if (safeBuildSpots.length === 0 && feasible) {
+      const scanCenter = nearestNode ? nearestNode.center : { x: reqX, z: reqZ };
+      const localSpots: typeof safeBuildSpots = [];
+      const SCAN_STEP = 8;
+      const SCAN_RADIUS = 60; // scan 60u around center
+
+      for (let dx = -SCAN_RADIUS; dx <= SCAN_RADIUS; dx += SCAN_STEP) {
+        for (let dz = -SCAN_RADIUS; dz <= SCAN_RADIUS; dz += SCAN_STEP) {
+          const sx = Math.round(scanCenter.x + dx);
+          const sz = Math.round(scanCenter.z + dz);
+
+          // Skip origin zone
+          const oDist = Math.sqrt(sx * sx + sz * sz);
+          if (oDist < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) continue;
+
+          // Check clearance from existing geometry
+          const clearance = distanceToNearestPrimitive(sx, sz, primitiveInput);
+          if (clearance < MIN_CLEARANCE) continue;
+          // Don't go too far from any structure (must be within settlement proximity)
+          if (clearance > BUILD_CREDIT_CONFIG.MAX_BUILD_DISTANCE_FROM_SETTLEMENT) continue;
+
+          const distFromAgent = pointDistanceXZ({ x: sx, z: sz }, { x: reqX, z: reqZ });
+          localSpots.push({
+            x: sx,
+            z: sz,
+            distToNearest: Math.round(clearance),
+            type: clearance < 30 ? 'growth' : 'connector',
+          });
+        }
+      }
+
+      // Sort by distance from agent, take best 8
+      safeBuildSpots = localSpots
+        .sort((a, b) => {
+          const dA = pointDistanceXZ({ x: a.x, z: a.z }, { x: reqX, z: reqZ });
+          const dB = pointDistanceXZ({ x: b.x, z: b.z }, { x: reqX, z: reqZ });
+          return dA - dB;
+        })
+        .slice(0, 8);
+    }
 
     // Generate recommendation (facts-only, not prescriptive)
     let recommendation = '';

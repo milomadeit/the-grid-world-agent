@@ -185,7 +185,7 @@ const SNIPER_V1_TEMPLATE_SEED = {
     ],
     hints: {
       testnet: 'Base Sepolia. Watch the SnipeTarget contract for activations.',
-      snipeTargetContract: 'Set via SNIPE_TARGET_ADDRESS env var. Check GET /v1/certify/templates for the address.',
+      snipeTargetContract: 'Set via SNIPE_TARGET_ADDRESS env var. Use CHECK_CERTIFICATION to see the address.',
       relayerAddress: 'The activation tx comes from the OpGrid relayer. Watch for activateTarget(bytes32) calls.',
       runIdEncoding: 'Your runId is hashed with keccak256 to produce the bytes32 used in activateTarget and snipe. Use ethers.id(runId) to compute it.',
       flow: '1. Start cert. 2. Immediately begin monitoring the SnipeTarget contract. 3. When activateTarget(yourRunIdHash) is called, call snipe(yourRunIdHash) ASAP. 4. Submit your snipe tx hash.',
@@ -807,6 +807,19 @@ export async function initDatabase(): Promise<void> {
       );
     `);
 
+    // Agent notifications (server-managed, agents must acknowledge)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS agent_notifications (
+        id VARCHAR(255) PRIMARY KEY,
+        agent_id VARCHAR(255) NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        type VARCHAR(50) NOT NULL DEFAULT 'system',
+        title VARCHAR(255) NOT NULL,
+        body TEXT NOT NULL,
+        acknowledged_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
     // Create indexes (safe now that all columns exist)
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(owner_id);
@@ -830,6 +843,7 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);
       CREATE INDEX IF NOT EXISTS idx_work_orders_issuer ON work_orders(issuer_id);
       CREATE INDEX IF NOT EXISTS idx_work_orders_claimer ON work_orders(claimer_id);
+      CREATE INDEX IF NOT EXISTS idx_notifications_agent ON agent_notifications(agent_id, acknowledged_at);
     `);
 
     // Unique case-insensitive agent name constraint
@@ -4091,6 +4105,44 @@ export async function getAgentWorkOrdersCompleted(agentId: string): Promise<numb
     [agentId]
   );
   return result.rows[0]?.work_orders_completed ?? 0;
+}
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+export async function getUnacknowledgedNotifications(agentId: string): Promise<Array<{ id: string; type: string; title: string; body: string; created_at: Date }>> {
+  if (!pool) return [];
+  const result = await pool.query(
+    'SELECT id, type, title, body, created_at FROM agent_notifications WHERE agent_id = $1 AND acknowledged_at IS NULL ORDER BY created_at ASC',
+    [agentId]
+  );
+  return result.rows;
+}
+
+export async function createNotification(id: string, agentId: string, type: string, title: string, body: string): Promise<void> {
+  if (!pool) return;
+  await pool.query(
+    'INSERT INTO agent_notifications (id, agent_id, type, title, body) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING',
+    [id, agentId, type, title, body]
+  );
+}
+
+export async function acknowledgeNotification(notificationId: string, agentId: string): Promise<boolean> {
+  if (!pool) return false;
+  const result = await pool.query(
+    'UPDATE agent_notifications SET acknowledged_at = NOW() WHERE id = $1 AND agent_id = $2 AND acknowledged_at IS NULL',
+    [notificationId, agentId]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function hasNotification(agentId: string, type: string, dedupKey: string): Promise<boolean> {
+  if (!pool) return false;
+  // Check if a notification with this id pattern already exists (acknowledged or not)
+  const result = await pool.query(
+    'SELECT 1 FROM agent_notifications WHERE agent_id = $1 AND id = $2 LIMIT 1',
+    [agentId, `${type}:${dedupKey}`]
+  );
+  return (result.rows?.length ?? 0) > 0;
 }
 
 export async function closeDatabase(): Promise<void> {
