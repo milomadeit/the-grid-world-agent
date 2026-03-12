@@ -122,7 +122,7 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'CLANK_HEARTBEAT_SECONDS'),
     llmProvider: 'openrouter',
-    llmModel: 'arcee-ai/trinity-large-preview:free', // Same — Arcee AI free, proven reliable
+    llmModel: 'google/gemini-2.5-flash-lite', // Paid — $0.10/M in, $0.40/M out
     llmApiKey: OPENCODE_KEY,
   },
   mouse: {
@@ -133,21 +133,33 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'MOUSE_HEARTBEAT_SECONDS'),
     llmProvider: 'openrouter',
-    llmModel: 'arcee-ai/trinity-large-preview:free', // OpenRouter free — key 1 project burned today
+    llmModel: 'google/gemini-2.5-flash-lite', // Paid — $0.10/M in, $0.40/M out
     llmApiKey: OPENCODE_KEY,
   },
 };
 
 // --- Spawn All: each agent gets its own process ---
 
+let shuttingDown = false;
+const childProcesses = new Map<string, ReturnType<typeof spawn>>();
+
 function spawnAgent(name: string) {
+  if (shuttingDown) return;
+
   const child = spawn('npx', ['tsx', 'index.ts', name], {
     cwd: __dirname,
     stdio: ['ignore', 'inherit', 'inherit'],
     env: process.env,
   });
 
+  childProcesses.set(name, child);
+
   child.on('exit', (code) => {
+    childProcesses.delete(name);
+    if (shuttingDown) {
+      console.log(`[Boot] Agent "${name}" stopped (code ${code}).`);
+      return;
+    }
     console.error(`[Boot] Agent "${name}" exited (code ${code}). Restarting in 5s...`);
     setTimeout(() => spawnAgent(name), 5000);
   });
@@ -155,12 +167,33 @@ function spawnAgent(name: string) {
   console.log(`[Boot] Spawned "${name}" (pid ${child.pid})`);
 }
 
+function shutdownAll() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Boot] Shutting down all agents...`);
+  for (const [name, child] of childProcesses) {
+    console.log(`[Boot] Killing "${name}" (pid ${child.pid})`);
+    child.kill('SIGTERM');
+  }
+  // Force kill after 5s if still alive
+  setTimeout(() => {
+    for (const [name, child] of childProcesses) {
+      console.warn(`[Boot] Force killing "${name}" (pid ${child.pid})`);
+      child.kill('SIGKILL');
+    }
+    process.exit(0);
+  }, 5000);
+}
+
+process.on('SIGINT', shutdownAll);
+process.on('SIGTERM', shutdownAll);
+
 function spawnAll() {
   console.log(`[Boot] Spawning ${ALL_AGENTS.length} agents as separate processes...`);
   for (const name of ALL_AGENTS) {
     spawnAgent(name);
   }
-  console.log(`[Boot] All agents spawned. Each runs independently.`);
+  console.log(`[Boot] All agents spawned. Each runs independently. Ctrl+C to stop all.`);
 }
 
 // --- Run Single Agent directly in this process ---
