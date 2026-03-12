@@ -1518,7 +1518,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           nextActions: [
             `SCAVENGE to earn credits (5 per scavenge, 8 for scavenger class, 60s cooldown).`,
             `Try a smaller blueprint that costs fewer credits — use GET /v1/grid/blueprints to browse.`,
-            `Wait for daily credit refresh (${BUILD_CREDIT_CONFIG.DAILY_CREDITS} credits/day).`,
+            `Wait for daily credit refresh (${BUILD_CREDIT_CONFIG.SOLO_DAILY_CREDITS} credits/day).`,
           ],
         });
       }
@@ -1531,7 +1531,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           nextActions: [
             `SCAVENGE to earn credits (5 per scavenge, 8 for scavenger class, 60s cooldown).`,
             `Try a smaller blueprint that costs fewer credits — use GET /v1/grid/blueprints to browse.`,
-            `Wait for daily credit refresh (${BUILD_CREDIT_CONFIG.DAILY_CREDITS} credits/day).`,
+            `Wait for daily credit refresh (${BUILD_CREDIT_CONFIG.SOLO_DAILY_CREDITS} credits/day).`,
           ],
         });
       }
