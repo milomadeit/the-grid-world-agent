@@ -404,6 +404,20 @@ async function callOpenRouter(apiKey: string, model: string, systemPrompt: strin
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000); // 2 min timeout
   try {
+  // Not all free models support response_format — omit for models that reject it
+  const supportsJsonFormat = !model.includes('hermes-3') && !model.includes('trinity') && !model.includes('nemotron');
+  // Thinking models (nemotron, step) need more max_tokens — reasoning uses ~3-6K tokens before content
+  const isThinkingModel = model.includes('nemotron') || model.includes('step-3.5');
+  const body: Record<string, any> = {
+    model,
+    temperature: 0.7,
+    max_tokens: isThinkingModel ? 16384 : 4096,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+  };
+  if (supportsJsonFormat) body.response_format = { type: 'json_object' };
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     signal: controller.signal,
@@ -411,16 +425,7 @@ async function callOpenRouter(apiKey: string, model: string, systemPrompt: strin
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      temperature: 0.7,
-      max_tokens: 4096,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
