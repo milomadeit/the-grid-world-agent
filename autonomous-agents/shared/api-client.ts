@@ -660,7 +660,8 @@ export class GridAPIClient {
   }
 
   async startCertification(templateId: string): Promise<{ run: CertificationRun; workOrder: { templateId: string; deadlineAt: number; config: Record<string, unknown> } }> {
-    const maxAtomic = BigInt(process.env.CERTIFICATION_MAX_USDC_ATOMIC || '1000000');
+    // Allow up to 10 USDC per cert (covers SNIPER_V1 at 3 USDC, V2 at 2 USDC, etc.)
+    const maxAtomic = BigInt(process.env.CERTIFICATION_MAX_USDC_ATOMIC || '10000000');
     try {
       return await this.requestWithX402Payment('POST', '/v1/certify/start', { templateId }, maxAtomic);
     } catch (error) {
