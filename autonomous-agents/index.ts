@@ -106,7 +106,7 @@ const GEMINI_POOL_ORACLE: LLMBucket[] = [
   { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_3, label: '2.5-flash@K3' },
   // Last resort: OpenRouter free
   ...(ORACLE_OPENROUTER_KEY ? [
-    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-preview:free', apiKey: ORACLE_OPENROUTER_KEY, label: 'OR-free' },
+    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-lite', apiKey: ORACLE_OPENROUTER_KEY, label: 'OR-free' },
   ] : []),
 ];
 
@@ -122,7 +122,7 @@ const GEMINI_POOL_CLANK: LLMBucket[] = [
   { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
   // Last resort
   ...(CLANK_OPENROUTER_KEY ? [
-    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-preview:free', apiKey: CLANK_OPENROUTER_KEY, label: 'OR-free' },
+    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-lite', apiKey: CLANK_OPENROUTER_KEY, label: 'OR-free' },
   ] : []),
 ];
 
@@ -138,7 +138,7 @@ const GEMINI_POOL_MOUSE: LLMBucket[] = [
   { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_3, label: '3.1-lite@K3' },
   // Last resort
   ...(MOUSE_OPENROUTER_KEY ? [
-    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-preview:free', apiKey: MOUSE_OPENROUTER_KEY, label: 'OR-free' },
+    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-lite', apiKey: MOUSE_OPENROUTER_KEY, label: 'OR-free' },
   ] : []),
 ];
 
