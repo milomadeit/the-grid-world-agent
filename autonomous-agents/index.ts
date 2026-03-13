@@ -19,6 +19,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { startAgent } from './shared/runtime.js';
+import type { LLMBucket } from './shared/key-rotator.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '.env') });
@@ -81,12 +82,65 @@ interface AgentDef {
   llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode' | 'openrouter';
   llmModel: string;
   llmApiKey: string;
+  llmPool?: LLMBucket[]; // Optional: key x model rotation pool
   visionBridge?: {
     provider: 'gemini';
     model: string;
     apiKey: string;
   };
 }
+
+// --- Gemini Bucket Pools (ordered by preference: best first) ---
+// Each key x model = independent RPD quota. On 429, rotator tries next bucket instantly.
+// Agents are staggered: Oracle→KEY_2, Clank→KEY_3, Mouse→KEY_1
+
+const GEMINI_POOL_ORACLE: LLMBucket[] = [
+  // Primary: best quality on dedicated key
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_2, label: '2.5-flash@K2' },
+  { provider: 'gemini', model: 'gemini-3-flash-preview',        apiKey: GEMINI_KEY_2, label: '3-flash@K2' },
+  // Cross-key: same quality model on other keys
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY,   label: '2.5-flash@K1' },
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_3, label: '2.5-flash@K3' },
+  // Lite fallback (lower quality, higher RPD)
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_2, label: '3.1-lite@K2' },
+  // Last resort: OpenRouter free
+  ...(ORACLE_OPENROUTER_KEY ? [
+    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-preview:free', apiKey: ORACLE_OPENROUTER_KEY, label: 'OR-free' },
+  ] : []),
+];
+
+const GEMINI_POOL_CLANK: LLMBucket[] = [
+  // Primary: Clank's dedicated key, lite models
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_3, label: '2.5-lite@K3' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_3, label: '3.1-lite@K3' },
+  // Quality upgrade on same key
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_3, label: '2.5-flash@K3' },
+  { provider: 'gemini', model: 'gemini-3-flash-preview',        apiKey: GEMINI_KEY_3, label: '3-flash@K3' },
+  // Cross-key lite fallbacks
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY,   label: '2.5-lite@K1' },
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
+  // Last resort
+  ...(CLANK_OPENROUTER_KEY ? [
+    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-preview:free', apiKey: CLANK_OPENROUTER_KEY, label: 'OR-free' },
+  ] : []),
+];
+
+const GEMINI_POOL_MOUSE: LLMBucket[] = [
+  // Primary: Mouse's dedicated key, lite models
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY,   label: '2.5-lite@K1' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY,   label: '3.1-lite@K1' },
+  // Quality upgrade on same key
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY,   label: '2.5-flash@K1' },
+  { provider: 'gemini', model: 'gemini-3-flash-preview',        apiKey: GEMINI_KEY,   label: '3-flash@K1' },
+  // Cross-key lite fallbacks
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_3, label: '3.1-lite@K3' },
+  // Last resort
+  ...(MOUSE_OPENROUTER_KEY ? [
+    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-preview:free', apiKey: MOUSE_OPENROUTER_KEY, label: 'OR-free' },
+  ] : []),
+];
 
 const agents: Record<string, AgentDef> = {
   smith: {
@@ -99,8 +153,9 @@ const agents: Record<string, AgentDef> = {
     llmProvider: 'minimax',
     llmModel: 'MiniMax-M2.5-highspeed',
     llmApiKey: MINIMAX_KEY,
+    // No llmPool — Smith uses paid MiniMax, no rotation needed
     visionBridge: GEMINI_KEY
-      ? { provider: 'gemini', model: 'gemini-2.0-flash-lite', apiKey: GEMINI_KEY }
+      ? { provider: 'gemini', model: 'gemini-2.5-flash-lite', apiKey: GEMINI_KEY }
       : undefined,
   },
   oracle: {
@@ -111,8 +166,9 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('ORACLE_ID', 'ORACLE_AGENT_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'ORACLE_HEARTBEAT_SECONDS'),
     llmProvider: 'gemini',
-    llmModel: 'gemini-2.5-flash', // Direct Gemini — $0.30/M in, $2.50/M out (separate GCP key)
+    llmModel: 'gemini-2.5-flash', // Primary for logging
     llmApiKey: GEMINI_KEY_2,
+    llmPool: GEMINI_POOL_ORACLE,
   },
   clank: {
     name: 'clank',
@@ -122,8 +178,9 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('CLANK_AGENT_ID', 'CLANK_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'CLANK_HEARTBEAT_SECONDS'),
     llmProvider: 'gemini',
-    llmModel: 'gemini-2.5-flash-lite', // Direct Gemini — $0.10/M in, $0.40/M out (separate GCP key)
+    llmModel: 'gemini-2.5-flash-lite', // Primary for logging
     llmApiKey: GEMINI_KEY_3,
+    llmPool: GEMINI_POOL_CLANK,
   },
   mouse: {
     name: 'mouse',
@@ -133,8 +190,9 @@ const agents: Record<string, AgentDef> = {
     erc8004AgentId: envFirst('MOUSE_AGENT_ID', 'MOUSE_ID'),
     heartbeatSeconds: envSeconds(DEFAULT_HEARTBEAT_SECONDS, 'MOUSE_HEARTBEAT_SECONDS'),
     llmProvider: 'gemini',
-    llmModel: 'gemini-2.5-flash-lite', // Direct Gemini — $0.10/M in, $0.40/M out (separate GCP key)
+    llmModel: 'gemini-2.5-flash-lite', // Primary for logging
     llmApiKey: GEMINI_KEY,
+    llmPool: GEMINI_POOL_MOUSE,
   },
 };
 
@@ -234,6 +292,7 @@ async function runSingleAgent(name: string) {
       llmProvider: config.llmProvider,
       llmModel: config.llmModel,
       llmApiKey: config.llmApiKey,
+      llmPool: config.llmPool,
       visionBridge: config.visionBridge,
     });
   } else {

@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import { GridAPIClient, type DirectMessage } from './api-client.js';
 import { ChainClient } from './chain-client.js';
 import { captureWorldView } from './vision.js';
+import { KeyRotator, type LLMBucket } from './key-rotator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,6 +36,7 @@ interface AgentConfig {
   llmProvider: 'gemini' | 'anthropic' | 'openai' | 'minimax' | 'opencode' | 'openrouter';
   llmModel: string;
   llmApiKey: string;
+  llmPool?: LLMBucket[]; // Optional: rotation pool for key x model cycling on 429
   visionBridge?: {
     provider: 'gemini';
     model: string;
@@ -1268,6 +1270,14 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const agentColor = identity.match(/color:\s*(#[0-9a-fA-F]{6})/)?.[1] || '#6b7280';
   const agentBio = identity.match(/bio:\s*"([^"]+)"/)?.[1] || 'An autonomous agent on OpGrid.';
 
+  // Key rotator: if agent has a pool of key x model buckets, create rotator
+  const rotator: KeyRotator | null = config.llmPool && config.llmPool.length > 0
+    ? new KeyRotator({ agentName, buckets: config.llmPool, defaultCooldownMs: 60_000 })
+    : null;
+  if (rotator) {
+    console.log(`[${agentName}] Key rotator active: ${config.llmPool!.length} buckets`);
+  }
+
   // 2. Enter OpGrid
   const api = new GridAPIClient();
   console.log(`[${agentName}] Entering OpGrid (wallet: ${config.walletAddress})...`);
@@ -1611,8 +1621,27 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       // h. LLM decides
       console.log(`[${agentName}] Tick ${tickCount} — calling LLM (prompt: ${trimmedPrompt.length} chars)`);
-      const llmResponse = await callLLM(config, systemPrompt, trimmedPrompt);
-      console.log(`[${agentName}] LLM responded${formatTokenLog(config.llmProvider, llmResponse.usage)}`);
+      let llmResponse: LLMResponse;
+      let usedProvider = config.llmProvider;
+
+      if (rotator) {
+        // Rotator path: try buckets in order, rotating on 429
+        const result = await rotator.call(
+          (bucket) => callLLM(
+            { llmProvider: bucket.provider, llmModel: bucket.model, llmApiKey: bucket.apiKey },
+            systemPrompt,
+            trimmedPrompt,
+          ),
+          (err) => isRateLimitErrorMessage((err as any)?.message || String(err)),
+        );
+        llmResponse = result;
+        usedProvider = result.bucket.provider;
+        console.log(`[${agentName}] LLM responded via ${result.bucket.label}${formatTokenLog(usedProvider, result.usage)}`);
+      } else {
+        // Single-key path (Smith on MiniMax, etc.)
+        llmResponse = await callLLM(config, systemPrompt, trimmedPrompt);
+        console.log(`[${agentName}] LLM responded${formatTokenLog(usedProvider, llmResponse.usage)}`);
+      }
 
       // i. Clean LLM response (strip <think> tags from MiniMax etc)
       const cleanedText = llmResponse.text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
@@ -1737,12 +1766,22 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       const errMsg = (err as any)?.message || String(err);
       if (isRateLimitErrorMessage(errMsg)) {
-        const baseCooldown = parseRateLimitCooldownSeconds(errMsg, 45);
-        // Add random jitter to cooldown so agents don't all retry at the same time
-        const jitter = Math.floor(Math.random() * 15);
-        const cooldown = baseCooldown + jitter;
-        rateLimitCooldownUntil = Date.now() + cooldown * 1000;
-        console.warn(`[${agentName}] Rate limited. Cooling down for ${cooldown}s.`);
+        if (rotator) {
+          // Rotator already tried all buckets — set tick cooldown to earliest recovery
+          const nextAvail = rotator.allCoolingDown();
+          if (nextAvail > 0) {
+            rateLimitCooldownUntil = nextAvail;
+            const waitSec = Math.max(0, Math.ceil((nextAvail - Date.now()) / 1000));
+            console.warn(`[${agentName}] All buckets exhausted. Next tick in ~${waitSec}s. [${rotator.status()}]`);
+          }
+        } else {
+          // Legacy single-key cooldown
+          const baseCooldown = parseRateLimitCooldownSeconds(errMsg, 45);
+          const jitter = Math.floor(Math.random() * 15);
+          const cooldown = baseCooldown + jitter;
+          rateLimitCooldownUntil = Date.now() + cooldown * 1000;
+          console.warn(`[${agentName}] Rate limited. Cooling down for ${cooldown}s.`);
+        }
         return;
       }
 
