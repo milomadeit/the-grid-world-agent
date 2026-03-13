@@ -669,9 +669,23 @@ export async function registerCertificationRoutes(fastify: FastifyInstance): Pro
     const tokenOut = typeof body.tokenOut === 'string' ? body.tokenOut : '0x4200000000000000000000000000000000000006';
     const fee = typeof body.fee === 'number' ? body.fee : 3000;
     const recipient = typeof body.recipient === 'string' ? body.recipient : auth.agentId;
-    const amountIn = typeof body.amountIn === 'string' || typeof body.amountIn === 'number'
-      ? BigInt(String(body.amountIn))
-      : BigInt('1000000'); // 1 USDC
+    // Parse amountIn — handle decimal values (e.g. agent sends 0.5 USDC instead of 500000)
+    let amountIn: bigint;
+    if (typeof body.amountIn === 'string' || typeof body.amountIn === 'number') {
+      const rawAmountIn = String(body.amountIn);
+      if (rawAmountIn.includes('.')) {
+        // Decimal value — convert to smallest unit based on tokenIn
+        const isUSDC = tokenIn.toLowerCase() === '0x036cbd53842c5426634e7929541ec2318f3dcf7e';
+        const decimals = isUSDC ? 6 : 18;
+        const [whole, frac = ''] = rawAmountIn.split('.');
+        const paddedFrac = frac.padEnd(decimals, '0').slice(0, decimals);
+        amountIn = BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(paddedFrac);
+      } else {
+        amountIn = BigInt(rawAmountIn);
+      }
+    } else {
+      amountIn = BigInt('1000000'); // 1 USDC default
+    }
     const sqrtPriceLimitX96 = BigInt('0');
 
     // Resolve recipient wallet address from agent ID if needed
