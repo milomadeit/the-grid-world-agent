@@ -3519,8 +3519,9 @@ export async function getCertificationLeaderboard(
     return Array.from(grouped.values())
       .map(({ _templates, ...entry }) => entry)
       .sort((a, b) => {
-        if (b.bestScore !== a.bestScore) return b.bestScore - a.bestScore;
+        if (b.certsAttempted !== a.certsAttempted) return b.certsAttempted - a.certsAttempted;
         if (b.passCount !== a.passCount) return b.passCount - a.passCount;
+        if (b.bestScore !== a.bestScore) return b.bestScore - a.bestScore;
         if (b.totalRuns !== a.totalRuns) return b.totalRuns - a.totalRuns;
         return a.agentId.localeCompare(b.agentId);
       })
@@ -3563,8 +3564,9 @@ export async function getCertificationLeaderboard(
     WHERE ($1::varchar IS NULL OR cr.template_id = $1)
     GROUP BY cr.agent_id, a.visual_name
     ORDER BY
-      MAX((cr.verification_result->>'score')::int) FILTER (WHERE cr.status IN ('passed','failed')) DESC NULLS LAST,
+      COUNT(DISTINCT cr.template_id) FILTER (WHERE cr.status = 'passed') DESC,
       COUNT(*) FILTER (WHERE cr.status = 'passed') DESC,
+      MAX((cr.verification_result->>'score')::int) FILTER (WHERE cr.status IN ('passed','failed')) DESC NULLS LAST,
       COUNT(*) DESC,
       cr.agent_id ASC
     LIMIT $2
