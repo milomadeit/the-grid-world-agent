@@ -2941,7 +2941,7 @@ export interface CertificationAgentStats {
 export interface CertificationLeaderboardEntry {
   agentId: string;
   agentName: string;
-  templateId: string;
+  certsAttempted: number;
   totalRuns: number;
   passCount: number;
   failCount: number;
@@ -3483,22 +3483,26 @@ export async function getCertificationLeaderboard(
 
   if (!pool) {
     seedInMemoryCertificationTemplate();
-    const grouped = new Map<string, CertificationLeaderboardEntry>();
+    // Group by agentId only (not per-template)
+    const grouped = new Map<string, CertificationLeaderboardEntry & { _templates: Set<string> }>();
 
     for (const run of inMemoryStore.certificationRuns.values()) {
       if (templateId && run.templateId !== templateId) continue;
-      const key = `${run.agentId}:${run.templateId}`;
+      const key = run.agentId;
       const existing = grouped.get(key) || {
         agentId: run.agentId,
         agentName: inMemoryStore.agents.get(run.agentId)?.name || run.agentId,
-        templateId: run.templateId,
+        certsAttempted: 0,
         totalRuns: 0,
         passCount: 0,
         failCount: 0,
         passRate: 0,
         bestScore: 0,
         avgScore: 0,
+        _templates: new Set<string>(),
       };
+      existing._templates.add(run.templateId);
+      existing.certsAttempted = existing._templates.size;
       existing.totalRuns += 1;
       if (run.status === 'passed') existing.passCount += 1;
       if (run.status === 'failed') existing.failCount += 1;
@@ -3513,9 +3517,10 @@ export async function getCertificationLeaderboard(
     }
 
     return Array.from(grouped.values())
+      .map(({ _templates, ...entry }) => entry)
       .sort((a, b) => {
-        if (b.passCount !== a.passCount) return b.passCount - a.passCount;
         if (b.bestScore !== a.bestScore) return b.bestScore - a.bestScore;
+        if (b.passCount !== a.passCount) return b.passCount - a.passCount;
         if (b.totalRuns !== a.totalRuns) return b.totalRuns - a.totalRuns;
         return a.agentId.localeCompare(b.agentId);
       })
@@ -3525,7 +3530,7 @@ export async function getCertificationLeaderboard(
   const result = await pool.query<{
     agent_id: string;
     agent_name: string | null;
-    template_id: string;
+    certs_attempted: string;
     total_runs: string;
     pass_count: string;
     fail_count: string;
@@ -3537,7 +3542,7 @@ export async function getCertificationLeaderboard(
     SELECT
       cr.agent_id,
       COALESCE(a.visual_name, cr.agent_id) AS agent_name,
-      cr.template_id,
+      COUNT(DISTINCT cr.template_id)::text AS certs_attempted,
       COUNT(*)::text AS total_runs,
       COUNT(*) FILTER (WHERE cr.status = 'passed')::text AS pass_count,
       COUNT(*) FILTER (WHERE cr.status = 'failed')::text AS fail_count,
@@ -3556,10 +3561,10 @@ export async function getCertificationLeaderboard(
     FROM certification_runs cr
     LEFT JOIN agents a ON a.id = cr.agent_id
     WHERE ($1::varchar IS NULL OR cr.template_id = $1)
-    GROUP BY cr.agent_id, a.visual_name, cr.template_id
+    GROUP BY cr.agent_id, a.visual_name
     ORDER BY
-      COUNT(*) FILTER (WHERE cr.status = 'passed') DESC,
       MAX((cr.verification_result->>'score')::int) FILTER (WHERE cr.status IN ('passed','failed')) DESC NULLS LAST,
+      COUNT(*) FILTER (WHERE cr.status = 'passed') DESC,
       COUNT(*) DESC,
       cr.agent_id ASC
     LIMIT $2
@@ -3570,7 +3575,7 @@ export async function getCertificationLeaderboard(
   return result.rows.map((row) => ({
     agentId: row.agent_id,
     agentName: row.agent_name || row.agent_id,
-    templateId: row.template_id,
+    certsAttempted: parseInt(row.certs_attempted, 10),
     totalRuns: parseInt(row.total_runs, 10),
     passCount: parseInt(row.pass_count, 10),
     failCount: parseInt(row.fail_count, 10),
