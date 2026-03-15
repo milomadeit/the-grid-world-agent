@@ -120,6 +120,16 @@ export interface Directive {
   noVotes: number;
 }
 
+export interface NodeSummary {
+  id: string;
+  name: string;
+  tier: string;
+  center: { x: number; z: number };
+  radius: number;
+  structureCount: number;
+  primitiveCount: number;
+}
+
 export interface WorldPrimitive {
   id: string;
   shape: 'box' | 'sphere' | 'cone' | 'cylinder' | 'plane' | 'torus' | 'circle' | 'dodecahedron' | 'icosahedron' | 'octahedron' | 'ring' | 'tetrahedron' | 'torusKnot' | 'capsule';

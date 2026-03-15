@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, WorldState, WorldMessage, WorldPrimitive, MessageEvent, Guild, Directive, DirectMessage } from './types';
+import { Agent, WorldState, WorldMessage, WorldPrimitive, MessageEvent, Guild, Directive, DirectMessage, NodeSummary } from './types';
 
 interface WorldStore extends WorldState {
   // State
@@ -26,6 +26,7 @@ interface WorldStore extends WorldState {
   isAgentOwner: boolean;
   ownedAgentId: string | null;
   dmMessages: DirectMessage[];
+  nodes: NodeSummary[];
 
   // Actions
   setAgents: (agents: Agent[]) => void;
@@ -58,6 +59,7 @@ interface WorldStore extends WorldState {
   setDirectives: (directives: Directive[]) => void;
   setDMMessages: (messages: DirectMessage[]) => void;
   addDMMessage: (message: DirectMessage) => void;
+  setNodes: (nodes: NodeSummary[]) => void;
   setSelectedPrimitive: (primitive: WorldPrimitive | null) => void;
   setSnapshotLoaded: (loaded: boolean) => void;
   toggleTerminal: () => void;
@@ -92,6 +94,7 @@ const initialState = {
   isAgentOwner: false,
   ownedAgentId: null,
   dmMessages: [],
+  nodes: [],
 };
 
 const MAX_EVENTS = 300;
@@ -216,6 +219,8 @@ export const useWorldStore = create<WorldStore>((set) => ({
       .slice(0, MAX_DM_MESSAGES)
   })),
   
+  setNodes: (nodes) => set({ nodes }),
+
   setSelectedPrimitive: (selectedPrimitive) => set({ selectedPrimitive }),
 
   setSnapshotLoaded: (snapshotLoaded) => set({ snapshotLoaded }),

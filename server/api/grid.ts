@@ -3537,6 +3537,49 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     return result;
   });
 
+  // --- Node Boundaries (lightweight node data for frontend visualization) ---
+
+  let nodesCache: { data: unknown; revision: number; etag: string } | null = null;
+
+  fastify.get('/v1/grid/nodes', async (request, reply) => {
+    const primitiveRevision = world.getPrimitiveRevision();
+    const cacheMatchesRevision = !!nodesCache && nodesCache.revision === primitiveRevision;
+
+    if (cacheMatchesRevision && request.headers['if-none-match'] === nodesCache!.etag) {
+      reply.header('ETag', nodesCache!.etag);
+      return reply.code(304).send();
+    }
+
+    if (cacheMatchesRevision) {
+      reply.header('ETag', nodesCache!.etag);
+      return nodesCache!.data;
+    }
+
+    const primitives = world.getWorldPrimitives();
+    const primitiveInput = primitives as unknown as PrimitiveLike[];
+    const connectorPrimitives = primitiveInput.filter(isConnectorPrimitive);
+    const structures = buildStructureSummaries(primitiveInput);
+    const settlementNodes = buildSettlementNodes(structures, connectorPrimitives);
+
+    const result = {
+      nodes: settlementNodes.map(n => ({
+        id: n.id,
+        name: n.name,
+        tier: n.tier,
+        center: { x: Math.round(n.center.x * 10) / 10, z: Math.round(n.center.z * 10) / 10 },
+        radius: Math.round(n.radius * 10) / 10,
+        structureCount: n.structureCount,
+        primitiveCount: n.primitiveCount,
+      })),
+    };
+
+    const nodeEtag = `W/"nodes-${primitiveRevision}"`;
+    nodesCache = { data: result, revision: primitiveRevision, etag: nodeEtag };
+    reply.header('ETag', nodeEtag);
+    reply.header('Cache-Control', 'public, max-age=15');
+    return result;
+  });
+
   // --- Spatial Summary (World Map for Agents) ---
 
   // Response cache — keyed by primitive revision so any geometry change invalidates it.

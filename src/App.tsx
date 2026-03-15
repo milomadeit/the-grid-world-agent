@@ -12,6 +12,7 @@ import { Agent, WorldState, Vector3 } from './types';
 import { socketService } from './services/socketService';
 import { useWorldStore } from './store';
 import { fetchWalletBalance } from './utils/balance';
+import { useNodePolling } from './hooks/useNodePolling';
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error';
 const FRONTEND_MAINTENANCE_MODE = false;
@@ -43,6 +44,9 @@ const App: React.FC = () => {
   const setFollowAgentId = useWorldStore((s) => s.setFollowAgentId);
   const setLastFollowAgentId = useWorldStore((s) => s.setLastFollowAgentId);
   const reset = useWorldStore((s) => s.reset);
+
+  // Poll for settlement node data (used by NodeBoundaries visualization)
+  useNodePolling();
 
   // Memoize worldState so it only changes when agents/events/lastUpdate actually change
   const worldState: WorldState = useMemo(

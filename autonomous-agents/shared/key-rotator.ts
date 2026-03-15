@@ -1,12 +1,15 @@
 /**
  * Key Rotator — Provider-agnostic LLM bucket rotation with per-bucket cooldowns.
  *
- * Each LLMBucket is a key x model combination with its own independent rate limit.
- * On 429, the rotator immediately tries the next bucket instead of sleeping.
+ * Each LLMBucket is a key x model combination with its own independent RPD quota.
+ * On 429, the bucket is marked burned for the day and the next bucket is tried.
  *
- * Escalating cooldowns: if a bucket gets 429'd repeatedly, cooldown doubles each
- * time (60s → 120s → 240s → ... up to 30min). This prevents hammering burned
- * buckets with wasted API calls every tick. Resets daily.
+ * Strategy:
+ *   - 429 on any bucket → disabled until midnight UTC (daily quota is spent)
+ *   - Auth errors (401/402/403) → disabled until midnight UTC
+ *   - Pool order matters: put high-RPD (lite) models first, quality models later
+ *   - Daily reset at midnight UTC clears all state
+ *   - Success resets nothing (bucket is fine, keep using it)
  */
 
 export interface LLMBucket {
@@ -18,10 +21,9 @@ export interface LLMBucket {
 
 interface BucketState {
   bucket: LLMBucket;
-  cooldownUntil: number;   // timestamp ms, 0 = available
-  consecutiveHits: number; // how many 429s in a row (for escalating cooldown)
+  burnedUntil: number;  // timestamp ms — 0 = available, >0 = disabled until this time
   usesToday: number;
-  lastResetDate: string;   // "YYYY-MM-DD" for daily counter reset
+  lastResetDate: string; // "YYYY-MM-DD" for daily counter reset
 }
 
 export interface LLMResponse {
@@ -33,26 +35,26 @@ function todayUTC(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-// Max cooldown: 30 minutes. After that, the bucket is likely a daily limit
-// and will only recover at midnight UTC.
-const MAX_COOLDOWN_MS = 30 * 60 * 1000;
+/** Midnight UTC of the next day */
+function nextMidnightUTC(): number {
+  const now = new Date();
+  const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  return tomorrow.getTime();
+}
 
 export class KeyRotator {
   private states: BucketState[];
   private agentName: string;
-  private baseCooldownMs: number;
 
   constructor(opts: {
     agentName: string;
     buckets: LLMBucket[];
-    defaultCooldownMs?: number;
+    defaultCooldownMs?: number; // kept for compat, ignored
   }) {
     this.agentName = opts.agentName;
-    this.baseCooldownMs = opts.defaultCooldownMs ?? 60_000;
     this.states = opts.buckets.map(bucket => ({
       bucket,
-      cooldownUntil: 0,
-      consecutiveHits: 0,
+      burnedUntil: 0,
       usesToday: 0,
       lastResetDate: todayUTC(),
     }));
@@ -76,12 +78,12 @@ export class KeyRotator {
       const today = todayUTC();
       if (state.lastResetDate !== today) {
         state.usesToday = 0;
-        state.consecutiveHits = 0;
+        state.burnedUntil = 0;
         state.lastResetDate = today;
       }
 
-      // Skip buckets still cooling down
-      if (now < state.cooldownUntil) {
+      // Skip burned buckets
+      if (now < state.burnedUntil) {
         skipped++;
         continue;
       }
@@ -89,36 +91,26 @@ export class KeyRotator {
       try {
         const response = await callFn(state.bucket);
         state.usesToday++;
-        // Success — reset consecutive hit counter
-        state.consecutiveHits = 0;
         return { ...response, bucket: state.bucket };
       } catch (err) {
         lastError = err;
 
         if (isRateLimit(err)) {
-          // Escalating cooldown: doubles each consecutive 429 on same bucket
-          // 60s → 120s → 240s → 480s → 960s → 1800s (capped at 30min)
-          state.consecutiveHits++;
-          const cooldownMs = Math.min(
-            this.baseCooldownMs * Math.pow(2, state.consecutiveHits - 1),
-            MAX_COOLDOWN_MS,
-          );
-          state.cooldownUntil = Date.now() + cooldownMs;
-          const cooldownSec = Math.ceil(cooldownMs / 1000);
+          // Daily quota burned — disable until midnight UTC
+          state.burnedUntil = nextMidnightUTC();
           console.warn(
-            `[${this.agentName}] 429 on ${state.bucket.label} (hit #${state.consecutiveHits}, cooldown ${cooldownSec}s), trying next bucket...`
+            `[${this.agentName}] 429 on ${state.bucket.label} (${state.usesToday} used today) — burned until midnight UTC, trying next...`
           );
-          continue; // Immediately try next bucket
+          continue;
         }
 
-        // Auth errors (401/403) — skip this bucket permanently (bad key), try next
+        // Auth/payment errors (401/402/403) — also burned for the day
         const errMsg = (err as any)?.message || String(err);
-        if (/\b(401|403|Invalid API key|Unauthorized|Forbidden)\b/i.test(errMsg)) {
-          // Disable this bucket for the rest of the day
-          state.cooldownUntil = Date.now() + MAX_COOLDOWN_MS;
-          state.consecutiveHits = 99; // prevent rapid retry
+        if (/\b(401|402|403|Invalid API key|Unauthorized|Forbidden|requires more credits)\b/i.test(errMsg)) {
+          state.burnedUntil = nextMidnightUTC();
+          const reason = /402|credits/i.test(errMsg) ? 'Out of credits' : 'Auth error';
           console.warn(
-            `[${this.agentName}] Auth error on ${state.bucket.label} — disabled for 30m. Trying next...`
+            `[${this.agentName}] ${reason} on ${state.bucket.label} — burned until midnight UTC. Trying next...`
           );
           continue;
         }
@@ -128,41 +120,42 @@ export class KeyRotator {
       }
     }
 
-    // All buckets exhausted or cooling down
+    // All buckets exhausted or burned
     const total = this.states.length;
+    const availableCount = this.states.filter(s => s.burnedUntil <= now).length;
+
     if (lastError) {
-      const nextAvail = Math.min(...this.states.map(s => s.cooldownUntil));
+      const nextAvail = Math.min(...this.states.map(s => s.burnedUntil || Infinity));
       const waitSec = Math.max(0, Math.ceil((nextAvail - Date.now()) / 1000));
       console.error(
-        `[${this.agentName}] All ${total} buckets exhausted (${skipped} cooling). Next available in ~${waitSec}s.`
+        `[${this.agentName}] All ${total} buckets exhausted (${skipped} burned, ${availableCount} available). Next recovery in ~${waitSec}s.`
       );
       throw lastError;
     }
 
-    // All were cooling down, none attempted
-    const nextAvail = Math.min(...this.states.map(s => s.cooldownUntil));
+    const nextAvail = Math.min(...this.states.map(s => s.burnedUntil));
     const waitSec = Math.max(0, Math.ceil((nextAvail - Date.now()) / 1000));
     throw new Error(
-      `[${this.agentName}] All ${total} buckets cooling down. Next available in ~${waitSec}s.`
+      `[${this.agentName}] All ${total} buckets burned for the day. Next recovery in ~${waitSec}s.`
     );
   }
 
-  /** Returns earliest recovery timestamp if ALL buckets are cooling, else 0. */
+  /** Returns earliest recovery timestamp if ALL buckets are burned, else 0. */
   allCoolingDown(): number {
     const now = Date.now();
-    const allCooling = this.states.every(s => s.cooldownUntil > now);
-    if (!allCooling) return 0;
-    return Math.min(...this.states.map(s => s.cooldownUntil));
+    const allBurned = this.states.every(s => s.burnedUntil > now);
+    if (!allBurned) return 0;
+    return Math.min(...this.states.map(s => s.burnedUntil));
   }
 
   /** Debug summary of bucket states. */
   status(): string {
     const now = Date.now();
     return this.states.map(s => {
-      const cd = s.cooldownUntil > now
-        ? `COOL(${Math.ceil((s.cooldownUntil - now) / 1000)}s)`
+      const status = s.burnedUntil > now
+        ? `BURNED(${Math.ceil((s.burnedUntil - now) / 60000)}m)`
         : 'OK';
-      return `${s.bucket.label}:${cd}(${s.usesToday},h${s.consecutiveHits})`;
+      return `${s.bucket.label}:${status}(${s.usesToday})`;
     }).join(' | ');
   }
 }

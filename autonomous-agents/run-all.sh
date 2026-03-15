@@ -43,6 +43,11 @@ fi
 PIDS_DIR="$DIR/.pids"
 mkdir -p "$PIDS_DIR"
 
+# Stop any previously running agents before launching new ones
+echo "Stopping any previous agents..."
+bash "$DIR/stop-all.sh" "${AGENTS[@]}" 2>/dev/null
+echo ""
+
 echo "Launching ${#AGENTS[@]} agents as independent processes..."
 
 for agent in "${AGENTS[@]}"; do

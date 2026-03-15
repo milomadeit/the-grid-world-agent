@@ -414,7 +414,7 @@ async function callOpenRouter(apiKey: string, model: string, systemPrompt: strin
   const body: Record<string, any> = {
     model,
     temperature: 0.7,
-    max_tokens: isThinkingModel ? 16384 : 4096,
+    max_tokens: isThinkingModel ? 16384 : 1024,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -1315,6 +1315,43 @@ export async function startAgent(config: AgentConfig): Promise<void> {
   const memoryDir = join(config.dir, 'memory');
   if (!existsSync(memoryDir)) mkdirSync(memoryDir, { recursive: true });
 
+  // --- PID management: write our PID, kill any previous instance ---
+  const pidsDir = join(config.dir, '..', '.pids');
+  if (!existsSync(pidsDir)) mkdirSync(pidsDir, { recursive: true });
+  const agentSlug = config.dir.split('/').pop() || 'agent';
+  const pidFile = join(pidsDir, `${agentSlug}.pid`);
+
+  // Kill previous instance if pid file exists
+  if (existsSync(pidFile)) {
+    const oldPid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
+    if (oldPid && oldPid !== process.pid) {
+      try {
+        process.kill(oldPid, 0); // check if alive
+        console.log(`[${agentSlug}] Killing previous instance (pid ${oldPid})...`);
+        process.kill(oldPid, 'SIGKILL');
+      } catch {
+        // Process already dead — clean
+      }
+    }
+  }
+
+  // Write our own PID
+  writeFileSync(pidFile, String(process.pid), 'utf-8');
+
+  // Clean up PID file on exit
+  const cleanupPid = () => {
+    try {
+      const current = readFileSync(pidFile, 'utf-8').trim();
+      if (current === String(process.pid)) {
+        const { unlinkSync } = require('fs');
+        unlinkSync(pidFile);
+      }
+    } catch { /* already gone */ }
+  };
+  process.on('exit', cleanupPid);
+  process.on('SIGTERM', () => { cleanupPid(); process.exit(0); });
+  process.on('SIGINT', () => { cleanupPid(); process.exit(0); });
+
   // 1. Load soul files
   const identity = readMd(join(config.dir, 'IDENTITY.md'));
   const otherAgents = readMd(join(config.dir, 'AGENTS.md'));
@@ -1676,6 +1713,9 @@ export async function startAgent(config: AgentConfig): Promise<void> {
 
       // h. LLM decides
       console.log(`[${agentName}] Tick ${tickCount} — calling LLM (prompt: ${trimmedPrompt.length} chars)`);
+      if (rotator && tickCount % 5 === 0) {
+        console.log(`[${agentName}] Buckets: ${rotator.status()}`);
+      }
       let llmResponse: LLMResponse;
       let usedProvider = config.llmProvider;
 

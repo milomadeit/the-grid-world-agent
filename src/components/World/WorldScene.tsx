@@ -7,6 +7,7 @@ import InfiniteGrid from './InfiniteGrid';
 import AgentBlob from './AgentBlob';
 import InstancedPrimitives from './InstancedPrimitives';
 import Terminal3D from './Terminal3D';
+import NodeBoundaries from './NodeBoundaries';
 import ObjectInfoModal from '../UI/ObjectInfoModal';
 import { useWorldStore } from '../../store';
 
@@ -224,6 +225,8 @@ const WorldScene: React.FC<WorldSceneProps> = ({ playerAgentId, isDarkMode, onGr
 
 
           <InfiniteGrid isDarkMode={isDarkMode} />
+
+          <NodeBoundaries />
 
           <Terminal3D />
 

@@ -17,7 +17,7 @@ import dotenv from 'dotenv';
 import { setDefaultResultOrder } from 'dns';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { startAgent } from './shared/runtime.js';
 import type { LLMBucket } from './shared/key-rotator.js';
 
@@ -90,42 +90,62 @@ interface AgentDef {
   };
 }
 
-// --- Gemini Bucket Pools (ordered by preference: best first) ---
-// Each key x model = independent RPD quota. On 429, rotator tries next bucket instantly.
-// Agents are staggered: Oracle→KEY_2, Clank→KEY_3, Mouse→KEY_1
+// --- Gemini Bucket Pools ---
+// Order: lite models first (1500 RPD each), quality models second (500 RPD each).
+// Each agent starts on its dedicated key, then overflows to other keys.
+// On 429 the bucket is burned for the day — rotator moves to next bucket.
+//
+// RPD quotas (free tier, per key × model):
+//   gemini-2.5-flash-lite:         1500 RPD
+//   gemini-3.1-flash-lite-preview: 1500 RPD
+//   gemini-2.5-flash:               500 RPD
+//   gemini-3-flash-preview:         500 RPD
+//
+// 3 keys × 4 models = 12 Gemini buckets per agent = ~8000 RPD total capacity
+// At 1 req/60s = ~1440 RPD per agent, so each agent needs ~2 buckets/day
 
 const GEMINI_POOL_ORACLE: LLMBucket[] = [
-  // Primary: quality model on dedicated key (500 RPD — burns first)
-  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_2, label: '2.5-flash@K2' },
-  // High-RPD fallbacks IMMEDIATELY after primary (1500 RPD each — won't burn as fast)
+  // Lite models on dedicated key (1500 RPD each — primary workhorse)
   { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
   { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_2, label: '3.1-lite@K2' },
-  // Quality alternatives (500 RPD, used when lite also burned)
+  // Lite models on other keys (overflow)
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY,   label: '2.5-lite@K1' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY,   label: '3.1-lite@K1' },
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_3, label: '2.5-lite@K3' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_3, label: '3.1-lite@K3' },
+  // Quality models (500 RPD each — use only after all lite burned)
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_2, label: '2.5-flash@K2' },
   { provider: 'gemini', model: 'gemini-3-flash-preview',        apiKey: GEMINI_KEY_2, label: '3-flash@K2' },
   { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY,   label: '2.5-flash@K1' },
   { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_3, label: '2.5-flash@K3' },
-  // Big Pickle (free OpenCode, 355B MoE) — quality fallback when Gemini burned
+  // Non-Gemini fallbacks
   ...(OPENCODE_KEY ? [
     { provider: 'opencode' as const, model: 'big-pickle', apiKey: OPENCODE_KEY, label: 'BigPickle' },
   ] : []),
-  // Last resort: OpenRouter
+  ...(MINIMAX_KEY ? [
+    { provider: 'minimax' as const, model: 'MiniMax-M2.5-highspeed', apiKey: MINIMAX_KEY, label: 'MiniMax-M2.5' },
+  ] : []),
   ...(ORACLE_OPENROUTER_KEY ? [
-    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-lite', apiKey: ORACLE_OPENROUTER_KEY, label: 'OR-free' },
+    { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-lite', apiKey: ORACLE_OPENROUTER_KEY, label: 'OR-gemini-lite' },
   ] : []),
 ];
 
 // NOTE: OPENCODE_API key returned 401 as of 2026-03-13. Get fresh key from opencode.ai to enable BigPickle.
 
 const GEMINI_POOL_CLANK: LLMBucket[] = [
-  // Primary: Clank's dedicated key, lite models
+  // Lite models on dedicated key
   { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_3, label: '2.5-lite@K3' },
   { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_3, label: '3.1-lite@K3' },
-  // Quality upgrade on same key
+  // Lite overflow to other keys
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY,   label: '2.5-lite@K1' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY,   label: '3.1-lite@K1' },
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_2, label: '3.1-lite@K2' },
+  // Quality fallbacks
   { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_3, label: '2.5-flash@K3' },
   { provider: 'gemini', model: 'gemini-3-flash-preview',        apiKey: GEMINI_KEY_3, label: '3-flash@K3' },
-  // Cross-key lite fallbacks
-  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY,   label: '2.5-lite@K1' },
-  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY,   label: '2.5-flash@K1' },
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_2, label: '2.5-flash@K2' },
   // Last resort
   ...(CLANK_OPENROUTER_KEY ? [
     { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-lite', apiKey: CLANK_OPENROUTER_KEY, label: 'OR-free' },
@@ -133,15 +153,19 @@ const GEMINI_POOL_CLANK: LLMBucket[] = [
 ];
 
 const GEMINI_POOL_MOUSE: LLMBucket[] = [
-  // Primary: Mouse's dedicated key, lite models
+  // Lite models on dedicated key
   { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY,   label: '2.5-lite@K1' },
   { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY,   label: '3.1-lite@K1' },
-  // Quality upgrade on same key
+  // Lite overflow to other keys
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_2, label: '3.1-lite@K2' },
+  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_3, label: '2.5-lite@K3' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_3, label: '3.1-lite@K3' },
+  // Quality fallbacks
   { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY,   label: '2.5-flash@K1' },
   { provider: 'gemini', model: 'gemini-3-flash-preview',        apiKey: GEMINI_KEY,   label: '3-flash@K1' },
-  // Cross-key lite fallbacks
-  { provider: 'gemini', model: 'gemini-2.5-flash-lite',         apiKey: GEMINI_KEY_2, label: '2.5-lite@K2' },
-  { provider: 'gemini', model: 'gemini-3.1-flash-lite-preview', apiKey: GEMINI_KEY_3, label: '3.1-lite@K3' },
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_2, label: '2.5-flash@K2' },
+  { provider: 'gemini', model: 'gemini-2.5-flash',              apiKey: GEMINI_KEY_3, label: '2.5-flash@K3' },
   // Last resort
   ...(MOUSE_OPENROUTER_KEY ? [
     { provider: 'openrouter' as const, model: 'google/gemini-2.5-flash-lite', apiKey: MOUSE_OPENROUTER_KEY, label: 'OR-free' },
@@ -210,7 +234,7 @@ const childProcesses = new Map<string, ReturnType<typeof spawn>>();
 function spawnAgent(name: string) {
   if (shuttingDown) return;
 
-  const child = spawn('npx', ['tsx', 'index.ts', name], {
+  const child = spawn('node', ['--import', 'tsx', 'index.ts', name], {
     cwd: __dirname,
     stdio: ['ignore', 'inherit', 'inherit'],
     env: process.env,
@@ -238,21 +262,45 @@ function shutdownAll() {
   for (const [name, child] of childProcesses) {
     console.log(`[Boot] Killing "${name}" (pid ${child.pid})`);
     child.kill('SIGTERM');
+    // Also kill the process group to catch grandchildren
+    try { process.kill(-(child.pid!), 'SIGTERM'); } catch { /* no group */ }
   }
-  // Force kill after 5s if still alive
+  // Force kill after 3s if still alive
   setTimeout(() => {
     for (const [name, child] of childProcesses) {
-      console.warn(`[Boot] Force killing "${name}" (pid ${child.pid})`);
-      child.kill('SIGKILL');
+      try { child.kill('SIGKILL'); } catch { /* already dead */ }
+      try { process.kill(-(child.pid!), 'SIGKILL'); } catch { /* already dead */ }
     }
     process.exit(0);
-  }, 5000);
+  }, 3000);
 }
 
 process.on('SIGINT', shutdownAll);
 process.on('SIGTERM', shutdownAll);
 
+function killPreviousInstances() {
+  // Kill any existing agent processes before spawning new ones
+  try {
+    const result = execSync(
+      `ps ax -o pid,command | grep -E 'index\\.ts (smith|oracle|clank|mouse|all)' | grep -v grep | grep -v " ${process.pid} " | awk '{print $1}'`,
+      { encoding: 'utf-8', timeout: 5000 }
+    ).trim();
+    if (result) {
+      const pids = result.split('\n').filter(p => p && parseInt(p) !== process.pid);
+      if (pids.length > 0) {
+        console.log(`[Boot] Killing ${pids.length} previous agent process(es)...`);
+        for (const pid of pids) {
+          try { process.kill(parseInt(pid), 'SIGKILL'); } catch { /* already dead */ }
+        }
+        // Brief pause to let OS reclaim
+        execSync('sleep 1');
+      }
+    }
+  } catch { /* no previous processes */ }
+}
+
 function spawnAll() {
+  killPreviousInstances();
   console.log(`[Boot] Spawning ${ALL_AGENTS.length} agents as separate processes...`);
   for (const name of ALL_AGENTS) {
     spawnAgent(name);
