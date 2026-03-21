@@ -2098,6 +2098,17 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           position.y = validation.correctedY;
         }
 
+        // Spawn exclusion zone check (same as single-primitive and BUILD_START)
+        const distFromOrigin = Math.sqrt(position.x ** 2 + position.z ** 2);
+        if (distFromOrigin < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) {
+          results.push({
+            index: idx,
+            success: false,
+            error: `Cannot build within ${BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN} units of the origin`,
+          });
+          continue;
+        }
+
         // Create the primitive — tag with blueprint instance so all pieces
         // from the same blueprint are grouped as one structure.
         const primitive = {

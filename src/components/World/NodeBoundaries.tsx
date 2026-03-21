@@ -13,18 +13,16 @@ interface TierStyle {
   opacity: number;
 }
 
-// Starcraft-style territory colors — higher tiers glow brighter
 const TIER_STYLES: Record<string, TierStyle> = {
-  'server-node':      { color: '#38bdf8', opacity: 0.18 },  // sky blue
-  'forest-node':      { color: '#34d399', opacity: 0.22 },  // emerald
-  'city-node':        { color: '#fbbf24', opacity: 0.30 },  // amber
-  'metropolis-node':  { color: '#a78bfa', opacity: 0.38 },  // violet
-  'megaopolis-node':  { color: '#f59e0b', opacity: 0.45 },  // gold
+  'server-node':      { color: '#38bdf8', opacity: 0.35 },
+  'forest-node':      { color: '#34d399', opacity: 0.40 },
+  'city-node':        { color: '#a78bfa', opacity: 0.50 },
+  'metropolis-node':  { color: '#a78bfa', opacity: 0.55 },
+  'megaopolis-node':  { color: '#f59e0b', opacity: 0.60 },
 };
 
-const DEFAULT_STYLE: TierStyle = { color: '#6b7280', opacity: 0.15 };
+const DEFAULT_STYLE: TierStyle = { color: '#6b7280', opacity: 0.25 };
 
-// Minimum tier to render — skip settlement-node (too many, too small)
 const MIN_RENDER_TIER = 'server-node';
 const TIER_RANK: Record<string, number> = {
   'settlement-node': 0,
@@ -47,7 +45,7 @@ function shouldRender(tier: string): boolean {
   return (TIER_RANK[tier] ?? 0) >= (TIER_RANK[MIN_RENDER_TIER] ?? 1);
 }
 
-// --- Single node boundary ring ---
+// --- Thin ring boundary ---
 
 interface NodeRingProps {
   center: { x: number; z: number };
@@ -56,35 +54,35 @@ interface NodeRingProps {
   tier: string;
 }
 
-const RING_SEGMENTS = 96;
-const PULSE_SPEED = 0.8;
-const PULSE_AMPLITUDE = 0.06;
+const RING_SEGMENTS = 128;
+const PULSE_SPEED = 0.4;
 
 const NodeRing: React.FC<NodeRingProps> = React.memo(({ center, radius, name, tier }) => {
   const style = getTierStyle(tier);
-  const materialRef = useRef<THREE.ShaderMaterial>(null);
+  const ringMatRef = useRef<THREE.ShaderMaterial>(null);
+  const fillMatRef = useRef<THREE.MeshBasicMaterial>(null);
   const tierRank = TIER_RANK[tier] ?? 0;
 
-  // Ring width scales with node size — bigger nodes get thicker rings
-  const ringWidth = Math.max(1.0, Math.min(3.5, radius * 0.04));
-  const innerRadius = Math.max(0.5, radius - ringWidth / 2);
-  const outerRadius = radius + ringWidth / 2;
+  // Thin stroke — 1px-feeling line at world scale
+  const strokeWidth = Math.max(0.4, Math.min(1.2, radius * 0.005));
+  const innerR = radius - strokeWidth * 0.5;
+  const outerR = radius + strokeWidth * 0.5;
 
-  // Custom shader for soft glowing ring with radial falloff
-  const shaderArgs = useMemo(() => {
-    const baseColor = new THREE.Color(style.color);
+  // Ring shader — thin crisp line with very subtle outer softness
+  const ringShader = useMemo(() => {
+    const col = new THREE.Color(style.color);
     return {
       uniforms: {
-        uColor: { value: baseColor },
+        uColor: { value: col },
         uOpacity: { value: style.opacity },
         uTime: { value: 0 },
-        uInnerRadius: { value: innerRadius },
-        uOuterRadius: { value: outerRadius },
+        uInner: { value: innerR },
+        uOuter: { value: outerR },
       },
       vertexShader: /* glsl */ `
-        varying float vRadius;
+        varying float vDist;
         void main() {
-          vRadius = length(position.xz);
+          vDist = length(position.xy);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
@@ -92,23 +90,25 @@ const NodeRing: React.FC<NodeRingProps> = React.memo(({ center, radius, name, ti
         uniform vec3 uColor;
         uniform float uOpacity;
         uniform float uTime;
-        uniform float uInnerRadius;
-        uniform float uOuterRadius;
-
-        varying float vRadius;
+        uniform float uInner;
+        uniform float uOuter;
+        varying float vDist;
 
         void main() {
-          float mid = (uInnerRadius + uOuterRadius) * 0.5;
-          float halfWidth = (uOuterRadius - uInnerRadius) * 0.5;
-          float dist = abs(vRadius - mid) / halfWidth;
-          // Sharper edge, softer falloff for Starcraft territory look
-          float alpha = smoothstep(1.0, 0.15, dist);
+          float mid = (uInner + uOuter) * 0.5;
+          float hw = (uOuter - uInner) * 0.5;
+          float d = abs(vDist - mid) / hw;
 
-          // Subtle pulse
-          float pulse = sin(uTime) * ${PULSE_AMPLITUDE.toFixed(4)};
+          // Sharp core + soft 1-pixel anti-alias fade
+          float alpha = smoothstep(1.0, 0.6, d);
 
-          float finalAlpha = alpha * (uOpacity + pulse);
-          gl_FragColor = vec4(uColor, finalAlpha);
+          // Soft outer bloom
+          float bloom = exp(-1.5 * d * d) * 0.25;
+
+          float pulse = 1.0 + sin(uTime) * 0.05;
+
+          float final_a = (alpha + bloom) * uOpacity * pulse;
+          gl_FragColor = vec4(uColor, final_a);
         }
       `,
       transparent: true,
@@ -116,35 +116,35 @@ const NodeRing: React.FC<NodeRingProps> = React.memo(({ center, radius, name, ti
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
     };
-  }, [style.color, style.opacity, innerRadius, outerRadius]);
+  }, [style.color, style.opacity, innerR, outerR]);
 
-  // Animate pulse
+  // Animate
   useFrame((_, delta) => {
-    if (materialRef.current) {
-      materialRef.current.uniforms.uTime.value += delta * PULSE_SPEED;
+    if (ringMatRef.current) {
+      ringMatRef.current.uniforms.uTime.value += delta * PULSE_SPEED;
     }
   });
 
-  // Label scales with tier importance
-  const labelFontSize = Math.max(1.5, Math.min(4.0, 1.2 + tierRank * 0.5));
-  const labelHeight = Math.max(3, Math.min(8, 2 + tierRank));
+  const labelFontSize = Math.max(1.5, Math.min(3.5, 1.0 + tierRank * 0.45));
+  const labelHeight = Math.max(2, Math.min(6, 1.5 + tierRank));
   const label = `${name} · ${formatTier(tier)}`;
 
-  // Inner fill opacity scales with tier
-  const fillOpacity = style.opacity * 0.12;
+  // Very faint interior tint
+  const fillOpacity = style.opacity * 0.04;
 
   return (
     <group position={[center.x, 0.05, center.z]}>
-      {/* Glowing ring */}
+      {/* Thin stroke ring */}
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[innerRadius, outerRadius, RING_SEGMENTS]} />
-        <shaderMaterial ref={materialRef} args={[shaderArgs]} />
+        <ringGeometry args={[innerR - strokeWidth, outerR + strokeWidth, RING_SEGMENTS]} />
+        <shaderMaterial ref={ringMatRef} args={[ringShader]} />
       </mesh>
 
-      {/* Inner territory fill — faint tint */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
-        <circleGeometry args={[innerRadius, RING_SEGMENTS]} />
+      {/* Barely-there interior fill */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
+        <circleGeometry args={[innerR, RING_SEGMENTS]} />
         <meshBasicMaterial
+          ref={fillMatRef}
           color={style.color}
           transparent
           opacity={fillOpacity}
@@ -154,17 +154,17 @@ const NodeRing: React.FC<NodeRingProps> = React.memo(({ center, radius, name, ti
         />
       </mesh>
 
-      {/* Text label floating above center */}
+      {/* Label */}
       <Text
         position={[0, labelHeight, 0]}
         fontSize={labelFontSize}
         color={style.color}
         anchorX="center"
         anchorY="middle"
-        fillOpacity={0.6}
-        outlineWidth={0.06}
+        fillOpacity={0.5}
+        outlineWidth={0.04}
         outlineColor="#000000"
-        outlineOpacity={0.5}
+        outlineOpacity={0.4}
         maxWidth={radius * 1.8}
         font={undefined}
       >
@@ -181,7 +181,6 @@ NodeRing.displayName = 'NodeRing';
 const NodeBoundaries: React.FC = () => {
   const nodes = useWorldStore((s) => s.nodes);
 
-  // Filter: only render nodes above settlement tier
   const visibleNodes = useMemo(() => {
     if (!nodes || nodes.length === 0) return [];
     return nodes.filter(n => shouldRender(n.tier));
