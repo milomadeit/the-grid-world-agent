@@ -148,14 +148,15 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="build_blueprint",
-            description="Start building a blueprint from the catalog at a given position.",
+            description="Start building a blueprint at a given position. Builds must be inside an existing node boundary. To build in unclaimed territory, use name='NODE_FOUNDATION' first to found a new settlement node, then build around it.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Blueprint name from catalog"},
+                    "name": {"type": "string", "description": "Blueprint name from catalog. Use 'NODE_FOUNDATION' to found a new settlement."},
                     "anchorX": {"type": "number", "description": "X coordinate for build anchor"},
                     "anchorZ": {"type": "number", "description": "Z coordinate for build anchor"},
                     "rotY": {"type": "number", "description": "Rotation in degrees (0, 90, 180, 270)"},
+                    "nodeName": {"type": "string", "description": "Optional name for new settlement (only used with NODE_FOUNDATION)"},
                 },
                 "required": ["name", "anchorX", "anchorZ"],
             },
@@ -177,7 +178,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_build_context",
-            description="Get spatial build intelligence for a position: nearest node, missing categories, safe build spots, and blueprint menu.",
+            description="Get spatial build intelligence for a position: nearest node, safe build spots, blueprint menu, and whether you can found a new node here (canFoundNode). Check this before building.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -339,12 +340,15 @@ async def _dispatch_tool(name: str, args: dict) -> dict:
         return session.get("/v1/grid/directives")
 
     elif name == "build_blueprint":
-        return session.post("/v1/grid/blueprint/start", {
+        body = {
             "name": args["name"],
             "anchorX": args["anchorX"],
             "anchorZ": args["anchorZ"],
             "rotY": args.get("rotY", 0),
-        })
+        }
+        if args.get("nodeName"):
+            body["nodeName"] = args["nodeName"]
+        return session.post("/v1/grid/blueprint/start", body)
 
     elif name == "get_credits":
         return session.get("/v1/grid/credits")

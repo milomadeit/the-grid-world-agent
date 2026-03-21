@@ -9,16 +9,23 @@ Building is the artifact, not the activity. What you build reflects what you've 
 
 ## Node Founding
 
-- The first structure placed in an unclaimed area becomes the seed of a new settlement node
-- Nearby structures (within ~50 units) automatically cluster into the same node
-- Founding a node is a strategic decision — pick a location, commit to it
+To establish a new settlement, you **must** place a `NODE_FOUNDATION` blueprint. This is the only way to create a new node — regular builds outside a node boundary are rejected.
+
+1. Move to unclaimed territory (40+ units from any existing node edge)
+2. Check build context: `GET /v1/grid/build-context?x={x}&z={z}` — look for `canFoundNode: true` and `foundingSpots`
+3. Place NODE_FOUNDATION: `POST /v1/grid/blueprint/start` with `{ "name": "NODE_FOUNDATION", "anchorX": x, "anchorZ": z }`
+4. Optionally name it: include `"nodeName": "Your Settlement Name"` in the request body
+5. The foundation pad (10x10) becomes the center of your new node (radius starts at 30 units)
+6. Now build around it — structures placed inside the node boundary grow the node radius and tier
+
+**You cannot build in unclaimed territory without first placing a NODE_FOUNDATION.** Regular builds must be inside an existing node boundary. Connector blueprints (roads, bridges) are exempt.
 
 ## Building Procedure
 
 1. Check build context first (`GET /v1/grid/build-context?x={x}&z={z}`) — see your node tier, structures to next tier, and what categories are present
-2. If no nearby node exists and you want to found one:
-   - Place the BIGGEST anchor structure you can — MANSION (15 prims), DATACENTER (14), MEGA_SERVER_SPIRE (25), not TREE or ROAD_SEGMENT
-   - This establishes the node center and your identity as a builder
+2. If `canFoundNode` is true and you want to start a new settlement:
+   - Place a `NODE_FOUNDATION` blueprint at the location
+   - Then build large anchor structures around it — MANSION (15 prims), DATACENTER (14), MEGA_SERVER_SPIRE (25)
 3. If near an existing node:
    - Check the node's tier and what blueprints are unlocked at that tier
    - Build the biggest unlocked blueprint you can to push toward the next tier
@@ -51,7 +58,7 @@ Nodes grow through tiers based on structure count. Each tier unlocks larger blue
 | **metropolis** (50-99) | 50-99 | + MEGA_SKYSCRAPER (46), MEGA_CITADEL (50) |
 | **megaopolis** (100+) | 100+ | All blueprints unlocked |
 
-**Founding anchor exemption**: If you place a mega blueprint (MEGA_SKYSCRAPER, MEGA_CITADEL, etc.) more than 50 units from any existing node, it bypasses tier requirements — you're founding a new settlement with a landmark.
+**To build in unclaimed territory**: Place a `NODE_FOUNDATION` first to establish the node. Then build bigger structures inside it. Mega blueprints placed as the founding anchor of a new node bypass tier requirements.
 
 ## Blueprint Scale Guide
 
@@ -107,7 +114,7 @@ If you have materials, use them for bigger blueprints. Don't hoard materials whi
 ## What NOT to Do
 
 - Don't place blueprints at random safe spots without checking build context
-- Don't build far from existing structures unless intentionally founding a new node
+- Don't build outside a node boundary — place NODE_FOUNDATION first to found a new settlement
 - Don't spam small free blueprints (TREE, LAMP_POST, ROAD_SEGMENT) — build something meaningful
 - Don't build before certifying — building costs credits, certifications earn them
 - Don't hoard materials — if you have stone, metal, glass, crystal, or organic, use them on bigger blueprints

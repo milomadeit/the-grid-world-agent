@@ -899,23 +899,29 @@ function findNearestDeclaredNode(
 /** Auto-create a declared node when an agent builds far enough from existing nodes. */
 async function autoFoundNode(
   anchorX: number, anchorZ: number, founderAgentId: string,
-  existingNodes: DeclaredNodeWithStats[]
+  existingNodes: DeclaredNodeWithStats[],
+  customName?: string,
 ): Promise<WorldNode> {
-  // Generate direction-based name
-  const worldCenterX = existingNodes.length > 0
-    ? existingNodes.reduce((s, n) => s + n.centerX, 0) / existingNodes.length : 0;
-  const worldCenterZ = existingNodes.length > 0
-    ? existingNodes.reduce((s, n) => s + n.centerZ, 0) / existingNodes.length : 0;
-  const dir = directionForPoint(anchorX, anchorZ, worldCenterX, worldCenterZ);
-  const dirLabel = DIRECTION_LABELS[dir] || 'Central';
+  let name: string;
+  if (customName && customName.trim().length > 0) {
+    name = customName.trim();
+  } else {
+    // Generate direction-based name
+    const worldCenterX = existingNodes.length > 0
+      ? existingNodes.reduce((s, n) => s + n.centerX, 0) / existingNodes.length : 0;
+    const worldCenterZ = existingNodes.length > 0
+      ? existingNodes.reduce((s, n) => s + n.centerZ, 0) / existingNodes.length : 0;
+    const dir = directionForPoint(anchorX, anchorZ, worldCenterX, worldCenterZ);
+    const dirLabel = DIRECTION_LABELS[dir] || 'Central';
 
-  // Count existing nodes with same direction to add suffix
-  const sameDir = existingNodes.filter(n => {
-    const nd = directionForPoint(n.centerX, n.centerZ, worldCenterX, worldCenterZ);
-    return nd === dir;
-  }).length;
-  const suffix = sameDir > 0 ? ` ${sameDir + 1}` : '';
-  const name = `settlement-node ${dirLabel}${suffix}`;
+    // Count existing nodes with same direction to add suffix
+    const sameDir = existingNodes.filter(n => {
+      const nd = directionForPoint(n.centerX, n.centerZ, worldCenterX, worldCenterZ);
+      return nd === dir;
+    }).length;
+    const suffix = sameDir > 0 ? ` ${sameDir + 1}` : '';
+    name = `settlement-node ${dirLabel}${suffix}`;
+  }
 
   const id = `node_${Math.round(anchorX)}_${Math.round(anchorZ)}_${Date.now()}`;
   const node = await db.createWorldNode({
@@ -1461,25 +1467,20 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       if (nearestNode && distToEdge <= 0) {
         // Inside a node boundary — allowed, grow radius if needed
         await growNodeRadius(nearestNode, body.position.x, body.position.z, declaredNodes);
-      } else if (distToEdge >= NODE_GAP_MIN) {
-        // Far enough from all nodes — auto-found a new node
-        await autoFoundNode(body.position.x, body.position.z, agentId, declaredNodes);
       } else {
-        // In the gap zone — rejected
+        // Outside all nodes (gap or unclaimed) — rejected for regular primitives
         return reply.status(409).send({
-          error: `Build location is in the gap between nodes (${Math.round(distToEdge)}u from nearest node edge "${nearestNode?.name || 'unknown'}"). Build inside a node boundary or ${NODE_GAP_MIN}+ units from any node to found a new settlement.`,
+          error: `Build rejected: location is in unclaimed territory (${Math.round(distToEdge)}u from nearest node "${nearestNode?.name || 'unknown'}"). Place a NODE_FOUNDATION blueprint first to establish a new settlement, or build inside an existing node boundary.`,
           nextActions: [
             nearestNode ? `MOVE to node "${nearestNode.name}" center at (${Math.round(nearestNode.centerX)}, ${Math.round(nearestNode.centerZ)}) and build there.` : 'MOVE to an existing node.',
-            `Or MOVE ${NODE_GAP_MIN}+ units from any node edge to found a new settlement.`,
-            'Roads and bridges are exempt from this restriction — use connector blueprints to link nodes.',
+            'Use BUILD_BLUEPRINT with name "NODE_FOUNDATION" to found a new settlement in unclaimed territory.',
+            'Roads and bridges are exempt — use connector blueprints to link nodes.',
           ],
         });
       }
     } else if (declaredNodes.length === 0 && allPrimitives.length >= BUILD_CREDIT_CONFIG.SETTLEMENT_PROXIMITY_THRESHOLD) {
       // No declared nodes exist yet but we have structures — run migration
       await seedDeclaredNodesFromLegacy(structs, connPrims);
-      // Auto-found a node at this build site
-      await autoFoundNode(body.position.x, body.position.z, agentId, []);
     }
 
     // Validate build position (no floating shapes) — use in-memory cache, not DB
@@ -1587,6 +1588,7 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     anchorX: z.number(),
     anchorZ: z.number(),
     rotY: z.number().optional().default(0),
+    nodeName: z.string().max(40).optional(), // Optional name when founding a node via NODE_FOUNDATION
   });
 
   fastify.post('/v1/grid/blueprint/start', async (request, reply) => {
@@ -1700,11 +1702,10 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       const requiredRank = tierRank(blueprint.minNodeTier as NodeTier);
       if (!isFoundingAnchor && tierRank(bestDeclaredNode.tier as NodeTier) < requiredRank) {
         return reply.code(403).send({
-          error: `This blueprint requires a nearby ${blueprint.minNodeTier} or higher. Nearest node "${bestDeclaredNode.name}" is ${bestDeclaredNode.tier}. Build more structures to grow this node, or found a new one ${NODE_GAP_MIN}+ units from any node edge.`,
+          error: `This blueprint requires a nearby ${blueprint.minNodeTier} or higher. Nearest node "${bestDeclaredNode.name}" is ${bestDeclaredNode.tier}. Build more structures to grow this node's tier.`,
           nextActions: [
-            `Build more structures near "${bestDeclaredNode.name}" to grow it.`,
-            `Or place this blueprint ${NODE_GAP_MIN}+ units from any node edge to found a new settlement.`,
-            'Use GET /v1/grid/build-context to find safe build spots.',
+            `Build more structures inside "${bestDeclaredNode.name}" to grow it to ${blueprint.minNodeTier}.`,
+            'Use GET /v1/grid/build-context to see current tier progress and available blueprints.',
           ],
         });
       }
@@ -1748,27 +1749,52 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
     }
 
     // --- Declared Node Boundary Enforcement for Blueprint ---
-    if (declaredNodes.length > 0 && !isConnectorBlueprint) {
+    const isNodeFoundation = body.name === 'NODE_FOUNDATION';
+
+    if (isNodeFoundation) {
+      // NODE_FOUNDATION: the ONLY way to found a new node
+      if (bestDeclaredNode && distToEdge <= 0) {
+        return reply.code(409).send({
+          error: `Cannot place NODE_FOUNDATION inside an existing node ("${bestDeclaredNode.name}"). Move to unclaimed territory (${NODE_GAP_MIN}+ units from any node edge) to found a new settlement.`,
+          nextActions: [
+            `MOVE at least ${NODE_GAP_MIN} units from the edge of "${bestDeclaredNode.name}" to unclaimed territory.`,
+            'Use GET /v1/grid/build-context to find locations where canFoundNode is true.',
+          ],
+        });
+      } else if (distToEdge >= NODE_GAP_MIN || !bestDeclaredNode) {
+        // Far enough from all nodes — found the new node
+        const newNode = await autoFoundNode(
+          body.anchorX, body.anchorZ, agentId, declaredNodes,
+          body.nodeName // optional custom name
+        );
+        console.log(`[Nodes] NODE_FOUNDATION placed by ${agentId} — founded "${newNode.name}" at (${Math.round(body.anchorX)}, ${Math.round(body.anchorZ)})`);
+      } else {
+        // In the gap — too close to found
+        return reply.code(409).send({
+          error: `Too close to node "${bestDeclaredNode?.name || 'unknown'}" (${Math.round(distToEdge)}u from edge). NODE_FOUNDATION requires ${NODE_GAP_MIN}+ units from any existing node edge.`,
+          nextActions: [
+            `MOVE further away — you need at least ${NODE_GAP_MIN} units from "${bestDeclaredNode?.name || 'unknown'}" edge.`,
+            'Use GET /v1/grid/build-context to find locations where canFoundNode is true.',
+          ],
+        });
+      }
+    } else if (declaredNodes.length > 0 && !isConnectorBlueprint) {
       if (bestDeclaredNode && distToEdge <= 0) {
         // Inside a node — allowed, grow radius
         await growNodeRadius(bestDeclaredNode, body.anchorX, body.anchorZ, declaredNodes);
-      } else if (distToEdge >= NODE_GAP_MIN) {
-        // Far enough — auto-found a new node
-        await autoFoundNode(body.anchorX, body.anchorZ, agentId, declaredNodes);
       } else {
-        // In the gap — rejected (unless connector)
+        // Outside all nodes — rejected for non-foundation, non-connector blueprints
         return reply.code(409).send({
-          error: `Blueprint anchor is in the gap between nodes (${Math.round(distToEdge)}u from "${bestDeclaredNode?.name || 'unknown'}" edge). Build inside a node or ${NODE_GAP_MIN}+ units from any node edge to found a new settlement.`,
+          error: `Build rejected: location is in unclaimed territory (${Math.round(distToEdge)}u from nearest node "${bestDeclaredNode?.name || 'unknown'}"). Place a NODE_FOUNDATION blueprint first to establish a new settlement, or build inside an existing node boundary.`,
           nextActions: [
             bestDeclaredNode ? `MOVE to "${bestDeclaredNode.name}" center at (${Math.round(bestDeclaredNode.centerX)}, ${Math.round(bestDeclaredNode.centerZ)}).` : 'MOVE to an existing node.',
-            `Or MOVE ${NODE_GAP_MIN}+ units from any node to found a new settlement.`,
-            'Connector blueprints (roads, bridges) ARE allowed in the gap.',
+            'Use BUILD_BLUEPRINT with name "NODE_FOUNDATION" to found a new settlement here.',
+            'Connector blueprints (roads, bridges) ARE allowed in unclaimed territory.',
           ],
         });
       }
     } else if (declaredNodes.length === 0 && existingWorldPrims.length >= BUILD_CREDIT_CONFIG.SETTLEMENT_PROXIMITY_THRESHOLD) {
       await seedDeclaredNodesFromLegacy(structsForGates, connForGates);
-      await autoFoundNode(body.anchorX, body.anchorZ, agentId, []);
     }
 
     // Check resource costs for this blueprint
@@ -3776,11 +3802,11 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       }
     } else if (primitiveInput.length === 0) {
       nodeGrowthStage = 'empty';
-      stageGuidance = 'Empty world. Found a new settlement by placing an anchor structure.';
+      stageGuidance = 'Empty world. Place a NODE_FOUNDATION blueprint to found your first settlement.';
       structuresToNextTier = 1;
     } else {
       nodeGrowthStage = 'empty';
-      stageGuidance = 'No nearby node. Found a new settlement by placing an anchor structure, or move closer to an existing node.';
+      stageGuidance = 'No nearby node. Place a NODE_FOUNDATION blueprint to found a new settlement, or move closer to an existing node.';
       structuresToNextTier = 1;
     }
 
@@ -3810,6 +3836,49 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
       nextActions.push('SCAVENGE to earn materials + credits while waiting for space to open up.');
     }
 
+    // Can the agent found a new node here?
+    // Must be outside origin zone AND far enough from all node edges
+    const distToNearestEdge = nearestNode
+      ? nearestNodeDist - nearestNode.radius
+      : Infinity;
+    const canFoundNode = !insideOriginZone && (distToNearestEdge >= NODE_GAP_MIN || nodes.length === 0);
+
+    // Generate founding spots if agent is in or near unclaimed territory
+    let foundingSpots: { x: number; z: number; distToNearestNode: number }[] = [];
+    if (canFoundNode || distToNearestEdge > 0) {
+      const SCAN_STEP = 40;
+      const SCAN_RANGE = 200;
+      for (let dx = -SCAN_RANGE; dx <= SCAN_RANGE; dx += SCAN_STEP) {
+        for (let dz = -SCAN_RANGE; dz <= SCAN_RANGE; dz += SCAN_STEP) {
+          const sx = Math.round(reqX + dx);
+          const sz = Math.round(reqZ + dz);
+          // Must be outside origin zone
+          if (Math.sqrt(sx * sx + sz * sz) < BUILD_CREDIT_CONFIG.MIN_BUILD_DISTANCE_FROM_ORIGIN) continue;
+          // Must be far enough from all nodes
+          let minEdgeDist = Infinity;
+          for (const n of nodes) {
+            const d = pointDistanceXZ({ x: sx, z: sz }, n.center) - n.radius;
+            if (d < minEdgeDist) minEdgeDist = d;
+          }
+          if (minEdgeDist >= NODE_GAP_MIN || nodes.length === 0) {
+            foundingSpots.push({ x: sx, z: sz, distToNearestNode: Math.round(minEdgeDist) });
+          }
+        }
+      }
+      foundingSpots = foundingSpots
+        .sort((a, b) => {
+          const dA = pointDistanceXZ({ x: a.x, z: a.z }, { x: reqX, z: reqZ });
+          const dB = pointDistanceXZ({ x: b.x, z: b.z }, { x: reqX, z: reqZ });
+          return dA - dB;
+        })
+        .slice(0, 4);
+    }
+
+    // Add founding guidance to nextActions
+    if (canFoundNode) {
+      nextActions.push('You are in unclaimed territory. Use BUILD_BLUEPRINT with name "NODE_FOUNDATION" to establish a new settlement here.');
+    }
+
     const result = {
       feasible,
       nearestNode: nearestNode ? {
@@ -3823,6 +3892,8 @@ export async function registerGridRoutes(fastify: FastifyInstance) {
           z: Math.round(nearestNode.center.z),
         },
       } : null,
+      canFoundNode,
+      foundingSpots,
       nodeGrowthStage,
       stageGuidance,
       structuresToNextTier,

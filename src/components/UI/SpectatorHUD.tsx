@@ -98,8 +98,24 @@ const SpectatorHUD: React.FC<SpectatorHUDProps> = ({
     return () => el.removeEventListener('scroll', handleScroll);
   }, [hasOlderMessages, loadingOlderMessages, loadOlderMessages]);
 
-  // Auto-scroll terminal to bottom when messages change (only if user hasn't scrolled up)
+  // Scroll to bottom on initial snapshot load (no animation, instant)
+  const hasInitialScrolled = useRef(false);
   useEffect(() => {
+    if (terminalScrollRef.current && visibleChatMessages.length > 0 && !hasInitialScrolled.current) {
+      hasInitialScrolled.current = true;
+      const el = terminalScrollRef.current;
+      // Double rAF to ensure DOM has rendered all messages
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight;
+        });
+      });
+    }
+  }, [visibleChatMessages.length]);
+
+  // Auto-scroll terminal to bottom when NEW messages arrive (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (!hasInitialScrolled.current) return; // let initial scroll handle first render
     if (terminalScrollRef.current && !isUserScrolledUp.current) {
       const el = terminalScrollRef.current;
       requestAnimationFrame(() => {
